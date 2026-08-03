@@ -1,0 +1,21 @@
+# Subset of official LDraw colour codes (from LDConfig.ldr, distributed with
+# the LDraw.org Official Library, https://library.ldraw.org/library/official/LDConfig.ldr).
+# Codes are stable identifiers used directly in LDR line type 1's <colour> field.
+# Extend as the curated palette (DESIGN.md sec. 3) is finalized — this is not
+# the full LDraw palette (~500 codes), just enough to hand-build examples.
+
+colors:
+  0: Black
+  1: Blue
+  2: Green
+  4: Red
+  6: Brown
+  14: Yellow
+  15: White
+  19: Tan
+  25: Orange
+  27: Lime
+  70: Reddish_Brown
+  71: Light_Bluish_Gray
+  72: Dark_Bluish_Gray
+  288: Dark_Green

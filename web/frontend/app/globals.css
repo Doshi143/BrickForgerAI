@@ -1,0 +1,52 @@
+@keyframes cloudDrift {
+  from { transform: translateX(-20vw); }
+  to { transform: translateX(120vw); }
+}
+@keyframes sunPulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.06); filter: brightness(1.12); }
+}
+@keyframes birdFly {
+  0% { transform: translate(-10vw, 0); }
+  25% { transform: translate(25vw, -14px); }
+  50% { transform: translate(60vw, 4px); }
+  75% { transform: translate(90vw, -10px); }
+  100% { transform: translate(120vw, 0); }
+}
+@keyframes wingFlapL {
+  0%, 100% { transform: scaleY(1) translateY(0); }
+  50% { transform: scaleY(0.3) translateY(3px); }
+}
+@keyframes wingFlapR {
+  0%, 100% { transform: scaleY(1) translateY(0); }
+  50% { transform: scaleY(0.3) translateY(3px); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Nunito", sans-serif;
+}
+
+h1, h2, h3, .display {
+  font-family: "Poppins", sans-serif;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+a { color: inherit; }
+
+@media (max-width: 860px) {
+  .steps-grid { grid-template-columns: 1fr !important; }
+  .footer-grid { grid-template-columns: 1fr !important; }
+  .hero-title { font-size: 40px !important; }
+  .prompt-row { flex-direction: column !important; }
+  .nav-links { gap: 18px !important; }
+}

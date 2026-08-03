@@ -1,0 +1,8 @@
+backend/.env
+backend/jobs/
+backend/users.db
+backend/.venv/
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/tsconfig.tsbuildinfo

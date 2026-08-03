@@ -1,0 +1,28 @@
+# Python (core/brickforge)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# BrickLink Studio's own auto-backup files (Studio's .io project format is
+# explicitly not the canonical output here -- see CLAUDE.md's "Product
+# constraints": .ldr/.mpd is canonical, .io is a later addition, not a
+# prerequisite). These accumulate as Studio auto-saves copies on open --
+# left on disk, just not tracked.
+*.io
+
+# Claude Code local (machine-specific, not for sharing)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

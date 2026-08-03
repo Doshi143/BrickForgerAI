@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>BrickForgerAI — LDR Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1d21; overflow: hidden; font-family: system-ui, sans-serif; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    color: #e8e8e8; background: rgba(0,0,0,0.45); padding: 10px 14px;
+    border-radius: 8px; font-size: 13px; line-height: 1.5; max-width: 360px;
+  }
+  #hud b { color: #fff; }
+  #hud input[type=file] { display: block; margin-top: 6px; font-size: 12px; }
+  #status { margin-top: 6px; color: #9ad; }
+  #status.error { color: #e77; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div><b>BrickForgerAI</b> — Phase 0 LDR viewer</div>
+  <div>Drag to orbit, scroll to zoom.</div>
+  <div>Loads <code>core/examples/output/turret.ldr</code> by default.</div>
+  <input id="file-input" type="file" accept=".ldr,.mpd,.dat" />
+  <div id="status">Loading turret.ldr…</div>
+</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { LDrawLoader } from "three/addons/loaders/LDrawLoader.js";
+import { LDrawConditionalLineMaterial } from "three/addons/materials/LDrawConditionalLineMaterial.js";
+
+const statusEl = document.getElementById("status");
+const fileInput = document.getElementById("file-input");
+
+function setStatus(text, isError = false) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle("error", isError);
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1b1d21);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+camera.position.set(300, -260, 300); // LDraw is -Y-up; a positive-Y camera looks from "below"
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, -60, 0);
+controls.update();
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const key = new THREE.DirectionalLight(0xffffff, 1.2);
+key.position.set(200, -400, 300); // "above" in LDraw's -Y-up space
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.4);
+fill.position.set(-200, 100, -200);
+scene.add(fill);
+
+let modelGroup = null;
+
+function frameObject(object3d) {
+  const box = new THREE.Box3().setFromObject(object3d);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const dist = maxDim * 1.8;
+  camera.position.set(center.x + dist, center.y - dist, center.z + dist);
+  controls.target.copy(center);
+  camera.near = dist / 100;
+  camera.far = dist * 100;
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function loadLoader() {
+  const loader = new LDrawLoader();
+  loader.smoothNormals = true;
+  loader.setConditionalLineMaterial(LDrawConditionalLineMaterial);
+  loader.setPartsLibraryPath(
+    "https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/complete/ldraw/"
+  );
+  return loader;
+}
+
+async function loadFromUrl(url) {
+  setStatus(`Loading ${url}…`);
+  try {
+    const loader = loadLoader();
+    await loader.preloadMaterials(
+      "https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/colors/ldcfgalt.ldr"
+    );
+    loader.load(
+      url,
+      (group) => {
+        onModelLoaded(group, url);
+      },
+      undefined,
+      (err) => {
+        console.error(err);
+        setStatus(`Failed to load ${url}: ${err.message || err}`, true);
+      }
+    );
+  } catch (err) {
+    console.error(err);
+    setStatus(`Failed to load ${url}: ${err.message || err}`, true);
+  }
+}
+
+function loadFromText(text, name) {
+  setStatus(`Parsing ${name}…`);
+  const loader = loadLoader();
+  loader
+    .preloadMaterials("https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/colors/ldcfgalt.ldr")
+    .then(() => {
+      const group = loader.parse(text);
+      onModelLoaded(group, name);
+    })
+    .catch((err) => {
+      console.error(err);
+      setStatus(`Failed to parse ${name}: ${err.message || err}`, true);
+    });
+}
+
+function onModelLoaded(group, name) {
+  if (modelGroup) {
+    scene.remove(modelGroup);
+  }
+  group.rotation.x = Math.PI; // LDraw is -Y-up; flip so it reads as +Y-up on screen.
+  modelGroup = group;
+  scene.add(modelGroup);
+  frameObject(modelGroup);
+  const partCount = countMeshes(group);
+  setStatus(`Loaded ${name} (${partCount} mesh objects).`);
+}
+
+function countMeshes(object3d) {
+  let n = 0;
+  object3d.traverse((o) => {
+    if (o.isMesh || o.isLineSegments) n++;
+  });
+  return n;
+}
+
+fileInput.addEventListener("change", (evt) => {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => loadFromText(reader.result, file.name);
+  reader.readAsText(file);
+});
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Exposed for debugging in the browser console (harmless dev aid, not used
+// by the page itself).
+window.__bf = { scene, camera, renderer, THREE };
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+const params = new URLSearchParams(window.location.search);
+const modelUrl = params.get("model") || "../core/examples/output/turret.ldr";
+loadFromUrl(modelUrl);
+</script>
+</body>
+</html>

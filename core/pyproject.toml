@@ -1,0 +1,33 @@
+[project]
+name = "brickforge"
+version = "0.0.1"
+description = "Core library: LDU lattice, part catalog, and LDR export for BrickForgerAI"
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML>=6.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "trimesh>=4.0",
+    "networkx>=3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+brickforge-cli = "brickforge.pipeline.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["brickforge*"]
+
+[tool.setuptools.package-data]
+brickforge = ["catalog/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
