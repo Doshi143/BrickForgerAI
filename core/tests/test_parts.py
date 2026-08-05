@@ -9,7 +9,9 @@ def catalog():
 
 
 def test_loads_expected_part_count(catalog):
-    assert len(catalog) == 44
+    # 44 + the 33-degree slope family (4286/3298/4161/3297, see
+    # catalog/parts_v1.yaml's header on that family).
+    assert len(catalog) == 48
 
 
 def test_slope_footprints_verified_from_raw_geometry(catalog):

@@ -20,6 +20,27 @@ const PARTS_LIBRARY_PATH =
 const COLORS_PATH =
   "https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/colors/ldcfgalt.ldr";
 
+/** This mirror is missing exactly 2 official parts (7825/7835, the 1x3 and
+ * 1x4 "cheese" slopes -- part of catalog/parts_v1.yaml's 2-plate slope
+ * family) and their subparts -- confirmed directly against the mirror's
+ * repo tree, not assumed from one failed load. A model using either part
+ * (a real, reproduced failure: "Subobject '7825.dat' could not be loaded")
+ * otherwise fails to render entirely, since LDrawLoader has no per-file
+ * fallback. Fetched the missing files from library.ldraw.org (which has
+ * them, but sets session cookies and no CORS header, so the browser can't
+ * fetch it directly) and self-hosted them under public/ldraw-overrides/,
+ * redirected here via LoadingManager.setURLModifier -- same-origin, no
+ * CORS concerns, and independent of a third-party repo's completeness. */
+const MISSING_PARTS_OVERRIDES: Record<string, string> = {
+  "parts/7825.dat": "/ldraw-overrides/parts/7825.dat",
+  "parts/7835.dat": "/ldraw-overrides/parts/7835.dat",
+  "parts/s/7825s01.dat": "/ldraw-overrides/parts/s/7825s01.dat",
+  "parts/s/7825s02.dat": "/ldraw-overrides/parts/s/7825s02.dat",
+  "parts/s/7825s03.dat": "/ldraw-overrides/parts/s/7825s03.dat",
+  "parts/s/7835s01.dat": "/ldraw-overrides/parts/s/7835s01.dat",
+  "parts/s/7835s02.dat": "/ldraw-overrides/parts/s/7835s02.dat",
+};
+
 export default function Viewer3D({
   src,
   height = 520,
@@ -95,6 +116,12 @@ export default function Viewer3D({
     loader.smoothNormals = true;
     loader.setConditionalLineMaterial(LDrawConditionalLineMaterial as never);
     loader.setPartsLibraryPath(PARTS_LIBRARY_PATH);
+    loader.manager.setURLModifier((url: string) => {
+      for (const suffix in MISSING_PARTS_OVERRIDES) {
+        if (url.endsWith(suffix)) return MISSING_PARTS_OVERRIDES[suffix];
+      }
+      return url;
+    });
 
     loader
       .preloadMaterials(COLORS_PATH)

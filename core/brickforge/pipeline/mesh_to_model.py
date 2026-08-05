@@ -17,7 +17,7 @@ from ..parts import PartCatalog
 from .color import quantize_grid_colors
 from .grid import VoxelGrid
 from .legalize import DEFAULT_RESTARTS, legalize
-from .shell import shell_and_support
+from .shell import add_wireframe_support, shell_and_support
 from .voxelize import condition_mesh, voxelize_mesh
 
 
@@ -39,6 +39,7 @@ def mesh_to_model_full(
     catalog: PartCatalog | None = None,
     shell_thickness: int = 2,
     support_pitch: int = 5,
+    wireframe_cross_thickness: int | None = None,
     seed: int = 0,
     restarts: int = DEFAULT_RESTARTS,
 ) -> MeshToModelResult:
@@ -48,6 +49,8 @@ def mesh_to_model_full(
     conditioned = condition_mesh(mesh, target_width_studs)
     voxels = voxelize_mesh(conditioned)
     shelled = shell_and_support(voxels, shell_thickness=shell_thickness, support_pitch=support_pitch)
+    if wireframe_cross_thickness is not None:
+        shelled = add_wireframe_support(shelled, voxels, cross_thickness=wireframe_cross_thickness)
     color_codes = quantize_grid_colors(shelled.occupied, shelled.color)
     model = legalize(shelled, color_codes, catalog, seed=seed, restarts=restarts)
     return MeshToModelResult(model=model, solid_grid=voxels)

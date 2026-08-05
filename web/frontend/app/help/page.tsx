@@ -6,7 +6,7 @@ export default function HelpCenterPage() {
     <StaticPage title="Help Center" subtitle="Common questions about building with BrickForgerAI.">
       <Section title="How many credits do I get?">
         <p>
-          Free accounts get 10 build credits a month; Pro accounts get 30. One credit is used
+          Free accounts get 10 build credits a month; Master Builder accounts get 30. One credit is used
           each time you generate a model. Credits reset at the start of each calendar month.
           See the <Link href="/pricing">Pricing</Link> page for full plan details.
         </p>
@@ -15,7 +15,7 @@ export default function HelpCenterPage() {
         <p>
           Every generation gives you a full 3D preview (with real colors) and the raw{" "}
           <code>.ldr</code> file for free. &ldquo;Instructions&rdquo; refers to a polished,
-          step-by-step build guide and parts list — included automatically on the Pro plan, or
+          step-by-step build guide and parts list — included automatically on the Master Builder plan, or
           available as a one-time purchase (£5–£15, based on model size) on the Free plan.
         </p>
       </Section>

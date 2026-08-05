@@ -89,13 +89,54 @@
       ],
       "file_format": "glb",
       "trimesh": [
-        "202",
+        "260",
         0
       ]
     },
     "class_type": "Trellis2ExportMesh",
     "_meta": {
       "title": "Trellis2 - Export Mesh"
+    }
+  },
+  "260": {
+    "inputs": {
+      "pipeline": [
+        "39",
+        0
+      ],
+      "image": [
+        "194",
+        0
+      ],
+      "trimesh": [
+        "202",
+        0
+      ],
+      "seed": 12345,
+      "texture_steps": 12,
+      "texture_guidance_strength": 3.0,
+      "texture_guidance_rescale": 0.2,
+      "texture_rescale_t": 3.0,
+      "resolution": 1024,
+      "texture_size": 4096,
+      "texture_alpha_mode": "OPAQUE",
+      "double_side_material": false,
+      "texture_guidance_interval_start": 0.0,
+      "texture_guidance_interval_end": 0.9,
+      "max_views": 4,
+      "bake_on_vertices": true,
+      "use_custom_normals": false,
+      "mesh_cluster_threshold_cone_half_angle_rad": 60.0,
+      "sampler": "euler",
+      "inpainting": "telea",
+      "verbose": false,
+      "dino_lock": 0.0,
+      "dino_substeps": 4,
+      "dino_foundation_cap": 1.0
+    },
+    "class_type": "Trellis2MeshTexturing",
+    "_meta": {
+      "title": "Trellis2 - Mesh Texturing"
     }
   },
   "209": {

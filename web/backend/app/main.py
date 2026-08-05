@@ -132,6 +132,13 @@ def _job_to_dict(job: Job) -> dict:
         "is_single_piece": job.is_single_piece,
         "ldr_download_url": f"/generate/{job.id}/download" if job.ldr_path else None,
         "thumbnail_url": f"/generate/{job.id}/thumbnail" if job.image_path else None,
+        # Distinct from thumbnail_url (which is truthy the moment there's
+        # any fallback image at all -- see get_thumbnail): lets the gallery
+        # tell "already has a real 3D render" apart from "still serving the
+        # AI reference photo because nobody's browser has ever rendered
+        # this job's model yet" -- there's no server-side LDraw renderer in
+        # this trial app, so that's the only way a render.png gets made.
+        "has_render": os.path.isfile(os.path.join(JOBS_DIR, job.id, "render.png")),
     }
 
 
@@ -146,7 +153,16 @@ def _load_job_meta(job_id: str) -> dict | None:
     if not os.path.isfile(path):
         return None
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    # has_render can't be baked into the saved snapshot: render.png is
+    # captured asynchronously by whichever browser first opens this job's
+    # model, which can happen long after the job (and its meta.json) was
+    # written -- including by the gallery's own backfill render. Recompute
+    # it fresh on every read instead of trusting the stored value, or a
+    # freshly-backfilled render would never be reflected here and the
+    # gallery would keep re-rendering a job that already has a thumbnail.
+    data["has_render"] = os.path.isfile(os.path.join(JOBS_DIR, job_id, "render.png"))
+    return data
 
 
 def _set_status(job: Job, status: JobStatus) -> None:
@@ -284,7 +300,15 @@ def preview_ldr(job_id: str) -> FileResponse:
     ldr_path = os.path.join(JOBS_DIR, job_id, "model.ldr")
     if not os.path.isfile(ldr_path):
         raise HTTPException(404, "file not ready")
-    return FileResponse(ldr_path, media_type="text/plain")
+    # no-store: without an explicit Cache-Control, browsers are free to
+    # reuse a cached copy of this exact URL indefinitely on heuristics
+    # alone -- harmless for a normal job (model.ldr never changes after
+    # completion) but a real, confirmed bug the moment a job's file is
+    # ever regenerated in place (as happened when re-running existing jobs
+    # through an updated brickforge pipeline): the stats panel (a fresh
+    # JSON fetch) showed the new part count while the 3D viewer kept
+    # rendering the stale cached geometry.
+    return FileResponse(ldr_path, media_type="text/plain", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/generate/{job_id}/download")
@@ -332,11 +356,15 @@ def get_thumbnail(job_id: str) -> FileResponse:
     jdir = os.path.join(JOBS_DIR, job_id)
     render_path = os.path.join(jdir, "render.png")
     if os.path.isfile(render_path):
-        return FileResponse(render_path, media_type="image/png")
+        # no-store: same reasoning as preview_ldr above -- render.png gets
+        # overwritten in place (a new capture from the 3D viewer, or a
+        # regenerated job), and this URL never changes, so a browser must
+        # not be allowed to keep serving a stale cached image for it.
+        return FileResponse(render_path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     reference_path = os.path.join(jdir, "reference.png")
     if os.path.isfile(reference_path):
-        return FileResponse(reference_path, media_type="image/png")
+        return FileResponse(reference_path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     raise HTTPException(404, "thumbnail not ready")
 

@@ -64,7 +64,21 @@ from .graph import build_connectivity_graph
 from .repair import prune_unstable
 from .weakpoints import find_bricks_outside_main_component
 
-BRIDGE_PART_ID = "3024"  # 1x1 plate: guaranteed to fit any single-cell path
+BRIDGE_PART_ID = "3024"  # 1x1 plate: guaranteed to fit any single-cell path, last-resort fallback
+BRIDGE_PART_ID_WIDE = "3022"  # 2x2 plate: preferred whenever a hidden 2x2 column fits
+
+# A single-stud-wide pillar has almost no bending stiffness -- fine for
+# pull-apart strength, but a real, physical weak point against lateral
+# force (being picked up, jostled) the taller it gets, and hollowing the
+# model's interior (dropping the periodic internal support lattice --
+# see web/backend's own brickforge_bridge.py) means more islands now rely
+# on a bridge pillar for their only connection to the rest of the model,
+# not less. A 2x2 column is dramatically stiffer for the same reason a
+# fence post outlasts a dowel of the same height. Tried first at every
+# candidate anchor; only falls back to the single-stud pillar below where
+# no uniform, fully-interior 2x2 path exists anywhere in the island's own
+# footprint.
+_WIDE_ANCHOR_OFFSETS = [(0, 0), (-1, 0), (0, -1), (-1, -1)]
 
 
 @dataclass
@@ -105,6 +119,32 @@ def _find_pillar(x0: int, z0: int, y_start: int, occupied_cells: set, is_interio
     return path
 
 
+def _find_wide_pillar(
+    x0: int, z0: int, y_start: int, occupied_cells: set, is_interior
+) -> list[tuple[int, int, int]] | None:
+    """Like `_find_pillar`, but for a rigid 2x2 column anchored at
+    (x0, z0)-(x0+1, z0+1) instead of a single stud. Returns one
+    (x0, y, z0) entry per Y layer -- the corner to place a 2x2 plate at,
+    one part per layer, not four separate 1x1 parts -- or None if no
+    valid path exists. All 4 sub-cells must be interior and unoccupied at
+    every layer; a landing where only *some* of the 4 corners rest on
+    existing material is rejected outright rather than accepted lopsided,
+    since an unsupported corner would defeat the entire point of using a
+    wider, stiffer pillar in the first place."""
+    cells = [(x0, z0), (x0 + 1, z0), (x0, z0 + 1), (x0 + 1, z0 + 1)]
+    layers: list[tuple[int, int, int]] = []
+    y = y_start
+    while y >= 0:
+        if not all(is_interior(cx, y, cz) for cx, cz in cells):
+            return None
+        occupied_here = [(cx, y, cz) in occupied_cells for cx, cz in cells]
+        if any(occupied_here):
+            return layers if all(occupied_here) else None
+        layers.append((x0, y, z0))
+        y -= 1
+    return layers
+
+
 def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
     graph = build_connectivity_graph(model)
     disconnected = find_bricks_outside_main_component(graph)
@@ -134,14 +174,28 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
                 for dz in range(d):
                     columns.add((brick.pos.x + dx, brick.pos.z + dz))
 
+        best_wide_path: list[tuple[int, int, int]] | None = None
         best_path: list[tuple[int, int, int]] | None = None
         for x0, z0 in columns:
             # start one layer below whichever of this island's bricks
             # bottoms out at this (x, z) column
             y_start = min(b.pos.y for b in island_bricks if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]) - 1
+
+            for ox, oz in _WIDE_ANCHOR_OFFSETS:
+                wide_candidate = _find_wide_pillar(x0 + ox, z0 + oz, y_start, occupied_cells, is_interior)
+                if wide_candidate is not None and (best_wide_path is None or len(wide_candidate) < len(best_wide_path)):
+                    best_wide_path = wide_candidate
+
             candidate = _find_pillar(x0, z0, y_start, occupied_cells, is_interior)
             if candidate is not None and (best_path is None or len(candidate) < len(best_path)):
                 best_path = candidate
+
+        if best_wide_path is not None:
+            for x, y, z in best_wide_path:
+                new_brick = working.place(BRIDGE_PART_ID_WIDE, color, x, y, z)
+                added.append(new_brick)
+                occupied_cells.update(new_brick.occupied_cells())
+            continue
 
         if best_path is None:
             continue  # no hidden route found; leave ungrounded, prune_unstable will remove it

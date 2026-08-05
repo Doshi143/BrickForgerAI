@@ -64,7 +64,21 @@ from .grid import VoxelGrid
 TilePlacement = tuple[int, int, str, Rotation, int]  # (x, z, part_id, rotation, color)
 Rect = tuple[int, int, int, int]  # (x, z, w, d)
 
-SEAM_CANDIDATE_PENALTY_WEIGHT = 0.9  # per-candidate: penalty = weight * area, if exact duplicate below
+SEAM_CANDIDATE_PENALTY_WEIGHT = 0.25  # per-candidate: penalty = weight * area, if exact duplicate below
+# Lowered from 0.9 at the user's explicit request: this is the actual lever
+# controlling the plates-vs-bricks tradeoff documented throughout this
+# module and CLAUDE.md -- a high weight makes Stage A avoid repeating the
+# layer-below's exact tile placement (fewer seam violations), which is
+# *why* Stage B's "3 identical layers in a row -> brick" rarely fires (Stage
+# B needs exactly the repetition Stage A was avoiding). Lowering it trades
+# seam-violation resistance for far more brick consolidation (fewer parts,
+# and real material for the brick-height slope tier to work with). Measured
+# before/after on turret/mushroom/bunny/duck -- see CLAUDE.md for the actual
+# numbers -- rather than picked blind; 0.25 was chosen because it visibly
+# shifted the brick/plate ratio without eliminating seam avoidance entirely
+# (some candidates still avoid an exact repeat when the area is small enough
+# that 0.25x is still bigger than the area difference to a same-scoring
+# alternative).
 DEFAULT_RESTARTS = 5
 
 

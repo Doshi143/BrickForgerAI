@@ -32,7 +32,7 @@ const PLANS: Plan[] = [
   },
   {
     id: "pro",
-    name: "Pro",
+    name: "Master Builder",
     price: "£25",
     priceNote: "/ month",
     credits: "30 build credits a month",
@@ -160,7 +160,7 @@ export default function PricingPage() {
 
           <p style={{ color: colors.textSecondary, fontSize: 13, marginTop: 40 }}>
             Payment processing isn&apos;t connected yet — the Free plan is fully live today;
-            Pro upgrades will be enabled once billing is wired up.
+            Master Builder upgrades will be enabled once billing is wired up.
           </p>
         </div>
       </div>

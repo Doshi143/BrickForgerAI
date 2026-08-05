@@ -1,8 +1,16 @@
 # Subset of official LDraw colour codes (from LDConfig.ldr, distributed with
 # the LDraw.org Official Library, https://library.ldraw.org/library/official/LDConfig.ldr).
 # Codes are stable identifiers used directly in LDR line type 1's <colour> field.
-# Extend as the curated palette (DESIGN.md sec. 3) is finalized — this is not
-# the full LDraw palette (~500 codes), just enough to hand-build examples.
+#
+# This is the curated ~40-color palette (DESIGN.md sec. 3): commonly-available,
+# current LEGO colors (not vintage/Fabuland/rare LDConfig entries), matching
+# pipeline/color.py::CATALOG_RGB's codes exactly -- every code that quantizer
+# can pick MUST be registered here too, or Model.place() rejects it (this is
+# not hypothetical: adding codes to CATALOG_RGB without updating this file
+# broke placement immediately during testing). Names use American "Gray"
+# spelling for consistency with this project's existing convention, even
+# though LDConfig.ldr itself spells it "Grey" -- a naming normalization, not
+# a color-value change.
 
 colors:
   0: Black
@@ -10,12 +18,42 @@ colors:
   2: Green
   4: Red
   6: Brown
+  7: Light_Gray
+  8: Dark_Gray
+  9: Light_Blue
+  10: Bright_Green
+  12: Salmon
+  13: Pink
   14: Yellow
   15: White
   19: Tan
+  22: Purple
   25: Orange
   27: Lime
+  28: Dark_Tan
+  30: Medium_Lavender
+  31: Lavender
   70: Reddish_Brown
   71: Light_Bluish_Gray
   72: Dark_Bluish_Gray
+  73: Medium_Blue
+  74: Medium_Green
+  78: Light_Nougat
+  84: Medium_Nougat
+  92: Nougat
+  110: Violet
+  191: Bright_Light_Orange
+  212: Bright_Light_Blue
+  226: Bright_Light_Yellow
+  272: Dark_Blue
   288: Dark_Green
+  308: Dark_Brown
+  320: Dark_Red
+  321: Dark_Azure
+  322: Medium_Azure
+  326: Yellowish_Green
+  330: Olive_Green
+  353: Coral
+  378: Sand_Green
+  379: Sand_Blue
+  484: Dark_Orange

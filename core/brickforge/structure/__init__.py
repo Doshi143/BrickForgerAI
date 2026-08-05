@@ -2,7 +2,7 @@ from .bridge import BridgeResult, bridge_unstable
 from .graph import GROUND, build_connectivity_graph
 from .heatmap import build_heatmap_model, classify_bricks
 from .load import LoadResult, estimate_brick_weight, propagate_gravity_load
-from .refill import RefillResult, refill_enclosed_holes
+from .refill import RefillResult, VoidCloseResult, close_enclosed_voids, refill_enclosed_holes
 from .repair import PruneResult, prune_unstable
 from .report import StabilityReport, analyze, summarize
 from .weakpoints import find_articulation_points, find_bridges, find_disconnected_components
@@ -14,11 +14,13 @@ __all__ = [
     "PruneResult",
     "RefillResult",
     "StabilityReport",
+    "VoidCloseResult",
     "analyze",
     "bridge_unstable",
     "build_connectivity_graph",
     "build_heatmap_model",
     "classify_bricks",
+    "close_enclosed_voids",
     "estimate_brick_weight",
     "find_articulation_points",
     "find_bridges",

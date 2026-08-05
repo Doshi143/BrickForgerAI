@@ -19,7 +19,9 @@ tests/test_pipeline_surface_refine.py's before/after analyze() checks.)
 
 from __future__ import annotations
 
-from ..model import Model
+from typing import Callable
+
+from ..model import Brick, Model
 from ..parts import PartCatalog
 
 
@@ -29,11 +31,26 @@ def _build_plate_to_tile_map(catalog: PartCatalog) -> dict[str, str]:
     return {plates[fp].id: tiles[fp].id for fp in plates if fp in tiles}
 
 
-def substitute_tiles(model: Model) -> Model:
+def substitute_tiles(model: Model, exclude: Callable[[Brick], bool] | None = None) -> Model:
     """Return a copy of `model` with every top-exposed plate (nothing
     resting on its top studs) swapped for the matching tile, where the
     catalog has one. Plates with no matching tile footprint, or with
-    something already resting on top, are left as plates."""
+    something already resting on top, are left as plates.
+
+    `exclude`, if given, skips *substituting* any brick it returns True
+    for -- but that brick still counts toward the occupancy the exposed
+    check uses for every OTHER brick. This distinction is load-bearing,
+    not a nicety: an earlier caller (the web backend's own
+    wireframe-preserving wrapper) instead removed excluded bricks from the
+    model entirely before calling this function, which made the exposed
+    check blind to them -- a plain plate with an excluded brick resting
+    directly on top of it looked "exposed" (nothing else there) and got
+    swapped for a tile anyway, silently severing the top-stud connection
+    the excluded brick actually depended on. Confirmed on a real job: a
+    steampunk balloon's wireframe went from single-piece/zero-critical to
+    155 critical bricks purely from that blind spot, invisible until the
+    model was re-analyzed *after* tile substitution -- which nothing in
+    the pipeline was doing at the time (see brickforge_bridge.py)."""
     plate_to_tile = _build_plate_to_tile_map(model.catalog)
     if not plate_to_tile:
         return model
@@ -45,7 +62,8 @@ def substitute_tiles(model: Model) -> Model:
 
     refined = Model(catalog=model.catalog)
     for brick in model.bricks:
-        tile_id = plate_to_tile.get(brick.part.id) if brick.part.category == "plate" else None
+        excluded = exclude is not None and exclude(brick)
+        tile_id = plate_to_tile.get(brick.part.id) if brick.part.category == "plate" and not excluded else None
         if tile_id is not None:
             w, d = brick.footprint
             top_y = brick.pos.y + brick.part.height_plates

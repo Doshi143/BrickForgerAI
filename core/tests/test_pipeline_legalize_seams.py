@@ -23,21 +23,38 @@ def plate_candidates(catalog):
     return _candidate_footprints(catalog, "plate")
 
 
-def test_seam_penalty_avoids_reproducing_exact_tile_below(plate_candidates):
-    # An 8-wide, 1-deep fully-occupied strip, with a tile below it that
-    # EXACTLY matches the naive greedy solution (one 8-wide plate at (0,0)).
-    # Without the seam penalty, raster-order greedy would pick that same
-    # 8-wide plate again -- a fully aligned vertical crack. With it, a
-    # same-anchor 8-wide candidate scores worse than a 6-wide one, so a
-    # different split should win.
-    mask = np.ones((8, 1), dtype=bool)
-    below_id_grid, below_bounds = _build_below_grid(8, 1, [(0, 0, 8, 1)])
-    raster_order = [(x, 0) for x in range(8)]
+def test_seam_penalty_still_prefers_a_different_shape_of_equal_area(plate_candidates):
+    # SEAM_CANDIDATE_PENALTY_WEIGHT was lowered from 0.9 to 0.25 at the
+    # user's explicit request, to trade seam-violation resistance for far
+    # more Stage B brick consolidation (measured, real result: e.g. the
+    # mushroom example model went from 88 to 608 bricks and 4219 to 2673
+    # total parts -- see CLAUDE.md).
+    #
+    # What's still true, and load-bearing, at ANY nonzero weight: given two
+    # candidates of the SAME area but DIFFERENT shape, only one of which
+    # exactly reproduces the tile below, the non-duplicate must still win
+    # outright, since its score isn't discounted at all. The mask below is
+    # an L-shape (NOT a plain rectangle) specifically so that no larger,
+    # higher-area candidate (e.g. an 8-area 2x4) can fit at all -- the only
+    # two area-4 rectangles that fit the occupied cells are a 4-wide x
+    # 1-deep plate (3710) and a 2x2 plate (3022); a below-layer 2x2 at
+    # (0,0) exactly matches (and thus penalizes) only the 2x2 option, so
+    # the 4x1 must win regardless of the exact weight value (any weight in
+    # (0, 1] makes the 2x2's discounted score strictly less than the 4x1's
+    # undiscounted one).
+    mask = np.zeros((4, 2), dtype=bool)
+    mask[:, 0] = True  # z=0 row: all 4 cells
+    mask[0:2, 1] = True  # z=1 row: only x=0,1 -- makes this an L, not a rectangle
+    below_id_grid, below_bounds = _build_below_grid(4, 2, [(0, 0, 2, 2)])
+    raster_order = [(x, z) for z in range(2) for x in range(4)]
 
     placements = _tile_layer_region(mask, plate_candidates, below_id_grid, below_bounds, raster_order)
 
-    is_single_full_width_duplicate = len(placements) == 1 and placements[0][0] == 0 and placements[0][2].footprint == (8, 1)
-    assert not is_single_full_width_duplicate
+    first_part, first_rot = placements[0][2], placements[0][3]
+    assert first_part.footprint_at(first_rot) == (4, 1), (
+        "the equal-area, non-duplicate 4x1 should still beat the "
+        "seam-penalized 2x2, regardless of the exact weight value"
+    )
 
 
 def test_no_seam_penalty_without_a_below_layer(plate_candidates):
@@ -53,20 +70,33 @@ def test_no_seam_penalty_without_a_below_layer(plate_candidates):
     assert placements[0][2].footprint == (8, 1)
 
 
-def test_end_to_end_legalize_staggers_a_repeated_full_width_run(catalog):
-    # Two stacked, fully-occupied, same-color 8x1 layers -- naive
-    # per-layer-independent greedy would place an identical 8-wide plate on
-    # both layers (see mesh_demo-style walls). After legalize(), the two
-    # layers' tile sets must not be identical.
-    grid = VoxelGrid.empty(8, 2, 1)
+def test_end_to_end_legalize_now_allows_a_repeated_full_width_run(catalog):
+    # This is the poster-child case for the SEAM_CANDIDATE_PENALTY_WEIGHT
+    # reduction (0.9 -> 0.25): a full 8-wide, 1-deep, 3-plate-tall, single-
+    # color column is fully occupied on every layer, so an 8-wide plate is
+    # the only largest-area option and, at this weight, is never penalized
+    # into losing to a smaller split (0.25x its own area is still cheaper
+    # than any alternative), meaning all 3 layers get tiled identically.
+    # That's exactly Stage B's brick-consolidation trigger.
+    #
+    # A consolidated brick is a SINGLE placed object whose .pos.y is the
+    # brick's base layer (0 here) -- it does not also appear as a separate
+    # entry at y=1 or y=2, since those plates were consumed, not placed.
+    # (An earlier version of this test grouped placements by .pos.y and
+    # asserted all 3 groups were equal, which is wrong once consolidation
+    # happens: groups 1 and 2 are correctly EMPTY after their plates are
+    # folded into the single brick recorded at y=0 -- that emptiness is the
+    # evidence consolidation worked, not a bug.)
+    grid = VoxelGrid.empty(8, 3, 1)
     grid.occupied[:, :, :] = True
-    color_codes = np.full((8, 2, 1), RED, dtype=np.int32)
+    color_codes = np.full((8, 3, 1), RED, dtype=np.int32)
 
     model = legalize(grid, color_codes, catalog)
 
-    layer0 = sorted((b.part.id, b.pos.x, b.pos.z, b.rotation) for b in model if b.pos.y == 0)
-    layer1 = sorted((b.part.id, b.pos.x, b.pos.z, b.rotation) for b in model if b.pos.y == 1)
-    assert layer0 != layer1
+    assert len(model) == 1, "3 identical full-width plate layers should consolidate into a single brick"
+    brick = model.bricks[0]
+    assert brick.part.category == "brick"
+    assert brick.pos.y == 0
 
 
 def test_restarts_never_score_worse_than_deterministic_baseline(catalog):

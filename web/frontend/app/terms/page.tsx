@@ -30,9 +30,9 @@ export default function TermsPage() {
       </Section>
       <Section title="Credits and plans">
         <p>
-          The Free plan includes 10 model generations a month; the Pro plan includes 30, plus
+          The Free plan includes 10 model generations a month; the Master Builder plan includes 30, plus
           instruction unlocks included on every generation. Unused credits do not roll over
-          between months. Payment processing for the Pro plan is not live yet in this trial
+          between months. Payment processing for the Master Builder plan is not live yet in this trial
           version.
         </p>
       </Section>
