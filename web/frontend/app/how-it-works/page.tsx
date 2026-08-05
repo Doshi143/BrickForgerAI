@@ -31,7 +31,7 @@ export default function HowItWorksPage() {
             £5–£15 (based on size)
           </li>
           <li>
-            <strong>Pro plan</strong> — instructions are included automatically on every
+            <strong>Master Builder plan</strong> — instructions are included automatically on every
             generation
           </li>
         </ul>

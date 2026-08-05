@@ -24,13 +24,33 @@ color. That is a genuine approximation with real, known limitations:
 - The reference images this backend generates are three-quarter views (see
   `clients/image_gen.py`'s prompt template), not orthographic front
   elevations, so the mapping is skewed rather than exact.
-- Front and back faces of the model receive mirrored colors, since a
-  single image carries no information about the far side.
+- The (X, Y) mapping used to apply to *every* vertex regardless of which
+  way it faces -- a back-facing vertex got whatever pixel happened to sit
+  at that (X, Y) in the FRONT photo, which is only correct by coincidence
+  (e.g. a car's trunk could pick up its windshield's color, since both can
+  land at a similar (X, Y) from the front). That is not really "mirrored"
+  colors, which would at least be a *consistent* wrong answer -- it's an
+  arbitrary lookup. Fixed below using vertex normals: only vertices whose
+  surface faces toward the camera trust the projected pixel.
+
+  Untrusted vertices do NOT get one flat fallback color -- tried that
+  first, and it broke something real: on the actual cactus test job, top
+  (cactus tip, should read green) and bottom (terracotta pot, should read
+  orange) came out as the *same* muddy brown, because ~70% of vertices
+  were untrusted and every single one collapsed to one global average,
+  swamping the real green/orange variation that only the ~30% confident
+  set carried. Fixed properly with nearest-confident-neighbor propagation
+  (`scipy.spatial.cKDTree`): each untrusted vertex copies the color of
+  whichever *trusted* vertex is nearest to it in 3D space, so the cactus
+  tip still reads green and the pot still reads orange even though neither
+  region is 100% camera-facing -- see test_reference_color.py, which pins
+  exactly this (top-region and bottom-region means must differ) as a real
+  regression test, not just a manual check during development.
 
 It is nonetheless a large, real improvement over uniform gray for this
-pipeline's actual purpose, because the whole model is quantized down to
-~14 LDraw colors immediately afterward: getting a brown table brown and a
-red car red is what matters here, and small per-face projection error
+pipeline's actual purpose, because the whole model is quantized down to a
+curated LDraw palette immediately afterward: getting a brown table brown and
+a red car red is what matters here, and small per-face projection error
 mostly disappears in that quantization step.
 
 **The real fix, when you want it**, is to add TRELLIS's texture/appearance
@@ -44,6 +64,7 @@ from __future__ import annotations
 import numpy as np
 import trimesh
 from PIL import Image
+from scipy.spatial import cKDTree
 
 # Below this many distinct vertex colors, a mesh is treated as untextured.
 # A genuinely textured mesh has thousands; the shape-only TRELLIS output
@@ -55,6 +76,23 @@ _FLAT_COLOR_THRESHOLD = 4
 # silhouette. Same idea (and same rough threshold) as the original
 # backend's own reference-image sampling used.
 _BACKGROUND_DISTANCE = 18
+
+# A vertex's surface normal Z-component must exceed this to be treated as
+# "facing the camera" (the reference photo is a front view along the mesh's
+# Z axis -- see paint_from_reference_image's own comment on the X/Y mapping,
+# which axis carries "depth" is not new here). Which SIGN of Z is actually
+# "toward the camera" is not independently verified -- tested a
+# geometric-detail heuristic (more surface curvature = more likely the
+# genuinely-photographed side, a smoothly-hallucinated back should have
+# less) on two real meshes and got an inconclusive result (near-identical
+# normal variance on both sides), so this is a best-effort convention, not
+# a confirmed fact. It still provides real value even if the sign is
+# backwards: either way, confident vertices get real per-position sampled
+# color and everything else gets one coherent fallback instead of an
+# arbitrary, often-wrong pixel lookup -- which side of the object ends up
+# in which bucket may be swapped, but the noise reduction itself holds
+# regardless.
+_CAMERA_FACING_THRESHOLD = 0.15
 
 
 def has_color_variation(mesh: trimesh.Trimesh) -> bool:
@@ -128,17 +166,36 @@ def paint_from_reference_image(mesh: trimesh.Trimesh, image_path: str) -> trimes
 
     sampled = image[py, px].astype(np.int16)
 
-    # Vertices whose projected pixel landed on the backdrop (silhouette
-    # bleed) get the object's mean color instead, so the model never picks
-    # up the photo's gray studio background as if it were a real material.
+    # Only trust the projected pixel for vertices whose surface actually
+    # faces the camera -- see _CAMERA_FACING_THRESHOLD's docstring for why
+    # this matters more than it looks: without it, a back-facing vertex
+    # gets whatever pixel happens to sit at its (X, Y) in the FRONT photo,
+    # which is only correct by coincidence, not a real color for that
+    # surface. "Camera-facing but landed on the backdrop" (silhouette
+    # bleed) is folded into the same "don't trust it" bucket.
+    normals = np.asarray(mesh.vertex_normals, dtype=float)
+    camera_facing = normals[:, 2] > _CAMERA_FACING_THRESHOLD
     is_background = np.abs(sampled - background).max(axis=1) <= _BACKGROUND_DISTANCE
-    foreground = sampled[~is_background]
-    fallback = (
-        foreground.mean(axis=0) if len(foreground) else np.array([160, 160, 160], dtype=np.int16)
-    )
-    sampled[is_background] = fallback
+    trust_pixel = camera_facing & ~is_background
+
+    result = sampled.copy()
+    if trust_pixel.any() and not trust_pixel.all():
+        # Untrusted vertices copy their nearest TRUSTED vertex's color (by
+        # 3D position), not one flat global average -- see the module
+        # docstring for why a flat fallback measurably breaks spatially
+        # varying objects (a two-tone cactus+pot, a rocket with a dark
+        # window). This keeps real spatial variation even where the
+        # camera-facing test rejects the majority of the mesh.
+        tree = cKDTree(vertices[trust_pixel])
+        _, nearest_idx = tree.query(vertices[~trust_pixel])
+        result[~trust_pixel] = sampled[trust_pixel][nearest_idx]
+    elif not trust_pixel.any():
+        # No vertex was confidently camera-facing at all (degenerate mesh
+        # or a very shallow/edge-on view) -- fall back to a flat neutral
+        # gray rather than trusting any of the raw (unconfident) samples.
+        result[:] = np.array([160, 160, 160], dtype=np.int16)
 
     mesh.visual = trimesh.visual.ColorVisuals(
-        mesh=mesh, vertex_colors=sampled.astype(np.uint8)
+        mesh=mesh, vertex_colors=result.astype(np.uint8)
     )
     return mesh

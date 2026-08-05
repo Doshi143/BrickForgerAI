@@ -28,6 +28,7 @@ export type Job = {
   is_single_piece: boolean | null;
   ldr_download_url: string | null;
   thumbnail_url: string | null;
+  has_render: boolean | null;
 };
 
 export type Plan = "free" | "pro";
@@ -128,9 +129,9 @@ export type BuildSize = "small" | "medium" | "large";
  * not just visual size, so "large" stays modest rather than ballooning
  * runtime for a trial app. */
 export const SIZE_OPTIONS: { id: BuildSize; label: string; studs: number; hint: string }[] = [
-  { id: "small", label: "Small", studs: 20, hint: "Quick, fewer parts" },
-  { id: "medium", label: "Medium", studs: 32, hint: "Balanced" },
-  { id: "large", label: "Large", studs: 44, hint: "More detail, more parts" },
+  { id: "small", label: "Small", studs: 15, hint: "Quick, fewer parts" },
+  { id: "medium", label: "Medium", studs: 22, hint: "Balanced" },
+  { id: "large", label: "Large", studs: 30, hint: "More detail, more parts" },
 ];
 
 export async function startGeneration(

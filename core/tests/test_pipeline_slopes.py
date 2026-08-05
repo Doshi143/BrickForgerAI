@@ -228,3 +228,75 @@ def test_both_tiers_fire_independently_in_the_same_model(catalog):
     # (verified from raw geometry -- see slopes.py's module docstring).
     assert three_plate_result.rotation == Rotation.YAW_0
     assert two_plate_result.rotation == Rotation.YAW_180
+
+
+# --- 33-degree family (run=3 studs) ---
+# Shares height_plates=3 and perpendicular widths 1-4 studs with the
+# 45-degree family (run=2 studs) above -- exactly the scenario the
+# generalized (height, perp, run) lookup key in slopes.py exists to
+# disambiguate. These tests would fail with a silent wrong-part
+# substitution (or a KeyError) if the two families were ever able to
+# shadow each other again.
+
+
+def test_33_degree_slope_fires_for_a_3_stud_run_step_down(catalog):
+    # Brick 1x3 (3622), rotated so its 3-stud-long axis runs along Z --
+    # a run length only the 33-degree family (not the 2-stud 45-degree
+    # family) matches for perp width 1.
+    model = Model(catalog=catalog)
+    model.place("3005", RED, x=0, y=0, z=-1)  # uphill support, brick 1
+    model.place("3005", RED, x=0, y=3, z=-1)  # uphill support, brick 2 (2 bricks tall)
+    model.place("3622", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)  # candidate, 1x3 along Z
+
+    refined = substitute_staircase_slopes(model)
+
+    candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
+    assert candidate.part.id == "4286"  # Slope Brick 33 3 x 1 (perp=1, run=3)
+    # YAW_180, not the base table's YAW_0 for a +Z downhill: this family is
+    # in _FLIPPED_PART_IDS, the mirror image of the 45-degree family's own
+    # rest orientation (see slopes.py's module docstring and
+    # catalog/parts_v1.yaml's header on this family for the raw-geometry
+    # evidence).
+    assert candidate.rotation == Rotation.YAW_180
+
+
+def test_33_degree_and_45_degree_families_do_not_shadow_each_other(catalog):
+    # Two step-down candidates, same perpendicular width (1 stud) and same
+    # height tier (brick height), but different run lengths -- one must
+    # resolve to the 45-degree family (run=2) and the other to the
+    # 33-degree family (run=3). A 2-key (height, perp) lookup would let
+    # whichever family's dict entry was inserted last silently win both;
+    # this pins that it doesn't.
+    model = Model(catalog=catalog)
+    # 45-degree candidate at x=0: Brick 1x2 (3004), run=2 along Z.
+    model.place("3005", RED, x=0, y=0, z=-1)
+    model.place("3005", RED, x=0, y=3, z=-1)
+    model.place("3004", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)
+    # 33-degree candidate at x=5, far enough away not to interact: Brick
+    # 1x3 (3622), run=3 along Z.
+    model.place("3005", RED, x=5, y=0, z=-1)
+    model.place("3005", RED, x=5, y=3, z=-1)
+    model.place("3622", RED, x=5, y=0, z=0, rotation=Rotation.YAW_90)
+
+    refined = substitute_staircase_slopes(model)
+
+    slope_45 = next(b for b in refined if b.pos == model.bricks[2].pos)
+    slope_33 = next(b for b in refined if b.pos == model.bricks[5].pos)
+    assert slope_45.part.id == "3040"  # Slope Brick 45 2 x 1 (run=2)
+    assert slope_33.part.id == "4286"  # Slope Brick 33 3 x 1 (run=3)
+
+
+def test_33_degree_slope_substitution_does_not_introduce_new_structural_issues(catalog):
+    model = Model(catalog=catalog)
+    model.place("3005", RED, x=0, y=0, z=-1)
+    model.place("3005", RED, x=0, y=3, z=-1)
+    model.place("3622", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)
+
+    report_before = analyze(model)
+    refined = substitute_staircase_slopes(model)
+    report_after = analyze(refined)
+
+    assert report_before.critical_bricks == set()
+    assert report_after.critical_bricks == set()
+    assert report_before.is_single_piece == report_after.is_single_piece
+    assert len(refined) == len(model)  # 1-to-1 swap, not a merge

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import Logo from "@/components/Logo";
 import Nav from "@/components/Nav";
@@ -43,6 +43,23 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const colors = dark ? darkColors : lightColors;
+
+  // Size defaulted to "medium" on every fresh page load with no way to
+  // stick -- confirmed as the real cause behind two separate reports of
+  // "I picked Small but got a bigger build": the selection was real, it
+  // just didn't survive a reload or an auth redirect back to "/". Persist
+  // the last choice instead of re-defaulting every time.
+  useEffect(() => {
+    const saved = window.localStorage.getItem("brickforge_build_size");
+    if (saved === "small" || saved === "medium" || saved === "large") {
+      setSize(saved);
+    }
+  }, []);
+
+  function handleSetSize(id: BuildSize) {
+    setSize(id);
+    window.localStorage.setItem("brickforge_build_size", id);
+  }
 
   async function handleGenerate() {
     const trimmed = prompt.trim();
@@ -211,7 +228,7 @@ export default function Home() {
                 <button
                   key={opt.id}
                   type="button"
-                  onClick={() => setSize(opt.id)}
+                  onClick={() => handleSetSize(opt.id)}
                   title={opt.hint}
                   style={{
                     flex: 1,

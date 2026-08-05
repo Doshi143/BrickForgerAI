@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 import trimesh
+from scipy.spatial import cKDTree
 
 from ..lattice import PLATE_HEIGHT_LDU, STUD_LDU
 from .grid import VoxelGrid
@@ -49,16 +50,62 @@ def condition_mesh(mesh: trimesh.Trimesh, target_width_studs: int) -> trimesh.Tr
     return mesh
 
 
+def _ensure_vertex_colors(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Bake a texture-mapped mesh down to per-vertex colors in place, if it
+    has a texture but no real vertex colors of its own.
+
+    Real bug, not a hypothetical: trimesh's `TextureVisuals` has no
+    `vertex_colors` attribute at all, so `_sample_surface_colors` below was
+    silently falling back to flat DEFAULT_COLOR gray for any texture-mapped
+    mesh -- confirmed directly on a real glTF sample (Khronos's "Duck"): a
+    visibly yellow-and-orange rubber duck came out uniformly
+    Light_Bluish_Gray after quantization, because `voxelize_mesh` never
+    read the texture at all. `trimesh`'s own `.to_color()` samples the
+    texture at each vertex's UV coordinate and returns a real
+    `ColorVisuals`, which is exactly what `_sample_surface_colors` already
+    knows how to use -- no other change needed once this runs first."""
+    if isinstance(mesh.visual, trimesh.visual.texture.TextureVisuals):
+        mesh.visual = mesh.visual.to_color()
+    return mesh
+
+
 def _sample_surface_colors(mesh: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
     """Return an (N, 3) uint8 RGB array: the color of the mesh surface
     nearest each of `points`. Falls back to DEFAULT_COLOR if the mesh has
-    no per-vertex color information."""
+    no per-vertex color information.
+
+    Nearest-FACE-CENTROID (via a plain `scipy.spatial.cKDTree`), not
+    trimesh's own exact-nearest-surface-point `ProximityQuery.on_surface`
+    -- swapped after a real crash, not a hypothetical one. `on_surface`'s
+    `nearby_faces` sizes each point's candidate-triangle search box off the
+    distance to the mesh's nearest *vertex*, which is a bad proxy the
+    moment a point is deep in a solid interior: `voxelize_mesh` below fills
+    the *entire* solid volume, and a point near the center of a plump,
+    roughly-convex shape (a real job: a pear) can be almost as far from
+    every mesh vertex as the object's own radius, so its search box sweeps
+    up a large fraction of *all* triangles -- reproduced directly on that
+    job's mesh (495,997 faces): a single `on_surface` call over its
+    ~50k solid-fill occupied cells tried to materialize a (435,432,643, 3,
+    3) candidate array (29 GiB) and crashed the job. Not a triangle-density
+    problem -- `subdivide_to_size` on the same mesh added only 78 faces
+    (nearly all edges were already short), so denser tessellation wouldn't
+    have helped; the distance itself is the real geometric issue for deep
+    interior points, regardless of local mesh resolution.
+
+    A KDTree over face centroids has no such failure mode (every query is
+    a bounded O(log n) nearest-neighbor lookup, verified directly on the
+    same failing job: ~50k points resolved in under 8 seconds) at the cost
+    of being an approximation -- nearest centroid isn't always exactly the
+    triangle containing the true nearest surface point -- but the caller
+    was already only averaging a triangle's 3 vertex colors and rounding,
+    never using exact barycentric position, so the practical color
+    difference is negligible."""
     n = len(points)
     if not hasattr(mesh.visual, "vertex_colors") or mesh.visual.vertex_colors is None:
         return np.tile(np.array(DEFAULT_COLOR, dtype=np.uint8), (n, 1))
 
-    query = trimesh.proximity.ProximityQuery(mesh)
-    _, _, triangle_ids = query.on_surface(points)
+    tree = cKDTree(mesh.triangles_center)
+    _, triangle_ids = tree.query(points)
     vertex_colors = np.asarray(mesh.visual.vertex_colors)[:, :3]  # drop alpha
     face_vertex_ids = mesh.faces[triangle_ids]  # (N, 3)
     # Average the 3 vertex colors of the nearest triangle -- cheap
@@ -71,6 +118,7 @@ def voxelize_mesh(mesh: trimesh.Trimesh) -> VoxelGrid:
     """Voxelize an already-conditioned (scaled, sitting on Y=0) mesh into
     the internal plate lattice, solid-filled, with per-voxel surface color
     sampled from the nearest point on the mesh."""
+    mesh = _ensure_vertex_colors(mesh)
     warp = np.diag([1.0 / STUD_LDU, 1.0 / PLATE_HEIGHT_LDU, 1.0 / STUD_LDU, 1.0])
     warped = mesh.copy()
     warped.apply_transform(warp)

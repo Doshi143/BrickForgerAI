@@ -7,13 +7,16 @@ height tiers the catalog provides.
 Two tiers exist:
 
 - **3-plate (brick height)**: a **1-to-1 swap** of a single already-placed
-  `brick`-category part for the matching slope. This is the original,
-  measured-to-fire-on-zero-real-models tier (see CLAUDE.md Phase 3):
-  the legalizer's output is almost entirely individual plates, so
-  brick-height blocks are rare. Left running unmodified -- "larger slopes
-  where possible" means opportunistic, not forced; Stage B's plate/brick
-  consolidation (and the seam-stagger tuning it trades off against) is not
-  touched to manufacture more of these.
+  `brick`-category part for the matching slope. Originally measured to fire
+  on zero real models (see CLAUDE.md Phase 3): the legalizer's output used
+  to be almost entirely individual plates, so brick-height blocks were
+  rare. The Stage B seam-penalty loosening (see legalize.py's
+  SEAM_CANDIDATE_PENALTY_WEIGHT) produces far more consolidated bricks,
+  which is exactly the material this tier needs -- see CLAUDE.md for the
+  re-measured counts. Two independent slope families now compete for this
+  tier (45-degree, run=2 studs, and 33-degree, run=3 studs -- see below);
+  "prefer whichever fits" falls out of the generalized lookup key, not an
+  explicit tie-break.
 - **2-plate ("2/3 brick") -- the real "detail" tier**: no standard
   rectangular slope is exactly 1 plate tall (searched, came up empty, did
   not invent a part -- see catalog/parts_v1.yaml's header on this family).
@@ -36,31 +39,44 @@ needed between them.
 
 Orientation was verified empirically, not derived from the naming
 convention alone (same discipline as the footprint-axis and origin-anchor
-findings elsewhere in this catalog): at YAW_0, a **3-plate** slope's
-tall/vertical face is on the -Z side of its own footprint and it descends
-toward +Z -- confirmed via examples/output/slope_orientation_test.ldr (a
-2x2 brick placed immediately adjacent, in +Z, to a 2x2 slope), opened in
+findings elsewhere in this catalog): at YAW_0, the **45-degree 3-plate**
+family's tall/vertical face is on the -Z side of its own footprint and it
+descends toward +Z -- confirmed via examples/output/slope_orientation_test.ldr
+(a 2x2 brick placed immediately adjacent, in +Z, to a 2x2 slope), opened in
 Studio and visually confirmed flush at the boundary with no step or gap.
 Rotating that relationship through each yaw (via the same Rotation matrix
-already used by rotate_offset) gives the map below.
+already used by rotate_offset) gives the base map below.
 
-    downhill +Z -> YAW_0   (3-plate tall/uphill face -Z)
-    downhill +X -> YAW_90  (3-plate tall/uphill face -X)
-    downhill -Z -> YAW_180 (3-plate tall/uphill face +Z)
-    downhill -X -> YAW_270 (3-plate tall/uphill face +X)
+    downhill +Z -> YAW_0   (tall/uphill face -Z)
+    downhill +X -> YAW_90  (tall/uphill face -X)
+    downhill -Z -> YAW_180 (tall/uphill face +Z)
+    downhill -X -> YAW_270 (tall/uphill face +X)
 
-**The 2-plate family faces the opposite way at YAW_0 -- verified from raw
-geometry, not assumed to match the 3-plate family just because both are
-"slopes" (a real bug the first version of this tier shipped with, caught
-by the user seeing it placed backwards in Studio).** 7825's ramp quad
-(`s/7825s01.dat`) runs from (Z=-10, Y=-4) -- close to this bottom-anchored
-family's own ground level, the THIN/downhill edge -- to (Z=+6, Y=-13.6) --
-near full height, the TALL/uphill edge: tall face at +Z, descending toward
--Z, the mirror image of the 3-plate family (85984 and 7835 show the
-identical pairing). Rather than maintain a second direction-to-rotation
-table, `_find_2plate_merge` reuses the table above and then rotates the
-result 180 degrees (`_OPPOSITE_ROTATION`) to correct for this family's
-flipped rest orientation.
+**Two other families face the OPPOSITE way at YAW_0 -- each verified
+independently from raw geometry, never assumed to match the 45-degree
+family just because all three are "slopes" (a real bug the 2-plate tier's
+first version shipped with, caught by the user seeing it placed backwards
+in Studio).** The 2-plate family's 7825 (`s/7825s01.dat`) runs from
+(Z=-10, Y=-4) -- close to this bottom-anchored family's own ground level,
+the THIN/downhill edge -- to (Z=+6, Y=-13.6) -- near full height, the
+TALL/uphill edge: tall face at +Z, descending toward -Z (85984 and 7835
+show the identical pairing). The 33-degree 3-plate family
+(4286/3298/4161/3297) shows the same mirrored pattern despite being
+brick-height like the 45-degree family, not 2-plate-height like the
+family it happens to share a facing convention with: 4286's sloped-face
+quad runs from (Z=-10, Y=0) -- the TALL/uphill edge, full height -- to
+(Z=-50, Y=20) -- near the THIN/downhill edge; tall face at the less-
+negative Z end (mapped to +Z after recentering, see catalog/parts_v1.yaml),
+downhill toward more-negative Z, same mirror-image shape as the 2-plate
+family and the opposite of the 45-degree family's own -Z-tall convention.
+3298/4161/3297 show the identical Z/Y pairing at their respective widths.
+Rather than maintain a second (or third) direction-to-rotation table,
+every part whose real orientation is flipped is listed explicitly in
+`_FLIPPED_PART_IDS`, and `_find_step_edge_rotation` applies
+`_OPPOSITE_ROTATION` only for those -- one source of truth for "which
+direction is which rotation" (the base table), with per-part flips layered
+on top rather than guessed from any shared property (height tier, run
+length, etc.) of the parts involved.
 
 Only upright slopes (top: none) are handled -- inverted slopes (the
 underside/overhang case) are a different detection pattern and are not
@@ -114,20 +130,9 @@ _DOWNHILL_ROTATION: dict[tuple[int, int], Rotation] = {
     (-1, 0): Rotation.YAW_270,
 }
 
-# The 2-plate family faces the OPPOSITE way at YAW_0 from the 3-plate family
-# above -- verified from raw geometry (not assumed to match just because both
-# are "slopes", the same discipline as every other per-family check in this
-# catalog), and confirmed by the user spotting it placed backwards in Studio.
-# 7825's own ramp quad (`s/7825s01.dat`) runs from (Z=-10, Y=-4) -- close to
-# this bottom-anchored family's own ground level (Y=0), i.e. the THIN/downhill
-# edge -- up to (Z=+6, Y=-13.6) -- near full height, i.e. the TALL/uphill
-# edge. So this family's tall face sits at +Z, descending toward -Z: the
-# mirror image of 3040's -Z-tall/+Z-downhill. 85984 and 7835 show the
-# identical Z/Y pairing. Rather than derive a second, separate
-# direction-to-rotation table, the 2-plate merge path reuses the table above
-# (so both tiers share one source of truth for "which direction is which
-# rotation") and then rotates the result by 180 -- YAW_0<->YAW_180,
-# YAW_90<->YAW_270 -- to correct for this family's flipped rest orientation.
+# Rotates a base-table rotation by 180 -- YAW_0<->YAW_180, YAW_90<->YAW_270 --
+# to correct for a family whose rest orientation is the mirror image of the
+# 45-degree family's (see module docstring for which families and why).
 _OPPOSITE_ROTATION: dict[Rotation, Rotation] = {
     Rotation.YAW_0: Rotation.YAW_180,
     Rotation.YAW_90: Rotation.YAW_270,
@@ -135,15 +140,36 @@ _OPPOSITE_ROTATION: dict[Rotation, Rotation] = {
     Rotation.YAW_270: Rotation.YAW_90,
 }
 
+# Part ids whose real-world rest orientation is the mirror image of the
+# 45-degree family's -Z-tall/+Z-downhill convention -- see module docstring
+# for the raw-geometry evidence per family. Listed explicitly per PART, not
+# derived from height tier or run length: those are incidental properties
+# that happen to correlate with orientation for the families measured so
+# far, not a rule this catalog has verified holds in general.
+_FLIPPED_PART_IDS: frozenset[str] = frozenset(
+    {
+        "54200", "85984", "7825", "7835",  # 2-plate ("cheese") family
+        "4286", "3298", "4161", "3297",  # 33-degree 3-plate family
+    }
+)
 
-def _build_slope_map(catalog: PartCatalog) -> dict[tuple[int, int], tuple[str, int]]:
-    """(height_plates, perpendicular-to-incline width in studs) -> (upright
-    slope part id, incline run length in studs). The run length is looked
-    up per tier rather than assumed -- the 3-plate family's run is 2 studs
-    (3040-3037), the 2-plate family's is 1 stud (54200/85984/7825/7835),
-    verified independently from each family's own raw geometry."""
+
+def _build_slope_map(catalog: PartCatalog) -> dict[tuple[int, int, int], tuple[str, bool]]:
+    """(height_plates, perpendicular-to-incline width in studs, incline run
+    length in studs) -> (upright slope part id, whether this part's rest
+    orientation is flipped relative to the base _DOWNHILL_ROTATION table).
+
+    Keyed by all three of (height, perp, run) rather than just
+    (height, perp): two families can share a height tier AND a
+    perpendicular width while running a different number of studs along
+    the incline -- exactly what happens here, since the 45-degree (run=2)
+    and 33-degree (run=3) families are both brick-height and both span
+    widths 1-4 studs. A 2-key lookup would let one family silently shadow
+    the other for every shared (height, perp) pair; the 3-key lookup
+    can't collide, since (height, perp, run) uniquely identifies which
+    family (and therefore which part) applies."""
     return {
-        (p.height_plates, p.footprint[0]): (p.id, p.footprint[1])
+        (p.height_plates, p.footprint[0], p.footprint[1]): (p.id, p.id in _FLIPPED_PART_IDS)
         for p in catalog
         if p.category == "slope" and p.top == "none"
     }
@@ -157,22 +183,21 @@ def _find_step_edge_rotation(
     top_y: int,
     riser: int,
     column_top: dict[tuple[int, int], int],
-    slope_by_tier: dict[tuple[int, int], tuple[str, int]],
+    slope_by_tier: dict[tuple[int, int, int], tuple[str, bool]],
 ) -> tuple[str, Rotation] | None:
     """Shared by both tiers: does this (x0, z0, w, d) candidate, whose top
     surface sits at internal-grid height `top_y`, have a genuine step-down
     edge in one of the 4 cardinal directions, at a slope of height `riser`
     that actually exists in the catalog for the relevant perpendicular
-    width and run length?"""
+    width and run length? The returned rotation already accounts for
+    whichever family's rest orientation applies (see _FLIPPED_PART_IDS)."""
     for (dxd, dzd), rotation in _DOWNHILL_ROTATION.items():
         along_d = w if dxd != 0 else d
         perp = d if dxd != 0 else w
-        entry = slope_by_tier.get((riser, perp))
+        entry = slope_by_tier.get((riser, perp, along_d))
         if entry is None:
             continue
-        slope_id, run_length = entry
-        if along_d != run_length:
-            continue
+        slope_id, is_flipped = entry
 
         if dxd != 0:
             downhill_x = x0 + along_d if dxd > 0 else x0 - 1
@@ -188,7 +213,7 @@ def _find_step_edge_rotation(
         is_downhill = all(column_top.get(c, -1) < top_y for c in downhill_cols)
         is_uphill = all(column_top.get(c, -1) >= top_y for c in uphill_cols)
         if is_downhill and is_uphill:
-            return slope_id, rotation
+            return slope_id, (_OPPOSITE_ROTATION[rotation] if is_flipped else rotation)
 
     return None
 
@@ -197,7 +222,7 @@ def _find_single_part_slope(
     brick: Brick,
     column_top: dict[tuple[int, int], int],
     occupied_at_y: dict[tuple[int, int, int], int],
-    slope_by_tier: dict[tuple[int, int], tuple[str, int]],
+    slope_by_tier: dict[tuple[int, int, int], tuple[str, bool]],
 ) -> tuple[str, Rotation] | None:
     """3-plate tier: brick.part.category == "brick" is, in this catalog,
     always exactly 3 plates tall and always a single placed part (Stage B
@@ -226,7 +251,7 @@ def _find_2plate_merge(
     bricks: list[Brick],
     column_top: dict[tuple[int, int], int],
     occupied_at_y: dict[tuple[int, int, int], int],
-    slope_by_tier: dict[tuple[int, int], tuple[str, int]],
+    slope_by_tier: dict[tuple[int, int, int], tuple[str, bool]],
 ) -> tuple[str, Rotation, int] | None:
     """2-plate tier: find a plate directly above `lower` with the identical
     footprint (every cell it covers belongs to that same single other
@@ -259,7 +284,10 @@ def _find_2plate_merge(
     if result is None:
         return None
     slope_id, rotation = result
-    return slope_id, _OPPOSITE_ROTATION[rotation], upper_index
+    # No manual flip here: _find_step_edge_rotation already applies
+    # _OPPOSITE_ROTATION for this family, since 2-plate part ids are listed
+    # in _FLIPPED_PART_IDS -- flipping again here would cancel it back out.
+    return slope_id, rotation, upper_index
 
 
 def substitute_staircase_slopes(model: Model) -> Model:
