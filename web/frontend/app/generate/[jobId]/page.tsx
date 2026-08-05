@@ -276,8 +276,8 @@ function ProgressTrack({
         })}
       </div>
       <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 22, marginBottom: 0 }}>
-        This takes a few minutes — image generation, then 3D reconstruction, then the
-        brick solver.
+        This takes a few minutes — imagining the idea, then sculpting it in 3D, then
+        the brick placer.
       </p>
     </div>
   );
