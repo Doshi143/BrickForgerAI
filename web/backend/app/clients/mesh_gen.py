@@ -1,8 +1,10 @@
 """Stage: reference image -> 3D mesh file (.glb)."""
 from __future__ import annotations
 
+import base64
 import json
 import os
+import random
 import shutil
 import time
 from abc import ABC, abstractmethod
@@ -162,7 +164,29 @@ class TrellisComfyUIClient(MeshGenClient):
         if "image" not in inputs:
             raise RuntimeError(f"Node {self.image_input_node_id!r} does not have an 'image' input. Node class: {image_node.get('class_type')!r}")
         inputs["image"] = uploaded_filename
+        self._randomize_seeds(workflow)
         return workflow
+
+    @staticmethod
+    def _randomize_seeds(workflow: dict[str, Any]) -> None:
+        """Every `seed` input in the checked-in workflow JSON
+        (trellis_workflow_api.json) is a hardcoded 12345 -- both the shape
+        generator's and the texturing node's. Real bug, not a style nit:
+        every job's diffusion sampling was running with *identical* noise
+        regardless of the prompt or reference image, which means any
+        seed-specific sampling artifact (confirmed on a real job: a pear's
+        baked texture came back with its blue channel collapsed to ~0
+        across the whole mesh, while a cactus job with the same fixed seed
+        was fine) would deterministically hit every single future job with
+        similar-enough conditioning, not just one unlucky run. Randomizing
+        per job is the actual fix -- a bad draw becomes rare and
+        non-reproducible instead of baked into the app permanently."""
+        for node in workflow.values():
+            if not isinstance(node, dict):
+                continue
+            inputs = node.get("inputs")
+            if isinstance(inputs, dict) and "seed" in inputs and isinstance(inputs["seed"], int):
+                inputs["seed"] = random.randint(0, 2**31 - 1)
 
     def _queue_workflow(self, workflow: dict[str, Any]) -> str:
         response = requests.post(
@@ -300,6 +324,120 @@ class TrellisComfyUIClient(MeshGenClient):
         )
 
 
+class FalTrellis2Client(MeshGenClient):
+    """image -> 3D mesh via fal.ai's hosted `fal-ai/trellis-2` -- the
+    commercial equivalent of the local TRELLIS 2 + Trellis2MeshTexturing
+    ComfyUI workflow this project otherwise runs.
+
+    Deliberately NOT `fal-ai/trellis` (the original model): that one is
+    shape-only, same as this project's TRELLIS workflow before it was
+    upgraded to TRELLIS 2 (see CLAUDE.md's "colors were genuinely broken
+    end to end" section). Using it here would silently reproduce that bug
+    and reactivate `reference_color.py`'s photo-projection fallback for
+    every job, not just the ones that need it.
+
+    Uses fal's async queue API directly over `requests` rather than the
+    `fal-client` SDK -- the queue protocol (submit -> poll status_url ->
+    fetch response_url) is a handful of plain HTTP calls, matching the
+    style already used for Meshy and local ComfyUI in this file, with no
+    SDK dependency to add.
+    """
+
+    QUEUE_BASE_URL = "https://queue.fal.run/fal-ai/trellis-2"
+
+    def __init__(
+        self,
+        api_key: str,
+        resolution: int = 1024,
+        poll_interval_s: float = 5.0,
+        timeout_s: float = 600.0,
+    ):
+        self.api_key = api_key
+        self.resolution = resolution
+        self.poll_interval_s = poll_interval_s
+        self.timeout_s = timeout_s
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Key {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    @staticmethod
+    def _image_to_data_uri(image_path: str) -> str:
+        """fal's queue API accepts a file input as either a public URL or
+        an inline base64 data URI -- a data URI avoids a separate upload
+        round-trip, and is fine at this size (a single reference photo,
+        not the resulting mesh). Re-encoded through PIL as RGBA PNG for
+        the same reason TrellisComfyUIClient does: normalizes whatever
+        format the upstream image-gen step produced."""
+        image_path_obj = Path(image_path)
+        if not image_path_obj.is_file():
+            raise FileNotFoundError(f"Input image does not exist: {image_path_obj}")
+        with Image.open(image_path_obj) as image:
+            buffer = BytesIO()
+            image.convert("RGBA").save(buffer, format="PNG")
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+
+    def generate(self, image_path: str, out_path: str) -> str:
+        out_path_obj = Path(out_path)
+        out_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        image_data_uri = self._image_to_data_uri(image_path)
+
+        submit_response = requests.post(
+            self.QUEUE_BASE_URL,
+            headers=self._headers(),
+            json={"image_url": image_data_uri, "resolution": self.resolution},
+            timeout=60,
+        )
+        submit_response.raise_for_status()
+        submit_data = submit_response.json()
+        request_id = submit_data.get("request_id")
+        status_url = submit_data.get("status_url")
+        response_url = submit_data.get("response_url")
+        if not request_id or not status_url or not response_url:
+            raise RuntimeError(f"fal did not return the expected queue URLs. Response: {submit_data}")
+
+        deadline = time.monotonic() + self.timeout_s
+        while time.monotonic() < deadline:
+            status_response = requests.get(status_url, headers=self._headers(), timeout=30)
+            status_response.raise_for_status()
+            status_data = status_response.json()
+            status = status_data.get("status")
+
+            if status == "COMPLETED":
+                error = status_data.get("error")
+                if error:
+                    raise RuntimeError(
+                        f"fal-ai/trellis-2 generation failed ({status_data.get('error_type')}): {error}"
+                    )
+
+                result_response = requests.get(response_url, headers=self._headers(), timeout=30)
+                result_response.raise_for_status()
+                result_data = result_response.json()
+                model_glb = result_data.get("model_glb") or {}
+                glb_url = model_glb.get("url")
+                if not glb_url:
+                    raise RuntimeError(
+                        f"fal-ai/trellis-2 completed but did not return a model_glb URL. Response: {result_data}"
+                    )
+
+                glb_response = requests.get(glb_url, timeout=120)
+                glb_response.raise_for_status()
+                out_path_obj.write_bytes(glb_response.content)
+                if out_path_obj.stat().st_size == 0:
+                    raise RuntimeError(f"fal-ai/trellis-2 returned an empty mesh file: {out_path_obj}")
+                return str(out_path_obj)
+
+            time.sleep(self.poll_interval_s)
+
+        raise TimeoutError(
+            f"fal-ai/trellis-2 generation did not complete within {self.timeout_s} seconds. Request ID: {request_id}"
+        )
+
+
 def get_mesh_client() -> MeshGenClient:
     provider = os.environ.get("MESH_GEN_PROVIDER", "").strip().lower()
 
@@ -327,4 +465,17 @@ def get_mesh_client() -> MeshGenClient:
             timeout_s=float(os.environ.get("TRELLIS_TIMEOUT_S", "1800")),
         )
 
-    raise ValueError(f"Unknown MESH_GEN_PROVIDER: {provider!r}. Expected 'meshy' or 'trellis_local'.")
+    if provider == "fal_trellis2":
+        api_key = os.environ.get("FAL_KEY")
+        if not api_key:
+            raise RuntimeError("MESH_GEN_PROVIDER is set to 'fal_trellis2', but FAL_KEY is missing.")
+        return FalTrellis2Client(
+            api_key=api_key,
+            resolution=int(os.environ.get("FAL_TRELLIS2_RESOLUTION", "1024")),
+            poll_interval_s=float(os.environ.get("FAL_TRELLIS2_POLL_INTERVAL_S", "5")),
+            timeout_s=float(os.environ.get("FAL_TRELLIS2_TIMEOUT_S", "600")),
+        )
+
+    raise ValueError(
+        f"Unknown MESH_GEN_PROVIDER: {provider!r}. Expected 'meshy', 'trellis_local', or 'fal_trellis2'."
+    )
