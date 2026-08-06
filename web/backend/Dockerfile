@@ -32,8 +32,14 @@ COPY web/backend/ /app/web/backend/
 WORKDIR /app/web/backend
 
 # Railway assigns a dynamic $PORT per service rather than always 8000 --
-# shell-form CMD (not exec-form JSON array) so $PORT actually expands;
-# exec-form would pass the literal string "$PORT" to uvicorn.
+# explicit `sh -c "..."` rather than relying on Docker's own shell-form
+# CMD wrapping, confirmed necessary the hard way: Railway's per-service
+# "Custom Start Command" (which railway.json's deploy.startCommand feeds)
+# execs the given string as a direct process, not through a shell, so
+# ${PORT:-8000} was never expanded and uvicorn received the literal
+# string "${PORT:-8000}" as --port -- a real deploy failure, not a
+# hypothetical. Being explicit here means this CMD is correct standalone
+# too, not just when Railway's own startCommand override happens to save it.
 #
 # This is the API's default command. The worker service uses the exact
 # same image (same dependencies, same code) but overrides this with
@@ -41,4 +47,4 @@ WORKDIR /app/web/backend
 # setting -- see DEPLOYMENT.md's Phase 5 manual steps. There is no
 # separate Dockerfile.worker; building two images for one dependency set
 # would just double build time for no benefit.
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["/bin/sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
