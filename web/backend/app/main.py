@@ -286,7 +286,7 @@ def _serve_job_file(
     if not STORAGE.exists(job_id, filename):
         raise HTTPException(404, "file not ready")
 
-    url = STORAGE.signed_url(job_id, filename)
+    url = STORAGE.signed_url(job_id, filename, download_filename=download_filename)
     if url:
         return RedirectResponse(url)
 

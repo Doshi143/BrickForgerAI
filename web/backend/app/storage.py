@@ -32,10 +32,23 @@ class Storage(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def signed_url(self, job_id: str, filename: str, expires_in: int = 300) -> str | None:
+    def signed_url(
+        self, job_id: str, filename: str, expires_in: int = 300, download_filename: str | None = None
+    ) -> str | None:
         """A short-lived direct-download URL, or None if this backend can't
         produce one -- callers should fall back to serving the file
-        directly from local disk in that case (see LocalStorage)."""
+        directly from local disk in that case (see LocalStorage).
+
+        download_filename, when given, must make the browser actually save
+        the file under that name rather than navigate to it -- an HTML
+        anchor's `download` attribute only works for a same-origin target;
+        once it redirects to R2's own domain the attribute is silently
+        ignored, so without this the file just opens as a page of raw
+        text instead of downloading. Only pass this for an actual "save
+        this file" action (main.py's download_ldr); the 3D preview fetches
+        the same file via JS, which reads the response body regardless of
+        this header, so forcing a download disposition there would add
+        nothing."""
         raise NotImplementedError
 
 
@@ -67,9 +80,13 @@ class LocalStorage(Storage):
     def exists(self, job_id: str, filename: str) -> bool:
         return os.path.isfile(self._path(job_id, filename))
 
-    def signed_url(self, job_id: str, filename: str, expires_in: int = 300) -> str | None:
+    def signed_url(
+        self, job_id: str, filename: str, expires_in: int = 300, download_filename: str | None = None
+    ) -> str | None:
         # No meaningful "signed URL" for a file on this same machine --
-        # callers serve it directly instead (see main.py's _serve_job_file).
+        # callers serve it directly instead (see main.py's _serve_job_file,
+        # which already sets Content-Disposition itself via FileResponse's
+        # own filename= param in that fallback path).
         return None
 
 
@@ -116,12 +133,13 @@ class R2Storage(Storage):
         except Exception:
             return False
 
-    def signed_url(self, job_id: str, filename: str, expires_in: int = 300) -> str | None:
-        return self.client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self.bucket, "Key": self._key(job_id, filename)},
-            ExpiresIn=expires_in,
-        )
+    def signed_url(
+        self, job_id: str, filename: str, expires_in: int = 300, download_filename: str | None = None
+    ) -> str | None:
+        params = {"Bucket": self.bucket, "Key": self._key(job_id, filename)}
+        if download_filename:
+            params["ResponseContentDisposition"] = f'attachment; filename="{download_filename}"'
+        return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
 
 
 def get_storage() -> Storage:
