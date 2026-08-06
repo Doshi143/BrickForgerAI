@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -250,8 +250,24 @@ class AuthResponse(BaseModel):
     user: dict
 
 
+def _client_ip(request: Request) -> str:
+    """Best-effort caller IP for auth rate limiting below. Behind Railway's
+    proxy this only reflects the real client when uvicorn is started with
+    --proxy-headers (see Dockerfile/railway.json) -- without it every
+    request looks like it comes from the proxy, and this would rate-limit
+    all callers as one bucket instead of per-caller."""
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/signup", response_model=AuthResponse)
-def signup(req: SignupRequest) -> AuthResponse:
+def signup(req: SignupRequest, request: Request) -> AuthResponse:
+    # Deferred import: rate_limit.py imports from this module (PLAN_CREDITS),
+    # so importing it back at module load time here would be circular.
+    # By call time both modules are already fully loaded.
+    from . import rate_limit
+
+    if not rate_limit.check_auth_rate_limit(_client_ip(request), "signup", limit=5, window_s=3600):
+        raise HTTPException(429, "Too many signup attempts -- try again later.")
     try:
         user = create_user(req.email, req.password)
     except ValueError as exc:
@@ -260,7 +276,16 @@ def signup(req: SignupRequest) -> AuthResponse:
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(req: LoginRequest) -> AuthResponse:
+def login(req: LoginRequest, request: Request) -> AuthResponse:
+    from . import rate_limit
+
+    # Keyed by IP alone, not IP+email -- keying by email too would let an
+    # attacker rotate through many guessed emails from one IP unthrottled,
+    # which is exactly the enumeration/brute-force scenario this exists to
+    # stop. 10 attempts per 5 minutes is generous for a genuine user who
+    # mistyped a password, tight for a credential-stuffing script.
+    if not rate_limit.check_auth_rate_limit(_client_ip(request), "login", limit=10, window_s=300):
+        raise HTTPException(429, "Too many login attempts -- try again later.")
     try:
         user = authenticate(req.email, req.password)
     except ValueError as exc:

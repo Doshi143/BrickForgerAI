@@ -17,7 +17,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 import uuid
 
 import sentry_sdk
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
@@ -46,7 +46,20 @@ if SENTRY_DSN:
 
 auth.init_db()
 
-app = FastAPI(title="Prompt-to-LEGO Backend")
+# Off by default: public interactive docs (/docs, /redoc, /openapi.json)
+# hand anyone your complete route/parameter surface for free reconnaissance,
+# and nothing in this app actually needs them exposed publicly (the
+# frontend is the real client, not third-party API consumers). Opt in with
+# ENABLE_API_DOCS=true for local dev or ad-hoc debugging against a
+# deployed environment -- same unset-is-the-safe-default convention as
+# every other flag in .env.example.
+_DOCS_ENABLED = os.environ.get("ENABLE_API_DOCS", "false").lower() == "true"
+app = FastAPI(
+    title="Prompt-to-LEGO Backend",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+)
 app.include_router(auth.router)
 
 app.add_middleware(
@@ -55,6 +68,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Baseline headers with no real downside for a JSON API -- this app
+    serves no HTML of its own (the frontend is a separate Next.js
+    deployment), so a strict CSP here can't break anything self-hosted.
+    Skipped for /docs, /redoc, /openapi.json (only reachable at all when
+    ENABLE_API_DOCS=true) since Swagger/ReDoc's UI loads CDN JS/CSS that
+    default-src 'none' would otherwise block."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    if request.url.path not in ("/docs", "/redoc", "/openapi.json"):
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    return response
 
 
 class GenerateRequest(BaseModel):
@@ -187,7 +218,22 @@ def list_jobs(month_only: bool = True) -> list[dict]:
     return [_strip_internal_fields(r) for r in results]
 
 
+def _validate_job_id_or_404(job_id: str) -> None:
+    """Every job_id this app ever creates is a uuid4 (see generate() above)
+    -- anything that doesn't parse as one is never a real job, so rejecting
+    it here closes off path traversal in LocalStorage mode (job_id flows
+    straight into os.path.join, see storage.py::LocalStorage._path) before
+    it ever reaches a filesystem call. 404, not 400: a malformed job_id and
+    a well-formed-but-missing one should look identical to a caller probing
+    for valid IDs."""
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(404, "job not found")
+
+
 def _get_job_dict_or_404(job_id: str) -> dict:
+    _validate_job_id_or_404(job_id)
     data = load_job_meta(job_id)
     if data is not None:
         return data
@@ -210,6 +256,7 @@ def _serve_job_file(
     fall back to serving straight from local disk (LocalStorage -- signed
     urls don't mean anything for a file on this same machine). Raises 404
     itself so callers can just return its result."""
+    _validate_job_id_or_404(job_id)
     if not STORAGE.exists(job_id, filename):
         raise HTTPException(404, "file not ready")
 
@@ -266,9 +313,7 @@ def unlock_instructions(job_id: str, user: auth.User = Depends(auth.get_current_
     separate worker process, there is no live Job object left in this
     process to mutate; persisted meta is the only thing both processes
     actually share."""
-    data = load_job_meta(job_id)
-    if data is None:
-        raise HTTPException(404, "job not found")
+    data = _get_job_dict_or_404(job_id)
     if data.get("user_id") != user.id:
         raise HTTPException(403, "not your job")
 
@@ -285,6 +330,11 @@ def get_thumbnail(job_id: str) -> Response:
     should show what got built, not the prompt image that inspired it.
     Falls back to the reference photo only if a render was never
     captured (e.g. nobody has opened that job's results page yet)."""
+    # Validated up front, not left to _serve_job_file below -- the two
+    # STORAGE.exists() calls above it run first and, in LocalStorage mode,
+    # reach LocalStorage._path()'s os.makedirs() before either call site
+    # would otherwise catch a malformed job_id.
+    _validate_job_id_or_404(job_id)
     if STORAGE.exists(job_id, "render.png"):
         return _serve_job_file(job_id, "render.png", media_type="image/png")
     if STORAGE.exists(job_id, "reference.png"):
@@ -304,6 +354,7 @@ def save_render(job_id: str, body: RenderCapture) -> dict:
     thumbnail. Low-stakes cosmetic data, so deliberately not behind auth
     here -- worst case someone overwrites a gallery thumbnail with a
     wrong image, not a real security concern for a trial app."""
+    _validate_job_id_or_404(job_id)
     jdir = os.path.join(JOBS_DIR, job_id)
     if not os.path.isdir(jdir):
         raise HTTPException(404, "job not found")

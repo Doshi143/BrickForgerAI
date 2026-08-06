@@ -41,10 +41,17 @@ WORKDIR /app/web/backend
 # hypothetical. Being explicit here means this CMD is correct standalone
 # too, not just when Railway's own startCommand override happens to save it.
 #
+# --proxy-headers --forwarded-allow-ips='*' trusts X-Forwarded-For from
+# Railway's edge proxy so request.client.host (used for per-IP auth rate
+# limiting, see app/auth.py::_client_ip) reflects the real caller instead
+# of Railway's internal proxy IP for every request. '*' is safe here
+# specifically because Railway's proxy is the only thing that can reach
+# this container directly (no public ingress bypasses it).
+#
 # This is the API's default command. The worker service uses the exact
 # same image (same dependencies, same code) but overrides this with
 # "python worker.py" via Railway's own per-service Custom Start Command
 # setting -- see DEPLOYMENT.md's Phase 5 manual steps. There is no
 # separate Dockerfile.worker; building two images for one dependency set
 # would just double build time for no benefit.
-CMD ["/bin/sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["/bin/sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
