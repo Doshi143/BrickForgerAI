@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
+import { useActiveJob } from "@/components/ActiveJobProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "./theme";
@@ -37,6 +38,7 @@ export default function Home() {
   const router = useRouter();
   const { dark, toggleDark } = useTheme();
   const { user, token } = useAuth();
+  const { startTracking } = useActiveJob();
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<BuildSize>("medium");
   const [submitting, setSubmitting] = useState(false);
@@ -75,6 +77,7 @@ export default function Home() {
     try {
       const studs = SIZE_OPTIONS.find((s) => s.id === size)!.studs;
       const { job_id } = await startGeneration(trimmed, studs, token);
+      startTracking(job_id);
       router.push(`/generate/${job_id}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 402) {
@@ -354,7 +357,7 @@ function Footer({ colors }: { colors: ThemeColors }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10, color: colors.textSecondary, fontSize: 15 }}>
             <FooterLink href="/how-it-works">How it Works</FooterLink>
             <FooterLink href="/pricing">Pricing</FooterLink>
-            <FooterLink href="/gallery">Featured Models</FooterLink>
+            <FooterLink href="/gallery">My Builds</FooterLink>
           </div>
         </div>
         <div>

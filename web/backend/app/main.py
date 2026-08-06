@@ -192,11 +192,17 @@ def generate(
 
 
 @app.get("/generate")
-def list_jobs(month_only: bool = True) -> list[dict]:
-    """Gallery data: every *completed* job, newest first. Reads meta.json
-    files directly off disk -- see jobs.py::load_job_meta's own docstring
-    for why this is still a local-directory enumeration, not something
-    that can see jobs whose local copy is gone after a redeploy."""
+def list_jobs(month_only: bool = True, user: auth.User = Depends(auth.get_current_user)) -> list[dict]:
+    """This user's own completed jobs, newest first. Reads meta.json files
+    directly off disk -- see jobs.py::load_job_meta's own docstring for why
+    this is still a local-directory enumeration, not something that can see
+    jobs whose local copy is gone after a redeploy.
+
+    Requires auth and filters to the caller's own user_id -- previously
+    this was public and returned *every* user's completed jobs (prompts and
+    stats included), which also made every job_id trivially enumerable
+    since job_id is used unauthenticated elsewhere (preview, thumbnail).
+    Scoping to the caller closes both issues at once."""
     now = datetime.now(timezone.utc)
     results: list[dict] = []
     for entry in os.listdir(JOBS_DIR):
@@ -204,6 +210,8 @@ def list_jobs(month_only: bool = True) -> list[dict]:
             continue
         data = load_job_meta(entry)
         if data is None or data.get("status") != JobStatus.DONE.value:
+            continue
+        if data.get("user_id") != user.id:
             continue
         if month_only:
             created = data.get("created_at")

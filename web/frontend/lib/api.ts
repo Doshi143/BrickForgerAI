@@ -174,13 +174,17 @@ export function thumbnailUrl(jobId: string): string {
   return `${API_BASE}/generate/${jobId}/thumbnail`;
 }
 
-/** Gallery: every completed job this calendar month, newest first. Reads
- * from the backend's on-disk job metadata, so it survives a backend
- * restart (unlike the old in-memory-only job store). */
-export async function fetchGallery(): Promise<Job[]> {
-  const res = await fetch(`${API_BASE}/generate`, { cache: "no-store" });
+/** This signed-in user's own completed jobs this calendar month, newest
+ * first. Reads from the backend's on-disk job metadata, so it survives a
+ * backend restart (unlike the old in-memory-only job store). Requires
+ * auth -- the backend scopes results to the caller's own user_id. */
+export async function fetchGallery(token: string): Promise<Job[]> {
+  const res = await fetch(`${API_BASE}/generate`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!res.ok) {
-    throw new Error(`Failed to fetch gallery (${res.status})`);
+    throw new Error(`Failed to fetch your builds (${res.status})`);
   }
   return res.json();
 }

@@ -6,6 +6,7 @@ import { use, useEffect, useState } from "react";
 
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
+import { useActiveJob } from "@/components/ActiveJobProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
@@ -32,6 +33,7 @@ export default function GeneratePage({ params }: { params: Promise<{ jobId: stri
   const { jobId } = use(params);
   const { dark, toggleDark } = useTheme();
   const { token } = useAuth();
+  const { activeJobId, dismiss: dismissActiveJob } = useActiveJob();
   const [job, setJob] = useState<Job | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
@@ -75,6 +77,18 @@ export default function GeneratePage({ params }: { params: Promise<{ jobId: stri
       clearTimeout(timer);
     };
   }, [jobId]);
+
+  // Once you've actually landed here and seen a finished (or failed)
+  // result for the job the floating bar was tracking, there's nothing
+  // left for that bar to tell you -- clear it so it doesn't keep nagging
+  // about a result you've already viewed. Only fires for *this* job, so
+  // viewing an old/unrelated job's page never clears a different,
+  // still-in-progress tracked job.
+  useEffect(() => {
+    if (jobId === activeJobId && job && (job.status === "done" || job.status === "failed")) {
+      dismissActiveJob();
+    }
+  }, [jobId, activeJobId, job, dismissActiveJob]);
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: colors.skyBottom, overflowX: "hidden" }}>

@@ -2,10 +2,12 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
+import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
 import { Job, fetchGallery, previewUrl, saveRender, thumbnailUrl } from "@/lib/api";
@@ -14,7 +16,9 @@ import { Job, fetchGallery, previewUrl, saveRender, thumbnailUrl } from "@/lib/a
 const Viewer3D = dynamic(() => import("@/components/Viewer3D"), { ssr: false });
 
 export default function GalleryPage() {
+  const router = useRouter();
   const { dark, toggleDark } = useTheme();
+  const { token, loading: authLoading } = useAuth();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumped per job once a backfilled render finishes uploading, so its
@@ -25,9 +29,23 @@ export default function GalleryPage() {
 
   const colors = dark ? darkColors : lightColors;
 
+  // This page is now a personal build history, not a public showcase --
+  // the backend scopes /generate to the caller's own jobs and requires
+  // auth, so an unauthenticated visit has nothing to show. Gate on
+  // AuthProvider's own `loading` flag rather than `token` alone -- it
+  // starts false while a stored token is still being revalidated against
+  // the backend, so checking `!token` by itself would redirect a real
+  // signed-in user for a split second on every load.
   useEffect(() => {
+    if (!authLoading && !token) {
+      router.push(`/signin?next=${encodeURIComponent("/gallery")}`);
+    }
+  }, [authLoading, token, router]);
+
+  useEffect(() => {
+    if (!token) return;
     let cancelled = false;
-    fetchGallery()
+    fetchGallery(token)
       .then((data) => {
         if (!cancelled) setJobs(data);
       })
@@ -37,7 +55,7 @@ export default function GalleryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   // There's no server-side LDraw renderer in this trial app (see
   // Viewer3D.tsx) -- a job's real 3D-render thumbnail only ever gets
@@ -62,10 +80,10 @@ export default function GalleryPage() {
 
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "48px 24px 100px" }}>
           <h1 className="display" style={{ fontWeight: 800, fontSize: 34, color: colors.textPrimary, margin: "0 0 6px" }}>
-            Gallery
+            My Builds
           </h1>
           <p style={{ color: colors.textSecondary, fontSize: 15, marginBottom: 32 }}>
-            Models generated in {monthLabel}
+            Your builds in {monthLabel}
           </p>
 
           {error && (

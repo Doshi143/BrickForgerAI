@@ -58,7 +58,7 @@ export default function Nav({
         }}
       >
         <Link href="/" style={{ textDecoration: "none", color: "inherit" }}>Home</Link>
-        <Link href="/gallery" style={{ textDecoration: "none", color: "inherit" }}>Gallery</Link>
+        <Link href="/gallery" style={{ textDecoration: "none", color: "inherit" }}>My Builds</Link>
         <Link href="/pricing" style={{ textDecoration: "none", color: "inherit" }}>Pricing</Link>
 
         {user ? (
