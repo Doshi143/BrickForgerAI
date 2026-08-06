@@ -1,4 +1,5 @@
 bcrypt==4.3.0
+boto3==1.35.36
 embreex==4.4.0
 fastapi==0.140.13
 manifold3d==3.5.2
@@ -6,12 +7,16 @@ matplotlib==3.10.8
 networkx==3.6.1
 numpy==2.4.4
 pillow==11.3.0
+psycopg[binary,pool]==3.2.3
 python-dotenv==1.1.1
 pydantic==2.13.4
 pyjwt==2.10.1
+redis==5.2.1
 requests==2.33.1
+rq==2.0.0
 rtree==1.4.1
 scipy==1.17.1
+sentry-sdk==2.19.2
 shapely==2.1.2
 trimesh==4.12.2
 uvicorn==0.51.0

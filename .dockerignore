@@ -1,0 +1,25 @@
+# Build context for web/backend/Dockerfile is the repo root (needed so the
+# build can see core/ as well as web/backend/) -- keep this tight so local
+# junk and real user data never end up inside a built image.
+
+.git/
+.venv/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Real local job data and the trial-app user database -- never belongs in
+# an image; production reads/writes these via Postgres/R2 instead (see
+# CLAUDE.md's Phase 2 notes).
+web/backend/jobs/
+web/backend/users.db
+web/backend/.env
+
+core/tests/
+core/examples/output/
+
+web/frontend/.next/
+web/frontend/out/

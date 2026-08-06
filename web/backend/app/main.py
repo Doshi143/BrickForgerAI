@@ -2,13 +2,8 @@
 from __future__ import annotations
 
 import base64
-import json
 import os
-import traceback
-import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import Enum
 
 from dotenv import load_dotenv
 
@@ -19,15 +14,35 @@ from dotenv import load_dotenv
 # "No image generation provider configured".
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
+import uuid
+
+import sentry_sdk
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import auth
-from .clients.image_gen import build_image_prompt, get_image_client
-from .clients.mesh_gen import get_mesh_client
-from .pipeline.brickforge_bridge import mesh_to_ldr
+from . import auth, content_filter, rate_limit
+from .jobs import (
+    JOB_TIMEOUT_S,
+    JOBS_DIR,
+    QUEUE,
+    REDIS_CONN,
+    STORAGE,
+    Job,
+    JobStatus,
+    _write_job_meta_dict,
+    load_job_meta,
+    process_job,
+    save_job_meta,
+)
+
+# No-op when SENTRY_DSN is unset -- sentry_sdk.init(dsn=None) disables
+# capture entirely rather than erroring, so no separate guard is needed
+# beyond not calling it with a bad value.
+SENTRY_DSN = os.environ.get("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.1)
 
 auth.init_db()
 
@@ -36,52 +51,10 @@ app.include_router(auth.router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(","),
+    allow_origins=os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-JOBS_DIR = os.path.join(os.path.dirname(__file__), "..", "jobs")
-os.makedirs(JOBS_DIR, exist_ok=True)
-
-
-class JobStatus(str, Enum):
-    QUEUED = "queued"
-    GENERATING_IMAGE = "generating_image"
-    GENERATING_MESH = "generating_mesh"
-    BUILDING_BRICKS = "building_bricks"  # voxelize -> shell -> quantize -> legalize -> repair -> refine
-    DONE = "done"
-    FAILED = "failed"
-
-
-@dataclass
-class Job:
-    id: str
-    prompt: str
-    target_size_studs: int
-    created_at: str
-    user_id: str
-    instructions_unlocked: bool  # true for pro-plan users; free users see a paywall stub
-    status: JobStatus = JobStatus.QUEUED
-    error: str | None = None
-    image_path: str | None = None
-    mesh_path: str | None = None
-    ldr_path: str | None = None
-    part_count: int | None = None
-    slope_count: int | None = None
-    tile_count: int | None = None
-    color_count: int | None = None
-    color_source: str | None = None
-    was_repaired: bool | None = None
-    still_critical_count: int | None = None
-    is_single_piece: bool | None = None
-
-
-# In-memory for jobs created since this process started; meta.json on disk
-# (see _save_job_meta) is what survives a backend restart -- both the
-# Gallery listing and single-job lookups below fall back to it, so an old
-# link doesn't just 404 the moment `--reload` fires during development.
-JOBS: dict[str, Job] = {}
 
 
 class GenerateRequest(BaseModel):
@@ -95,121 +68,13 @@ class GenerateResponse(BaseModel):
     credits_remaining: int
 
 
-def _job_dir(job_id: str) -> str:
-    path = os.path.join(JOBS_DIR, job_id)
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-def _estimate_instructions_price_gbp(part_count: int | None) -> int:
-    """Placeholder pricing formula for the free plan's pay-per-instructions
-    option (GBP 5-15, per the pricing page): scales gently with part count
-    so a bigger build costs a bit more, clamped to the stated range. Not
-    connected to any real payment processor yet -- see auth.py's module
-    docstring."""
-    if not part_count:
-        return 5
-    return max(5, min(15, 5 + part_count // 400))
-
-
-def _job_to_dict(job: Job) -> dict:
-    return {
-        "job_id": job.id,
-        "prompt": job.prompt,
-        "target_size_studs": job.target_size_studs,
-        "created_at": job.created_at,
-        "instructions_unlocked": job.instructions_unlocked,
-        "instructions_price_gbp": _estimate_instructions_price_gbp(job.part_count),
-        "status": job.status.value if isinstance(job.status, JobStatus) else job.status,
-        "error": job.error,
-        "part_count": job.part_count,
-        "slope_count": job.slope_count,
-        "tile_count": job.tile_count,
-        "color_count": job.color_count,
-        "color_source": job.color_source,
-        "was_repaired": job.was_repaired,
-        "still_critical_count": job.still_critical_count,
-        "is_single_piece": job.is_single_piece,
-        "ldr_download_url": f"/generate/{job.id}/download" if job.ldr_path else None,
-        "thumbnail_url": f"/generate/{job.id}/thumbnail" if job.image_path else None,
-        # Distinct from thumbnail_url (which is truthy the moment there's
-        # any fallback image at all -- see get_thumbnail): lets the gallery
-        # tell "already has a real 3D render" apart from "still serving the
-        # AI reference photo because nobody's browser has ever rendered
-        # this job's model yet" -- there's no server-side LDraw renderer in
-        # this trial app, so that's the only way a render.png gets made.
-        "has_render": os.path.isfile(os.path.join(JOBS_DIR, job.id, "render.png")),
-    }
-
-
-def _save_job_meta(job: Job) -> None:
-    path = os.path.join(_job_dir(job.id), "meta.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(_job_to_dict(job), f)
-
-
-def _load_job_meta(job_id: str) -> dict | None:
-    path = os.path.join(JOBS_DIR, job_id, "meta.json")
-    if not os.path.isfile(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    # has_render can't be baked into the saved snapshot: render.png is
-    # captured asynchronously by whichever browser first opens this job's
-    # model, which can happen long after the job (and its meta.json) was
-    # written -- including by the gallery's own backfill render. Recompute
-    # it fresh on every read instead of trusting the stored value, or a
-    # freshly-backfilled render would never be reflected here and the
-    # gallery would keep re-rendering a job that already has a thumbnail.
-    data["has_render"] = os.path.isfile(os.path.join(JOBS_DIR, job_id, "render.png"))
-    return data
-
-
-def _set_status(job: Job, status: JobStatus) -> None:
-    job.status = status
-    _save_job_meta(job)
-
-
-def run_pipeline(job: Job, target_size_studs: int) -> None:
-    """Run prompt -> image -> mesh -> LEGO parts -> LDraw."""
-    jdir = _job_dir(job.id)
-    try:
-        _set_status(job, JobStatus.GENERATING_IMAGE)
-        image_client = get_image_client()
-        image_prompt = build_image_prompt(job.prompt)
-        image_path = os.path.join(jdir, "reference.png")
-        image_client.generate(image_prompt, image_path)
-        job.image_path = image_path
-
-        _set_status(job, JobStatus.GENERATING_MESH)
-        mesh_client = get_mesh_client()
-        mesh_path = os.path.join(jdir, "model.glb")
-        mesh_client.generate(image_path, mesh_path)
-        job.mesh_path = mesh_path
-
-        _set_status(job, JobStatus.BUILDING_BRICKS)
-        ldr_path = os.path.join(jdir, "model.ldr")
-        stats = mesh_to_ldr(
-            mesh_path,
-            ldr_path,
-            target_studs=target_size_studs,
-            model_name=job.prompt[:40],
-            reference_image_path=image_path,
-        )
-        job.ldr_path = ldr_path
-        job.part_count = stats["part_count"]
-        job.slope_count = stats["slope_count"]
-        job.tile_count = stats["tile_count"]
-        job.color_count = stats["color_count"]
-        job.color_source = stats["color_source"]
-        job.was_repaired = stats["was_repaired"]
-        job.still_critical_count = stats["still_critical_count"]
-        job.is_single_piece = stats["is_single_piece"]
-        _set_status(job, JobStatus.DONE)
-
-    except Exception as exc:  # noqa: BLE001
-        job.error = f"{exc}\n{traceback.format_exc()}"
-        _set_status(job, JobStatus.FAILED)
+def _strip_internal_fields(data: dict) -> dict:
+    """user_id is persisted in meta.json (see jobs.py::_job_to_dict) so
+    unlock_instructions can verify ownership from disk/storage alone --
+    the worker updates a job from a separate process, so there's no live
+    in-memory object left in this process to check against. Every
+    endpoint that returns job data to a client must strip it here first."""
+    return {k: v for k, v in data.items() if k != "user_id"}
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -220,6 +85,23 @@ def generate(
 ) -> GenerateResponse:
     if not req.prompt.strip():
         raise HTTPException(400, "prompt must not be empty")
+
+    # Runs before rate limiting/credits too -- rejecting a copyrighted-
+    # character prompt should never cost the user a credit or count
+    # against their hourly cap, and definitely must happen before this
+    # job ever reaches gpt-image-1.
+    is_allowed, rejection_message = content_filter.check_prompt(req.prompt)
+    if not is_allowed:
+        raise HTTPException(400, rejection_message)
+
+    # Both checks run before consume_credit -- a rejected request must not
+    # cost the user a credit -- and in this order: a single abusive user
+    # hitting their own hourly cap shouldn't also count against (and
+    # potentially exhaust) the shared global ceiling first.
+    if not rate_limit.check_per_user_rate_limit(user.id, user.plan):
+        raise HTTPException(429, "Too many generations this hour -- try again later.")
+    if not rate_limit.check_global_daily_ceiling():
+        raise HTTPException(503, "Daily generation limit reached -- try again tomorrow.")
 
     try:
         user = auth.consume_credit(user.id)
@@ -235,15 +117,45 @@ def generate(
         user_id=user.id,
         instructions_unlocked=(user.plan == "pro"),
     )
-    JOBS[job_id] = job
-    _save_job_meta(job)
+    save_job_meta(job)
 
-    # Runs after this request returns, so /generate responds immediately
-    # with status=queued and the frontend can poll GET /generate/{id} to
-    # watch it move through the real JobStatus phases -- without this, the
-    # request itself would block until the whole pipeline (image gen +
-    # TRELLIS + brickforge) finished, making that enum pointless.
-    background_tasks.add_task(run_pipeline, job, req.target_size_studs)
+    # Enqueued to the RQ worker (separate process, see worker.py) when
+    # REDIS_URL is configured; falls back to the original in-process
+    # BackgroundTasks execution otherwise, so local dev without Redis
+    # running still works -- matching every other phase's local-fallback
+    # pattern (Postgres/SQLite, R2/local storage). Either way this call
+    # returns immediately with status=queued; the frontend polls
+    # GET /generate/{id} to watch it move through the real JobStatus
+    # phases, which is the actual point of not blocking here.
+    if QUEUE is not None:
+        # Positional, deliberately -- RQ's own enqueue() reserves "job_id"
+        # as a keyword argument (it means "assign this ID to the RQ job
+        # itself"), which silently swallowed process_job's job_id kwarg
+        # instead of passing it through: a real bug, caught by actually
+        # running two jobs through the worker, not by reading the code.
+        # job_timeout is RQ's own distinctly-named reserved kwarg (renamed
+        # by RQ upstream from a plain "timeout" for exactly this collision
+        # reason) and is safe to pass as a keyword.
+        QUEUE.enqueue(
+            process_job,
+            job.id,
+            job.prompt,
+            job.target_size_studs,
+            job.user_id,
+            job.instructions_unlocked,
+            job.created_at,
+            job_timeout=JOB_TIMEOUT_S,
+        )
+    else:
+        background_tasks.add_task(
+            process_job,
+            job_id=job.id,
+            prompt=job.prompt,
+            target_size_studs=job.target_size_studs,
+            user_id=job.user_id,
+            instructions_unlocked=job.instructions_unlocked,
+            created_at=job.created_at,
+        )
 
     return GenerateResponse(job_id=job_id, status=job.status, credits_remaining=user.credits_remaining)
 
@@ -251,14 +163,15 @@ def generate(
 @app.get("/generate")
 def list_jobs(month_only: bool = True) -> list[dict]:
     """Gallery data: every *completed* job, newest first. Reads meta.json
-    files directly off disk (not the in-memory JOBS dict) so this survives
-    a backend restart, same reasoning as get_job's fallback below."""
+    files directly off disk -- see jobs.py::load_job_meta's own docstring
+    for why this is still a local-directory enumeration, not something
+    that can see jobs whose local copy is gone after a redeploy."""
     now = datetime.now(timezone.utc)
     results: list[dict] = []
     for entry in os.listdir(JOBS_DIR):
         if not os.path.isdir(os.path.join(JOBS_DIR, entry)):
             continue
-        data = _load_job_meta(entry)
+        data = load_job_meta(entry)
         if data is None or data.get("status") != JobStatus.DONE.value:
             continue
         if month_only:
@@ -271,48 +184,64 @@ def list_jobs(month_only: bool = True) -> list[dict]:
         results.append(data)
 
     results.sort(key=lambda d: d.get("created_at") or "", reverse=True)
-    return results
+    return [_strip_internal_fields(r) for r in results]
 
 
 def _get_job_dict_or_404(job_id: str) -> dict:
-    job = JOBS.get(job_id)
-    if job is not None:
-        return _job_to_dict(job)
-
-    data = _load_job_meta(job_id)
+    data = load_job_meta(job_id)
     if data is not None:
         return data
-
     raise HTTPException(404, "job not found")
 
 
 @app.get("/generate/{job_id}")
 def get_job(job_id: str) -> dict:
-    return _get_job_dict_or_404(job_id)
+    return _strip_internal_fields(_get_job_dict_or_404(job_id))
 
 
-@app.get("/generate/{job_id}/preview")
-def preview_ldr(job_id: str) -> FileResponse:
-    """Unrestricted -- this is what the in-browser 3D viewer fetches to
-    render the free preview (per the pricing page, the preview itself is
-    free on every plan). Deliberately separate from /download below, which
-    is the actual "save this file to your computer" action and IS gated."""
-    ldr_path = os.path.join(JOBS_DIR, job_id, "model.ldr")
-    if not os.path.isfile(ldr_path):
+def _serve_job_file(
+    job_id: str,
+    filename: str,
+    media_type: str,
+    download_filename: str | None = None,
+) -> Response:
+    """Shared by preview/download/thumbnail below: redirect to a short-lived
+    signed URL when the storage backend can produce one (R2), otherwise
+    fall back to serving straight from local disk (LocalStorage -- signed
+    urls don't mean anything for a file on this same machine). Raises 404
+    itself so callers can just return its result."""
+    if not STORAGE.exists(job_id, filename):
         raise HTTPException(404, "file not ready")
+
+    url = STORAGE.signed_url(job_id, filename)
+    if url:
+        return RedirectResponse(url)
+
+    local_path = os.path.join(JOBS_DIR, job_id, filename)
+    if download_filename:
+        return FileResponse(local_path, filename=download_filename)
     # no-store: without an explicit Cache-Control, browsers are free to
     # reuse a cached copy of this exact URL indefinitely on heuristics
-    # alone -- harmless for a normal job (model.ldr never changes after
+    # alone -- harmless for a normal job (these files never change after
     # completion) but a real, confirmed bug the moment a job's file is
     # ever regenerated in place (as happened when re-running existing jobs
     # through an updated brickforge pipeline): the stats panel (a fresh
     # JSON fetch) showed the new part count while the 3D viewer kept
     # rendering the stale cached geometry.
-    return FileResponse(ldr_path, media_type="text/plain", headers={"Cache-Control": "no-store"})
+    return FileResponse(local_path, media_type=media_type, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/generate/{job_id}/preview")
+def preview_ldr(job_id: str) -> Response:
+    """Unrestricted -- this is what the in-browser 3D viewer fetches to
+    render the free preview (per the pricing page, the preview itself is
+    free on every plan). Deliberately separate from /download below, which
+    is the actual "save this file to your computer" action and IS gated."""
+    return _serve_job_file(job_id, "model.ldr", media_type="text/plain")
 
 
 @app.get("/generate/{job_id}/download")
-def download_ldr(job_id: str) -> FileResponse:
+def download_ldr(job_id: str) -> Response:
     """Gated behind instructions_unlocked (free-plan pay-per-model, or
     included automatically for pro-plan jobs -- see generate()). The 3D
     preview (GET .../preview, above) is intentionally not behind this
@@ -321,10 +250,7 @@ def download_ldr(job_id: str) -> FileResponse:
     if not data.get("instructions_unlocked"):
         raise HTTPException(402, "Unlock instructions to download this model's .ldr file")
 
-    ldr_path = os.path.join(JOBS_DIR, job_id, "model.ldr")
-    if not os.path.isfile(ldr_path):
-        raise HTTPException(404, "file not ready")
-    return FileResponse(ldr_path, filename=f"{job_id}.ldr")
+    return _serve_job_file(job_id, "model.ldr", media_type="text/plain", download_filename=f"{job_id}.ldr")
 
 
 @app.post("/generate/{job_id}/unlock-instructions")
@@ -333,39 +259,36 @@ def unlock_instructions(job_id: str, user: auth.User = Depends(auth.get_current_
     no real payment behind it (Stripe is explicitly deferred -- see the
     pricing page and auth.py's module docstring). Exists so the pricing
     model has a real, working data flow end to end; wiring an actual
-    charge here is the next step, not a rewrite of this endpoint."""
-    job = JOBS.get(job_id)
-    if job is None:
+    charge here is the next step, not a rewrite of this endpoint.
+
+    Reads/writes meta.json directly (via load_job_meta / _write_job_meta_dict)
+    rather than an in-memory JOBS dict -- once the pipeline runs in a
+    separate worker process, there is no live Job object left in this
+    process to mutate; persisted meta is the only thing both processes
+    actually share."""
+    data = load_job_meta(job_id)
+    if data is None:
         raise HTTPException(404, "job not found")
-    if job.user_id != user.id:
+    if data.get("user_id") != user.id:
         raise HTTPException(403, "not your job")
 
-    job.instructions_unlocked = True
-    _save_job_meta(job)
-    return _job_to_dict(job)
+    data["instructions_unlocked"] = True
+    _write_job_meta_dict(job_id, data)
+    return _strip_internal_fields(data)
 
 
 @app.get("/generate/{job_id}/thumbnail")
-def get_thumbnail(job_id: str) -> FileResponse:
+def get_thumbnail(job_id: str) -> Response:
     """Prefers an actual render of the finished brick model (render.png,
     captured client-side by the 3D viewer -- see RenderCapture below) over
     the AI-generated reference photo (reference.png), since the gallery
     should show what got built, not the prompt image that inspired it.
     Falls back to the reference photo only if a render was never
     captured (e.g. nobody has opened that job's results page yet)."""
-    jdir = os.path.join(JOBS_DIR, job_id)
-    render_path = os.path.join(jdir, "render.png")
-    if os.path.isfile(render_path):
-        # no-store: same reasoning as preview_ldr above -- render.png gets
-        # overwritten in place (a new capture from the 3D viewer, or a
-        # regenerated job), and this URL never changes, so a browser must
-        # not be allowed to keep serving a stale cached image for it.
-        return FileResponse(render_path, media_type="image/png", headers={"Cache-Control": "no-store"})
-
-    reference_path = os.path.join(jdir, "reference.png")
-    if os.path.isfile(reference_path):
-        return FileResponse(reference_path, media_type="image/png", headers={"Cache-Control": "no-store"})
-
+    if STORAGE.exists(job_id, "render.png"):
+        return _serve_job_file(job_id, "render.png", media_type="image/png")
+    if STORAGE.exists(job_id, "reference.png"):
+        return _serve_job_file(job_id, "reference.png", media_type="image/png")
     raise HTTPException(404, "thumbnail not ready")
 
 
@@ -390,11 +313,42 @@ def save_render(job_id: str, body: RenderCapture) -> dict:
         raise HTTPException(400, "expected a data:image/png;base64 URL")
 
     png_bytes = base64.b64decode(body.image_data_url[len(prefix):])
-    with open(os.path.join(jdir, "render.png"), "wb") as f:
+    render_path = os.path.join(jdir, "render.png")
+    with open(render_path, "wb") as f:
         f.write(png_bytes)
+    STORAGE.put(job_id, "render.png", render_path)
     return {"ok": True}
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    """Actually checks the database and queue rather than just returning
+    200 unconditionally -- a health check that can't fail isn't checking
+    anything. Redis absent (REDIS_CONN is None, e.g. local dev without it
+    configured) is reported distinctly from Redis present-but-unreachable
+    -- the former is expected and not a failure, the latter is."""
+    try:
+        with auth._connect() as conn:
+            conn.execute(auth._ph("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    if REDIS_CONN is None:
+        redis_status = "not configured"
+        redis_ok = True
+    else:
+        try:
+            REDIS_CONN.ping()
+            redis_status = "ok"
+            redis_ok = True
+        except Exception:
+            redis_status = "unreachable"
+            redis_ok = False
+
+    healthy = db_ok and redis_ok
+    return {
+        "status": "ok" if healthy else "degraded",
+        "database": "ok" if db_ok else "unreachable",
+        "redis": redis_status,
+    }

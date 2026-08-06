@@ -23,6 +23,7 @@ import os
 import re
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -33,6 +34,50 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "users.db")
+
+# Postgres when DATABASE_URL is set (Railway in production), SQLite
+# fallback otherwise -- same local-stays-local-unless-configured pattern
+# as storage.py's LocalStorage/R2Storage split, so local dev needs zero
+# extra setup and nothing above this module has to know which one is active.
+DATABASE_URL = os.environ.get("DATABASE_URL")
+_USE_POSTGRES = bool(DATABASE_URL)
+
+if _USE_POSTGRES:
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+
+    # min/max sized for a small always-on service, not a high-concurrency
+    # API -- a handful of pooled connections is plenty and avoids paying
+    # Postgres's per-connection setup cost on every request.
+    _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=5, kwargs={"row_factory": dict_row})
+    _pool.wait()
+
+
+def _ph(query: str) -> str:
+    """Translate this module's SQLite-style `?` placeholders to psycopg's
+    `%s` when Postgres is active. A plain .replace() is safe here -- none
+    of the SQL below has a literal "?" character in a string value, only
+    ever as a parameter placeholder."""
+    return query.replace("?", "%s") if _USE_POSTGRES else query
+
+
+@contextmanager
+def _connect():
+    """Same call-site shape either way (`with _connect() as conn:`), so
+    every function below is unchanged regardless of which database is
+    active -- only this function and _ph() know the difference."""
+    if _USE_POSTGRES:
+        with _pool.connection() as conn:
+            yield conn
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            with conn:  # sqlite3's own commit-on-success/rollback-on-exception
+                yield conn
+        finally:
+            conn.close()
+
 
 # Only used to sign session tokens (not for anything else) -- generated
 # once and persisted to .env so tokens survive a backend restart; if this
@@ -50,12 +95,6 @@ TOKEN_TTL_DAYS = 30
 PLAN_CREDITS = {"free": 10, "pro": 30}
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def init_db() -> None:
@@ -95,7 +134,7 @@ def _row_to_user(row: sqlite3.Row) -> "User":
         user.credits_reset_month = this_month
         with _connect() as conn:
             conn.execute(
-                "UPDATE users SET credits_remaining = ?, credits_reset_month = ? WHERE id = ?",
+                _ph("UPDATE users SET credits_remaining = ?, credits_reset_month = ? WHERE id = ?"),
                 (user.credits_remaining, user.credits_reset_month, user.id),
             )
     return user
@@ -122,14 +161,16 @@ def create_user(email: str, password: str) -> User:
     this_month = _current_month()
 
     with _connect() as conn:
-        existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        existing = conn.execute(_ph("SELECT id FROM users WHERE email = ?"), (email,)).fetchone()
         if existing is not None:
             raise ValueError("An account with that email already exists")
         conn.execute(
-            """
-            INSERT INTO users (id, email, password_hash, plan, credits_remaining, credits_reset_month, created_at)
-            VALUES (?, ?, ?, 'free', ?, ?, ?)
-            """,
+            _ph(
+                """
+                INSERT INTO users (id, email, password_hash, plan, credits_remaining, credits_reset_month, created_at)
+                VALUES (?, ?, ?, 'free', ?, ?, ?)
+                """
+            ),
             (user_id, email, password_hash, PLAN_CREDITS["free"], this_month, datetime.now(timezone.utc).isoformat()),
         )
 
@@ -139,7 +180,7 @@ def create_user(email: str, password: str) -> User:
 def authenticate(email: str, password: str) -> User:
     email = email.strip().lower()
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        row = conn.execute(_ph("SELECT * FROM users WHERE email = ?"), (email,)).fetchone()
 
     if row is None or not bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
         raise ValueError("Incorrect email or password")
@@ -149,7 +190,7 @@ def authenticate(email: str, password: str) -> User:
 
 def get_user_by_id(user_id: str) -> User | None:
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute(_ph("SELECT * FROM users WHERE id = ?"), (user_id,)).fetchone()
     return None if row is None else _row_to_user(row)
 
 
@@ -164,7 +205,7 @@ def consume_credit(user_id: str) -> User:
 
     with _connect() as conn:
         conn.execute(
-            "UPDATE users SET credits_remaining = ? WHERE id = ?",
+            _ph("UPDATE users SET credits_remaining = ? WHERE id = ?"),
             (user.credits_remaining - 1, user.id),
         )
     user.credits_remaining -= 1
