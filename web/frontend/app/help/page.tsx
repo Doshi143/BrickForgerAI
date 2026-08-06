@@ -58,8 +58,8 @@ export default function HelpCenterPage() {
         <p>
           This is a trial version of BrickForgerAI — support is informal for now, but you can
           reach us directly at{" "}
-          <a href="mailto:aaryandoshi143@gmail.com" style={{ color: "inherit" }}>
-            aaryandoshi143@gmail.com
+          <a href="mailto:help@brickforgerai.com" style={{ color: "inherit" }}>
+            help@brickforgerai.com
           </a>
           .
         </p>

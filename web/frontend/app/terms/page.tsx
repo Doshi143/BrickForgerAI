@@ -166,8 +166,8 @@ export default function TermsPage() {
       <Section title="Dispute resolution">
         <p>
           If a dispute arises, please contact us first at{" "}
-          <a href="mailto:aaryandoshi143@gmail.com" style={{ color: "inherit" }}>
-            aaryandoshi143@gmail.com
+          <a href="mailto:help@brickforgerai.com" style={{ color: "inherit" }}>
+            help@brickforgerai.com
           </a>{" "}
           so we can try to resolve it informally. These Terms are governed by the laws of the
           United Kingdom, and any dispute not resolved informally is subject to the exclusive
@@ -205,8 +205,8 @@ export default function TermsPage() {
       <Section title="Contact us">
         <p>
           Questions about these Terms? Email{" "}
-          <a href="mailto:aaryandoshi143@gmail.com" style={{ color: "inherit" }}>
-            aaryandoshi143@gmail.com
+          <a href="mailto:help@brickforgerai.com" style={{ color: "inherit" }}>
+            help@brickforgerai.com
           </a>
           .
         </p>

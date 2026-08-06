@@ -168,8 +168,8 @@ export default function PrivacyPage() {
       <Section title="Contact us">
         <p>
           Questions about this Policy, or a request to access, correct, or delete your data? Email{" "}
-          <a href="mailto:aaryandoshi143@gmail.com" style={{ color: "inherit" }}>
-            aaryandoshi143@gmail.com
+          <a href="mailto:help@brickforgerai.com" style={{ color: "inherit" }}>
+            help@brickforgerai.com
           </a>
           .
         </p>
