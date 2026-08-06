@@ -46,6 +46,17 @@ if SENTRY_DSN:
 
 auth.init_db()
 
+# Empty by default -- every signed-up user can generate, the normal
+# behavior. Set to a comma-separated list of emails (case-insensitive) to
+# temporarily restrict POST /generate to just those accounts, e.g. while
+# payments aren't live yet and every generation is a real API cost with no
+# revenue behind it. Signup/login stay open either way -- only the
+# expensive endpoint is gated -- so lifting this later is just clearing
+# the env var in Railway, no code change or redeploy needed.
+GENERATION_ALLOWLIST = {
+    e.strip().lower() for e in os.environ.get("GENERATION_ALLOWLIST", "").split(",") if e.strip()
+}
+
 # Off by default: public interactive docs (/docs, /redoc, /openapi.json)
 # hand anyone your complete route/parameter surface for free reconnaissance,
 # and nothing in this app actually needs them exposed publicly (the
@@ -116,6 +127,13 @@ def generate(
 ) -> GenerateResponse:
     if not req.prompt.strip():
         raise HTTPException(400, "prompt must not be empty")
+
+    # Checked first, before anything else costs a request cycle -- see
+    # GENERATION_ALLOWLIST's own docstring above.
+    if GENERATION_ALLOWLIST and user.email.lower() not in GENERATION_ALLOWLIST:
+        raise HTTPException(
+            403, "Generations are temporarily paused while we finish setting up payments -- check back soon!"
+        )
 
     # Runs before rate limiting/credits too -- rejecting a copyrighted-
     # character prompt should never cost the user a credit or count
