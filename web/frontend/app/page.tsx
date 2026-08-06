@@ -262,6 +262,12 @@ export default function Home() {
                 }`
               : "Free plan: 10 credits a month • Pay only for full instructions"}
           </p>
+          <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
+            Built from a 48-part real, purchasable brick library — growing all the time. We&apos;re
+            constantly improving stability, connectivity, and adding new building techniques
+            (including sideways building, aka SNOT). Most generated models come out with 100%
+            connectivity and few flagged issues on BrickLink Studio&apos;s stability checker.
+          </p>
         </div>
 
         <div

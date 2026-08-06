@@ -30,9 +30,10 @@ export default function HelpCenterPage() {
       </Section>
       <Section title="Why do the colors sometimes look a little off?">
         <p>
-          Colors are estimated from the reference image and mapped onto a limited palette of
-          real, purchasable brick colors — so they&apos;re an approximation, not an exact match,
-          especially on parts of the model not clearly visible in the reference image.
+          Color comes straight from the generated 3D model&apos;s own surface, then gets mapped
+          onto the closest real, purchasable brick color using a perceptually-accurate color
+          match — so it&apos;s a close approximation, not an exact one, especially on faces of the
+          model that came through less clearly during generation.
         </p>
       </Section>
       <Section title="Can I build what I generate with real bricks?">
@@ -42,8 +43,26 @@ export default function HelpCenterPage() {
           list you can buy from BrickLink.
         </p>
       </Section>
+      <Section title="Will my model actually be physically stable?">
+        <p>
+          We can&apos;t guarantee that every generated model will be very physically stable —
+          it depends on what you asked for and how thin or overhanging the shape is. What we
+          can say is that the vast majority of generated models come out with 100% connectivity
+          and few flagged issues on BrickLink Studio&apos;s own stability checker, thanks to a
+          built-in support-structure algorithm that automatically finds and braces weak points
+          before a model is finished. Always give a model a quick check in Studio (or by hand)
+          before ordering parts, especially for anything thin, tall, or overhanging.
+        </p>
+      </Section>
       <Section title="Still stuck?">
-        <p>This is a trial version of BrickForgerAI — support is informal for now. Reach out however you got this link.</p>
+        <p>
+          This is a trial version of BrickForgerAI — support is informal for now, but you can
+          reach us directly at{" "}
+          <a href="mailto:aaryandoshi143@gmail.com" style={{ color: "inherit" }}>
+            aaryandoshi143@gmail.com
+          </a>
+          .
+        </p>
       </Section>
     </StaticPage>
   );
