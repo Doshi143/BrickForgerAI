@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
@@ -11,7 +11,22 @@ import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
 import { ApiError } from "@/lib/api";
 
-export default function AuthForm({ mode }: { mode: "signin" | "signup" }) {
+// useSearchParams() (used below, for the post-login "next" redirect target)
+// requires a Suspense boundary for Next.js to statically prerender a page
+// that renders this component -- confirmed by a real build failure, not a
+// hypothetical: "useSearchParams() should be wrapped in a suspense
+// boundary at page /signin". Wrapped here so neither app/signin/page.tsx
+// nor app/signup/page.tsx (both of which just render <AuthForm mode=... />
+// with no changes of their own) need to know about this at all.
+export default function AuthForm(props: { mode: "signin" | "signup" }) {
+  return (
+    <Suspense fallback={null}>
+      <AuthFormInner {...props} />
+    </Suspense>
+  );
+}
+
+function AuthFormInner({ mode }: { mode: "signin" | "signup" }) {
   const { dark, toggleDark } = useTheme();
   const { login, signup } = useAuth();
   const router = useRouter();
