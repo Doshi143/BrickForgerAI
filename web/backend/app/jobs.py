@@ -27,7 +27,7 @@ from rq import Queue
 from .clients.image_gen import build_image_prompt, get_image_client
 from .clients.mesh_gen import get_mesh_client
 from .pipeline.brickforge_bridge import mesh_to_ldr
-from .storage import get_storage
+from .storage import R2Storage, get_storage
 
 JOBS_DIR = os.path.join(os.path.dirname(__file__), "..", "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
@@ -135,18 +135,30 @@ def save_job_meta(job: Job) -> None:
 
 
 def load_job_meta(job_id: str) -> dict | None:
-    # Local disk first (list_jobs's directory enumeration in main.py
-    # depends on a local meta.json existing to discover a job at all --
-    # see that function's own docstring), falling back to storage for a
-    # job whose local copy is gone (e.g. this instance never ran that
-    # job's pipeline, only serves its files after a redeploy) but whose id
-    # is already known to the caller (a direct GET /generate/{id}, not the
-    # gallery listing).
+    # R2 first when R2 is the active backend -- it's the only channel a
+    # separate worker process's status updates can actually reach this
+    # process through (see module docstring). Local disk is only ever
+    # accurate in a single-process, no-queue local dev run (LocalStorage,
+    # no R2 configured); in the real split backend/worker deployment it's
+    # a fossil of whatever *this* process itself last wrote -- generate()
+    # writes an initial "queued" snapshot to its own local disk before the
+    # job is ever enqueued, and preferring that local copy unconditionally
+    # meant this process could never see any status the worker wrote
+    # afterward, for the rest of this process's lifetime (a redeploy that
+    # happened to wipe this process's local disk was the only thing that
+    # ever "fixed" it, by forcing a genuine R2 read). Confirmed on a real
+    # job RQ logged as completed in 0:01:03 while this API kept reporting
+    # "queued" indefinitely.
     path = os.path.join(JOBS_DIR, job_id, "meta.json")
-    if os.path.isfile(path):
+    data = None
+    if isinstance(STORAGE, R2Storage):
+        raw = STORAGE.get_bytes(job_id, "meta.json")
+        if raw is not None:
+            data = json.loads(raw)
+    if data is None and os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    else:
+    if data is None:
         raw = STORAGE.get_bytes(job_id, "meta.json")
         if raw is None:
             return None
