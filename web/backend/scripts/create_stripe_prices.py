@@ -38,11 +38,11 @@ def main() -> None:
     master_product = stripe.Product.create(name="BrickForgerAI — Master Builder")
     master_price = stripe.Price.create(
         product=master_product.id,
-        unit_amount=2500,
+        unit_amount=2000,
         currency="gbp",
         recurring={"interval": "month"},
     )
-    print(f"Master Builder (£25/mo, 30 credits): {master_price.id}")
+    print(f"Master Builder (£20/mo, 30 credits): {master_price.id}")
 
     topup_product = stripe.Product.create(name="BrickForgerAI — Credit top-up")
     topup_price = stripe.Price.create(

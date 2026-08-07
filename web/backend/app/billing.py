@@ -22,23 +22,29 @@ from . import auth
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 _WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
-# Test-mode Price IDs, created once via scripts/create_stripe_prices.py
+# Live-mode Price IDs (Phase 6d), created via scripts/create_stripe_prices.py
 # and hardcoded here rather than read from an env var -- per
-# web/DEPLOYMENT.md's Phase 6b, which explicitly asks for this rather
-# than expecting them pre-set. Stripe test and live modes are completely
-# separate environments with their own Price IDs -- these must be
-# regenerated (rerun the script against live-mode STRIPE_SECRET_KEY) and
-# swapped in here before Phase 6d flips to live, or subscription checkout
-# will fail outright in live mode (a live secret key can't create a
-# Checkout Session against a test-mode Price ID).
+# web/DEPLOYMENT.md's Phase 6b, which explicitly asks for this rather than
+# expecting them pre-set. Stripe test and live modes are completely
+# separate environments with their own Price IDs; these have to match
+# whichever mode STRIPE_SECRET_KEY (in Railway) is currently set to, or
+# Checkout session creation fails outright (a live key can't create a
+# session against a test-mode Price, and vice versa).
+#
+# The original test-mode set (kept here for reference, not used once
+# STRIPE_SECRET_KEY is live): builder price_1U1jmTDJhBkIl2qGHfCf8geE, pro
+# price_1U1vK9DJhBkIl2qGRu9iF2LQ, topup price_1U1jmUDJhBkIl2qGMAmLAJsR.
 PRICE_IDS = {
-    "builder": "price_1U1jmTDJhBkIl2qGHfCf8geE",  # £9/mo, 12 credits
-    "pro": "price_1U1vK9DJhBkIl2qGRu9iF2LQ",  # £20/mo, 30 credits (Master Builder) -- the original
-    # £25 price (price_1U1jmUDJhBkIl2qGqxV0Xtii) is archived (active=False), not deleted: Stripe
-    # doesn't allow deleting a Price that already has real subscriptions/invoice history against
-    # it, and archiving is enough to stop it from being offered to new subscribers.
+    "builder": "price_1U1wEpDJhBkIl2qGAPTrPbEn",  # £9/mo, 12 credits
+    "pro": "price_1U1wFsDJhBkIl2qGPJArx7aq",  # £20/mo, 30 credits (Master Builder)
+    # An earlier live Price (price_1U1wEpDJhBkIl2qG6VJNcmXf) was created at £25 by mistake --
+    # scripts/create_stripe_prices.py still had the pre-price-change amount hardcoded, never
+    # updated when the test-mode price was fixed via a one-off command instead of editing the
+    # actual script. Archived (active=False), not deleted -- same reasoning as the earlier £25
+    # test-mode mistake: Stripe won't delete a Price with billing history, and archiving is
+    # enough to stop it being offered again. The script itself is now fixed too.
 }
-TOPUP_PRICE_ID = "price_1U1jmUDJhBkIl2qGMAmLAJsR"  # £6 one-time, +5 credits
+TOPUP_PRICE_ID = "price_1U1wEqDJhBkIl2qG1vwOGy6G"  # £6 one-time, +5 credits
 TOPUP_CREDITS = 5
 
 # Reverse lookup for the webhook handler: a subscription event carries a
