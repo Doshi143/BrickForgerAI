@@ -2,8 +2,7 @@
 happens -- specifically before spending money on gpt-image-1, and before
 the pipeline ever produces something sellable.
 
-Two checks, deliberately for two different concerns -- do not conflate
-them:
+Three checks, deliberately for different concerns -- do not conflate them:
 - OpenAI's moderation endpoint: genuine safety categories (harassment,
   hate, illicit, self-harm, sexual, violence, and subcategories -- 13
   flags in total). Verified directly against OpenAI's own docs before
@@ -11,10 +10,20 @@ them:
   all. OpenAI routes IP disputes through separate manual report forms,
   not automated moderation.
 - A maintained blocklist of well-known copyrighted characters/franchises:
-  the actual mechanism for the real concern here. Selling build
-  instructions for Pikachu is a genuine legal exposure that has nothing to
-  do with "safety" in the moderation sense -- the mesh/TRELLIS pipeline's
-  MIT licence covers the model, not whatever subject a user prompts for.
+  free and instant, but an EXACT substring match -- confirmed to miss "the
+  millenium falcon" (the common one-n misspelling of "millennium") even
+  though "millennium falcon" is itself in the list, plus anything
+  described indirectly ("a boy wizard with a lightning scar") or from a
+  franchise nobody's added yet. A hardcoded list can only ever cover what
+  someone thought to type into it ahead of time.
+- An LLM classifier (same OpenAI key, a small chat model): the actual
+  generalization this blocklist can't provide by construction. Asked to
+  judge whether a prompt evokes a specific copyrighted/trademarked
+  character or franchise, however it's spelled or described -- catches
+  the misspelling/indirect-description/not-yet-listed cases above. Kept
+  as a *second* layer rather than a replacement for the blocklist: the
+  blocklist is free, instant, and deterministic for the common cases,
+  and doesn't depend on an external API being up.
 
 Deliberately conservative, per the explicit request this was built
 against: a false rejection is mildly annoying, a false acceptance is a
@@ -22,6 +31,7 @@ takedown notice.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -104,13 +114,71 @@ def _check_openai_moderation(prompt: str) -> str | None:
     return ", ".join(flagged_categories) or "flagged"
 
 
+_IP_CLASSIFIER_SYSTEM_PROMPT = (
+    "You are a strict content-policy classifier for a service that turns text "
+    "prompts into physical brick-sculpture designs for sale. Determine whether "
+    "the user's prompt describes, references, or clearly evokes a specific "
+    "copyrighted or trademarked character, franchise, brand, or fictional IP "
+    "(movies, games, TV, anime, comics, brand mascots, etc.) -- even if "
+    "misspelled, described indirectly instead of named, or from a franchise "
+    "not explicitly named. An original, generic, or purely descriptive prompt "
+    "(\"a red sports car\", \"a wizard casting a spell\") is NOT a match. "
+    'Respond with ONLY a JSON object: {"is_copyrighted_ip": true or false}.'
+)
+
+
+def _check_llm_classifier(prompt: str) -> bool:
+    """True if a small LLM judges this prompt to reference a specific
+    copyrighted/trademarked character or franchise, generalizing past
+    what BLOCKED_TERMS's exact-substring matching can ever catch (a
+    misspelling, an indirect description, or a franchise nobody's added
+    to the list yet). Fails open (returns False, logs a warning) on any
+    error -- same reasoning as _check_openai_moderation: an API outage
+    must not block every submission, and the blocklist above already
+    covers the common, high-confidence cases without needing this at
+    all."""
+    if not _OPENAI_API_KEY:
+        logger.warning("content_filter: no OpenAI API key configured, skipping LLM IP check")
+        return False
+
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_OPENAI_API_KEY}"},
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": _IP_CLASSIFIER_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0,
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        return bool(json.loads(content).get("is_copyrighted_ip", False))
+    except Exception as exc:  # noqa: BLE001 -- fail open, log, don't block submission on an outage
+        logger.warning("content_filter: LLM IP classifier failed, skipping: %s", exc)
+        return False
+
+
 def check_prompt(prompt: str) -> tuple[bool, str | None]:
     """Returns (is_allowed, user_facing_message_if_rejected). Checks the
-    blocklist first since it's free and instant; only calls out to OpenAI
-    if that passes."""
+    blocklist first since it's free and instant; the LLM classifier only
+    runs if that passes, to catch what exact-substring matching can't
+    (misspellings, indirect descriptions, franchises not yet listed)."""
     blocked_term = _check_blocklist(prompt)
     if blocked_term:
         logger.warning("content_filter REJECTED (blocklist match: %r): %r", blocked_term, prompt)
+        return False, (
+            "This prompt appears to reference a copyrighted character or franchise. "
+            "Try describing an original creation instead."
+        )
+
+    if _check_llm_classifier(prompt):
+        logger.warning("content_filter REJECTED (LLM IP classifier): %r", prompt)
         return False, (
             "This prompt appears to reference a copyrighted character or franchise. "
             "Try describing an original creation instead."
