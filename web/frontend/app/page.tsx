@@ -30,7 +30,7 @@ const STEPS = [
     icon: "↓",
     num: "03",
     title: "Build It For Real",
-    desc: "Unlock full instructions and parts list. Order the bricks and start building your creation.",
+    desc: "Download the .ldr file and full parts list, then open it in BrickLink Studio (free) to generate step-by-step build instructions and order the bricks.",
   },
 ];
 
@@ -158,7 +158,7 @@ export default function Home() {
               textShadow: `0 1px 12px ${colors.heroTextShadow}`,
             }}
           >
-            Type a prompt. Get a custom model with full building instructions and parts
+            Type a prompt. Get a custom model with a downloadable .ldr file and full parts
             list. From imagination to physical kit in minutes.
           </p>
 
@@ -267,10 +267,10 @@ export default function Home() {
 
           <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
             {user
-              ? `${user.credits_remaining} of ${user.monthly_credit_allowance} credits left this month${
-                  user.instructions_included ? " • Instructions included" : " • Instructions from £5–£15"
+              ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month${
+                  user.instructions_included ? " • .ldr download included" : " • .ldr download from £5–£15"
                 }`
-              : "Free plan: 5 credits a month • Pay only for full instructions"}
+              : "Free plan: 5 credits a month • Pay only to download the .ldr file"}
           </p>
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
             Built from a 48-part real, purchasable brick library — growing all the time. We&apos;re

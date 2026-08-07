@@ -24,19 +24,22 @@ export default function HowItWorksPage() {
           <li>A live 3D preview you can rotate and zoom, in real part colors</li>
           <li>A part count and color breakdown</li>
         </ul>
-        <p>To actually build it, you need the instructions and parts list:</p>
+        <p>To actually build it, you need the downloadable .ldr file and parts list:</p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
           <li>
-            <strong>Free plan</strong> — unlock instructions for an individual model for
+            <strong>Free plan</strong> — unlock the download for an individual model for
             £5–£15 (based on size)
           </li>
           <li>
-            <strong>Builder and Master Builder plans</strong> — instructions are included
+            <strong>Builder and Master Builder plans</strong> — downloads are included
             automatically on every generation
           </li>
         </ul>
         <p>
-          See <Link href="/pricing">Pricing</Link> for full plan details.
+          Open the downloaded .ldr file in BrickLink Studio (free) to generate step-by-step
+          build instructions and check the parts list against real BrickLink inventory — we
+          don&apos;t generate a picture-based instruction guide ourselves. See{" "}
+          <Link href="/pricing">Pricing</Link> for full plan details.
         </p>
       </Section>
     </StaticPage>

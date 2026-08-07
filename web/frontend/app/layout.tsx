@@ -9,7 +9,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "BrickForgerAI — Build anything with bricks",
   description:
-    "Type a prompt. Get a custom brick model with full building instructions and parts list.",
+    "Type a prompt. Get a custom brick model with a downloadable .ldr file and full parts list.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

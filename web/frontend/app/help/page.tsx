@@ -14,20 +14,15 @@ export default function HelpCenterPage() {
       </Section>
       <Section title="What's the difference between the preview and the instructions?">
         <p>
-          Every generation gives you a full 3D preview (with real colors) and the raw{" "}
-          <code>.ldr</code> file for free. &ldquo;Instructions&rdquo; refers to a polished,
-          step-by-step build guide and parts list — included automatically on the Builder and
-          Master Builder plans, or available as a one-time purchase (£5–£15, based on model
-          size) on the Free plan.
-        </p>
-      </Section>
-      <Section title="A generation failed — what do I do?">
-        <p>
-          Click through to the model&apos;s page and check the error message shown there.
-          Generation runs in three stages (image, 3D shape, then bricks) and can fail at any
-          of them — most often a temporary issue with the image or 3D generation services.
-          Failed generations still use a credit; try again with a slightly different prompt if
-          it keeps failing.
+          Every generation gives you a full 3D preview (with real colors) for free — you can
+          rotate and inspect the model, and see its part count and color breakdown, without
+          paying anything. &ldquo;Instructions&rdquo; is the downloadable <code>.ldr</code> file
+          and full parts list — included automatically on the Builder and Master Builder plans,
+          or available as a one-time purchase (£5–£15, based on model size) on the Free plan.
+          We don&apos;t generate a picture-based step-by-step build guide ourselves — once
+          you&apos;ve downloaded the <code>.ldr</code> file, open it in BrickLink Studio (free,
+          search &ldquo;BrickLink Studio download&rdquo;) to generate one, and to check the
+          parts list against real BrickLink inventory.
         </p>
       </Section>
       <Section title="Why do the colors sometimes look a little off?">

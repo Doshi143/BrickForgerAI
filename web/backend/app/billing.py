@@ -110,7 +110,7 @@ def create_unlock_instructions_checkout(user: auth.User, job_id: str, price_gbp:
                 "price_data": {
                     "currency": "gbp",
                     "unit_amount": price_gbp * 100,
-                    "product_data": {"name": f"BrickForgerAI instructions unlock ({job_id})"},
+                    "product_data": {"name": f"BrickForgerAI .ldr file + parts list ({job_id})"},
                 },
                 "quantity": 1,
             }
