@@ -2,7 +2,7 @@ import StaticPage, { Section } from "@/components/StaticPage";
 
 export default function PrivacyPage() {
   return (
-    <StaticPage title="Privacy Policy" subtitle="Last updated August 6th, 2026">
+    <StaticPage title="Privacy Policy" subtitle="Last updated August 7th, 2026">
       <Section title="Overview">
         <p>
           BrickForgerAI (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;) is committed
@@ -36,7 +36,10 @@ export default function PrivacyPage() {
         <p style={{ marginTop: 14 }}>
           As part of actually using the Service, we also store the text prompts you submit and
           the images, 3D meshes, and brick models generated from them, so you can revisit and
-          re-download your own results.
+          re-download your own results. If you subscribe to a paid plan or make a purchase, we
+          store an internal Stripe customer reference ID so we can recognize your account on
+          future purchases — never your card number or other payment details, which Stripe holds
+          directly (see below).
         </p>
       </Section>
 
@@ -65,6 +68,7 @@ export default function PrivacyPage() {
           <li>Railway hosts our servers, database, and job queue</li>
           <li>Cloudflare R2 stores your generated files</li>
           <li>Sentry receives error/crash reports to help us fix bugs — this can include request metadata such as your IP address, but never your password</li>
+          <li>Stripe processes payments if you subscribe to a paid plan, buy a credit top-up, or unlock instructions — your card details go directly to Stripe and never touch our own servers; we only receive confirmation that a payment succeeded and which plan or product it was for</li>
         </ul>
         <p style={{ marginTop: 14 }}>
           We may also disclose information where required to comply with a legal obligation, court

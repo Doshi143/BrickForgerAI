@@ -2,7 +2,7 @@ import StaticPage, { Section } from "@/components/StaticPage";
 
 export default function TermsPage() {
   return (
-    <StaticPage title="Terms of Service" subtitle="Last updated August 6th, 2026">
+    <StaticPage title="Terms of Service" subtitle="Last updated August 7th, 2026">
       <Section title="General terms">
         <p>
           By accessing or using BrickForgerAI (&ldquo;we,&rdquo; &ldquo;us,&rdquo; the
@@ -22,8 +22,11 @@ export default function TermsPage() {
 
       <Section title="Trademark disclaimer">
         <p>
-          BrickForgerAI is not affiliated with, endorsed by, or sponsored by the LEGO Group.
-          &ldquo;LEGO&rdquo; is a registered trademark of the LEGO Group. Part geometry is drawn
+          BrickForgerAI is not affiliated with, endorsed by, or sponsored by the LEGO Group,
+          BrickLink, or Studio. &ldquo;LEGO&rdquo;, &ldquo;BrickLink&rdquo;, and
+          &ldquo;Studio&rdquo; are trademarks of their respective owners. We reference BrickLink
+          and Studio only to describe how a generated model&apos;s <code>.ldr</code> file can be
+          opened and its parts purchased — not to suggest any partnership. Part geometry is drawn
           from the LDraw parts library, licensed under CCAL 2.0.
         </p>
       </Section>
@@ -48,21 +51,31 @@ export default function TermsPage() {
 
       <Section title="Credits and plans">
         <p>
-          The Free plan includes 10 model generations a month; the Master Builder plan includes
-          30, plus instruction unlocks included on every generation. Unused credits do not roll
-          over between months. Payment processing for the Master Builder plan is not live yet in
-          this early version — upgrades will open once billing is connected.
+          The Free plan includes 5 model generations a month. Builder includes 12, with
+          instructions unlocks included free on every generation, for £9/month. Master Builder
+          includes 30, also with instructions included, for £20/month. Unused credits do not roll
+          over between months. Any signed-in user, on any plan, can also buy a one-off top-up of
+          +5 credits for £6, added on top of their current balance without affecting their
+          monthly plan allowance.
         </p>
       </Section>
 
-      <Section title="Payment (once billing is live)">
+      <Section title="Payment">
         <p>
-          Once payments are enabled, registering for a recurring plan means you agree to pay all
-          fees in accordance with the pricing shown at checkout. You&apos;ll need to provide a
-          valid payment method through our payment processor, who governs how that payment
-          method is handled — refer to their terms, not these, for your rights and liabilities
-          as a payment-method holder. We reserve the right to change prices, with notice posted
-          on the Service or sent to your account email before the change takes effect.
+          Registering for a recurring plan, or buying a top-up or a one-time instructions unlock,
+          means you agree to pay the fees shown at checkout. All payments are handled entirely by
+          Stripe, our payment processor — we never see, receive, or store your card number or
+          other payment details ourselves, only what Stripe tells us afterward (that a payment
+          succeeded, and which plan or product it was for). Stripe&apos;s own terms govern your
+          rights and liabilities as a payment-method holder. We reserve the right to change
+          prices, with notice posted on the Service or sent to your account email before the
+          change takes effect for existing subscribers.
+        </p>
+        <p style={{ marginTop: 14 }}>
+          A subscription renews automatically each month until you cancel. You can cancel or
+          change plans at any time by contacting us at the email below; a cancellation takes
+          effect at the end of your current billing period, and we don&apos;t charge a
+          cancellation fee.
         </p>
       </Section>
 

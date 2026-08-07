@@ -49,7 +49,7 @@ const PLANS: Plan[] = [
   {
     id: "pro",
     name: "Master Builder",
-    price: "£25",
+    price: "£20",
     priceNote: "/ month",
     credits: "30 build credits a month",
     features: [

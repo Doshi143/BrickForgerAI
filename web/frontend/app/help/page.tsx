@@ -16,8 +16,9 @@ export default function HelpCenterPage() {
         <p>
           Every generation gives you a full 3D preview (with real colors) and the raw{" "}
           <code>.ldr</code> file for free. &ldquo;Instructions&rdquo; refers to a polished,
-          step-by-step build guide and parts list — included automatically on the Master Builder plan, or
-          available as a one-time purchase (£5–£15, based on model size) on the Free plan.
+          step-by-step build guide and parts list — included automatically on the Builder and
+          Master Builder plans, or available as a one-time purchase (£5–£15, based on model
+          size) on the Free plan.
         </p>
       </Section>
       <Section title="A generation failed — what do I do?">

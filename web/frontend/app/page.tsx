@@ -355,8 +355,9 @@ function Footer({ colors }: { colors: ThemeColors }) {
             your custom kit is one idea away.
           </p>
           <p style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 1.6, maxWidth: 340, marginTop: 14, opacity: 0.8 }}>
-            Not affiliated with, endorsed, or sponsored by the LEGO Group. Part geometry
-            from the LDraw parts library (CCAL 2.0).
+            Not affiliated with, endorsed, or sponsored by the LEGO Group, BrickLink, or Studio.
+            LEGO®, BrickLink®, and Studio are trademarks of their respective owners. Part
+            geometry from the LDraw parts library (CCAL 2.0).
           </p>
         </div>
         <div>

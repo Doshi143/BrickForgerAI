@@ -33,7 +33,10 @@ _WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 # Checkout Session against a test-mode Price ID).
 PRICE_IDS = {
     "builder": "price_1U1jmTDJhBkIl2qGHfCf8geE",  # £9/mo, 12 credits
-    "pro": "price_1U1jmUDJhBkIl2qGqxV0Xtii",  # £25/mo, 30 credits (Master Builder)
+    "pro": "price_1U1vK9DJhBkIl2qGRu9iF2LQ",  # £20/mo, 30 credits (Master Builder) -- the original
+    # £25 price (price_1U1jmUDJhBkIl2qGqxV0Xtii) is archived (active=False), not deleted: Stripe
+    # doesn't allow deleting a Price that already has real subscriptions/invoice history against
+    # it, and archiving is enough to stop it from being offered to new subscribers.
 }
 TOPUP_PRICE_ID = "price_1U1jmUDJhBkIl2qGMAmLAJsR"  # £6 one-time, +5 credits
 TOPUP_CREDITS = 5
