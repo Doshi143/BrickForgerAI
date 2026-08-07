@@ -129,7 +129,17 @@ def init_db() -> None:
         try:
             conn.execute("ALTER TABLE users ADD COLUMN stripe_customer_id TEXT")
         except Exception:
-            pass
+            # Explicit rollback, not just swallowing the exception --
+            # confirmed as a real production bug (Sentry:
+            # InFailedSqlTransaction in init_db, first seen right after
+            # this column shipped): Postgres marks the whole transaction
+            # aborted after ANY failed statement, so the very next
+            # statement below (CREATE TABLE processed_stripe_events, on
+            # this same connection/transaction) failed too, on every
+            # restart after the first one ever added the column
+            # successfully. Same fix as mark_stripe_event_processed's own
+            # except block, which got this right from the start.
+            conn.rollback()
         # Webhook idempotency: Stripe retries delivery on anything short of
         # a 200, so the same event can arrive more than once. Recording
         # every event ID we've already handled -- checked before any
