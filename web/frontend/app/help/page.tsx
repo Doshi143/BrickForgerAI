@@ -6,8 +6,9 @@ export default function HelpCenterPage() {
     <StaticPage title="Help Center" subtitle="Common questions about building with BrickForgerAI.">
       <Section title="How many credits do I get?">
         <p>
-          Free accounts get 10 build credits a month; Master Builder accounts get 30. One credit is used
-          each time you generate a model. Credits reset at the start of each calendar month.
+          Free accounts get 5 build credits a month, Builder gets 12, and Master Builder gets 30.
+          One credit is used each time you generate a model. Credits reset at the start of each
+          calendar month, and you can always buy +5 credits for £6 on top of your current plan.
           See the <Link href="/pricing">Pricing</Link> page for full plan details.
         </p>
       </Section>

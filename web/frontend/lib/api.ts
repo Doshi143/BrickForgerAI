@@ -31,7 +31,7 @@ export type Job = {
   has_render: boolean | null;
 };
 
-export type Plan = "free" | "pro";
+export type Plan = "free" | "builder" | "pro";
 
 export type AuthUser = {
   id: string;
@@ -93,13 +93,47 @@ export async function saveRender(jobId: string, imageDataUrl: string): Promise<v
   });
 }
 
-export async function unlockInstructions(jobId: string, token: string): Promise<Job> {
+/** Returns a Stripe Checkout URL to redirect the browser to -- the
+ * instructions unlock is now a real charge, so it no longer unlocks
+ * immediately. See generate/[jobId]/page.tsx, which redirects
+ * window.location to this URL rather than reading a Job back directly. */
+export async function unlockInstructions(jobId: string, token: string): Promise<{ checkout_url: string }> {
   const res = await fetch(`${API_BASE}/generate/${jobId}/unlock-instructions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    throw new ApiError(res.status, "Failed to unlock instructions");
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to start checkout");
+  }
+  return res.json();
+}
+
+/** Free -> Builder/Master Builder, or a change between the two. Returns a
+ * Stripe Checkout URL -- the plan change itself happens from the backend's
+ * webhook once Stripe confirms payment, not immediately on this call. */
+export async function startPlanCheckout(plan: "builder" | "pro", token: string): Promise<{ checkout_url: string }> {
+  const res = await fetch(`${API_BASE}/billing/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ plan }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to start checkout");
+  }
+  return res.json();
+}
+
+/** +5 credits for £6, available to any signed-in user on any plan. */
+export async function startTopupCheckout(token: string): Promise<{ checkout_url: string }> {
+  const res = await fetch(`${API_BASE}/billing/topup-checkout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to start checkout");
   }
   return res.json();
 }

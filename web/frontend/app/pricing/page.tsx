@@ -1,20 +1,24 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { ApiError, startPlanCheckout, startTopupCheckout } from "@/lib/api";
 
 type Plan = {
-  id: "free" | "pro";
+  id: "free" | "builder" | "pro";
   name: string;
   price: string;
   priceNote: string;
   credits: string;
   features: string[];
+  badge?: string;
 };
 
 const PLANS: Plan[] = [
@@ -23,11 +27,23 @@ const PLANS: Plan[] = [
     name: "Free",
     price: "£0",
     priceNote: "forever",
-    credits: "10 build credits a month",
+    credits: "5 build credits a month",
     features: [
-      "10 model generations a month",
+      "5 model generations a month",
       "Full 3D preview with real colors",
       "Instructions + parts list + .ldr download: pay per model, £5–£15 (based on size)",
+    ],
+  },
+  {
+    id: "builder",
+    name: "Builder",
+    price: "£9",
+    priceNote: "/ month",
+    credits: "12 build credits a month",
+    features: [
+      "12 model generations a month",
+      "Full 3D preview with real colors",
+      "Instructions + parts list + .ldr download included free on every generation",
     ],
   },
   {
@@ -41,15 +57,52 @@ const PLANS: Plan[] = [
       "Full 3D preview with real colors",
       "Instructions + parts list + .ldr download included free on every generation",
     ],
+    badge: "Best value",
   },
 ];
 
-export default function PricingPage() {
+function PricingContent() {
   const { dark, toggleDark } = useTheme();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const colors = dark ? darkColors : lightColors;
+  const checkoutStatus = searchParams.get("checkout");
+
+  async function handleUpgrade(planId: "builder" | "pro") {
+    if (!user || !token) {
+      router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
+      return;
+    }
+    setError(null);
+    setLoadingPlan(planId);
+    try {
+      const { checkout_url } = await startPlanCheckout(planId, token);
+      window.location.href = checkout_url;
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't start checkout. Try again.");
+      setLoadingPlan(null);
+    }
+  }
+
+  async function handleTopup() {
+    if (!user || !token) {
+      router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
+      return;
+    }
+    setError(null);
+    setLoadingPlan("topup");
+    try {
+      const { checkout_url } = await startTopupCheckout(token);
+      window.location.href = checkout_url;
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't start checkout. Try again.");
+      setLoadingPlan(null);
+    }
+  }
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: colors.skyBottom, overflowX: "hidden" }}>
@@ -57,14 +110,64 @@ export default function PricingPage() {
       <div style={{ position: "relative", zIndex: 2 }}>
         <Nav colors={colors} dark={dark} onToggleDark={toggleDark} />
 
-        <div style={{ maxWidth: 1000, margin: "0 auto", padding: "56px 24px 100px", textAlign: "center" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "56px 24px 100px", textAlign: "center" }}>
           <h1 className="display" style={{ fontWeight: 800, fontSize: 40, color: colors.textPrimary, margin: "0 0 12px" }}>
             Simple, credit-based pricing
           </h1>
-          <p style={{ color: colors.textSecondary, fontSize: 17, maxWidth: 560, margin: "0 auto 48px" }}>
+          <p style={{ color: colors.textSecondary, fontSize: 17, maxWidth: 560, margin: "0 auto 24px" }}>
             Every plan includes full 3D previews with real colors. Instructions and a
             complete parts list are what turn a preview into something buildable.
           </p>
+
+          {checkoutStatus === "success" && (
+            <div
+              style={{
+                background: colors.cardBg,
+                border: `1px solid ${colors.accent}`,
+                borderRadius: 14,
+                padding: "14px 20px",
+                color: colors.textPrimary,
+                maxWidth: 480,
+                margin: "0 auto 32px",
+                fontSize: 14,
+              }}
+            >
+              Payment received — this can take a few seconds to reflect below. Refresh if your
+              plan or credits don&apos;t look right yet.
+            </div>
+          )}
+          {checkoutStatus === "cancelled" && (
+            <div
+              style={{
+                background: colors.cardBg,
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 14,
+                padding: "14px 20px",
+                color: colors.textSecondary,
+                maxWidth: 480,
+                margin: "0 auto 32px",
+                fontSize: 14,
+              }}
+            >
+              Checkout cancelled — nothing was charged.
+            </div>
+          )}
+          {error && (
+            <div
+              style={{
+                background: colors.cardBg,
+                border: "1px solid #ff8f6b",
+                borderRadius: 14,
+                padding: "14px 20px",
+                color: "#ff8f6b",
+                maxWidth: 480,
+                margin: "0 auto 32px",
+                fontSize: 14,
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           <div
             style={{
@@ -76,18 +179,19 @@ export default function PricingPage() {
           >
             {PLANS.map((plan) => {
               const isCurrent = user?.plan === plan.id;
+              const isPaid = plan.id !== "free";
               return (
                 <div
                   key={plan.id}
                   style={{
                     background: colors.cardBg,
-                    border: `2px solid ${plan.id === "pro" ? colors.accent : colors.cardBorder}`,
+                    border: `2px solid ${plan.badge ? colors.accent : colors.cardBorder}`,
                     borderRadius: 24,
                     padding: 36,
                     position: "relative",
                   }}
                 >
-                  {plan.id === "pro" && (
+                  {plan.badge && (
                     <div
                       style={{
                         position: "absolute",
@@ -101,7 +205,7 @@ export default function PricingPage() {
                         borderRadius: 12,
                       }}
                     >
-                      Best value
+                      {plan.badge}
                     </div>
                   )}
 
@@ -128,16 +232,14 @@ export default function PricingPage() {
                   </ul>
 
                   <button
-                    disabled={isCurrent}
+                    disabled={isCurrent || (isPaid && loadingPlan === plan.id)}
                     onClick={() => {
-                      if (!user) {
-                        router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
+                      if (!isPaid) {
+                        if (!user) router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
                         return;
                       }
-                      // Real upgrade requires Stripe, deliberately not wired up
-                      // yet -- see web/backend/app/auth.py's module docstring.
+                      handleUpgrade(plan.id as "builder" | "pro");
                     }}
-                    title={user && plan.id === "pro" && !isCurrent ? "Payments aren't wired up yet" : undefined}
                     style={{
                       width: "100%",
                       padding: "14px 20px",
@@ -149,21 +251,81 @@ export default function PricingPage() {
                       fontSize: 15,
                       cursor: isCurrent ? "default" : "pointer",
                       fontFamily: "inherit",
+                      opacity: isPaid && loadingPlan === plan.id ? 0.6 : 1,
                     }}
                   >
-                    {isCurrent ? "Your current plan" : !user ? "Sign up free" : "Upgrade (coming soon)"}
+                    {isCurrent
+                      ? "Your current plan"
+                      : !user
+                      ? "Sign up free"
+                      : isPaid && loadingPlan === plan.id
+                      ? "Redirecting…"
+                      : isPaid
+                      ? "Upgrade"
+                      : "Downgrade to Free"}
                   </button>
                 </div>
               );
             })}
           </div>
 
-          <p style={{ color: colors.textSecondary, fontSize: 13, marginTop: 40 }}>
-            Payment processing isn&apos;t connected yet — the Free plan is fully live today;
-            Master Builder upgrades will be enabled once billing is wired up.
-          </p>
+          {user && (
+            <div
+              style={{
+                marginTop: 40,
+                background: colors.cardBg,
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 20,
+                padding: "28px 32px",
+                maxWidth: 520,
+                margin: "40px auto 0",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 20,
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
+                  Need more credits this month?
+                </div>
+                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
+                  +5 credits for £6, on top of your current plan — no subscription change.
+                </div>
+              </div>
+              <button
+                onClick={handleTopup}
+                disabled={loadingPlan === "topup"}
+                style={{
+                  background: "none",
+                  border: `2px solid ${colors.accent}`,
+                  color: colors.accent,
+                  padding: "12px 22px",
+                  borderRadius: 12,
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  whiteSpace: "nowrap",
+                  opacity: loadingPlan === "topup" ? 0.6 : 1,
+                }}
+              >
+                {loadingPlan === "topup" ? "Redirecting…" : "Buy +5 credits — £6"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+export default function PricingPage() {
+  return (
+    <Suspense fallback={null}>
+      <PricingContent />
+    </Suspense>
   );
 }

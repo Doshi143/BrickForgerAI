@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, use, useEffect, useState } from "react";
 
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
@@ -11,6 +12,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
 import {
+  ApiError,
   Job,
   STATUS_LABELS,
   STATUS_ORDER,
@@ -28,23 +30,42 @@ const Viewer3D = dynamic(() => import("@/components/Viewer3D"), {
 });
 
 const POLL_INTERVAL_MS = 2000;
+// After returning from a real Stripe Checkout for the instructions
+// unlock, the webhook that actually flips instructions_unlocked hasn't
+// necessarily landed yet by the time the browser redirects back here --
+// keep polling a bounded number of extra times rather than leaving the
+// page stuck showing "locked" right after a real payment succeeded.
+const POST_CHECKOUT_MAX_EXTRA_POLLS = 6;
 
 export default function GeneratePage({ params }: { params: Promise<{ jobId: string }> }) {
+  return (
+    <Suspense fallback={null}>
+      <GenerateContent params={params} />
+    </Suspense>
+  );
+}
+
+function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = use(params);
   const { dark, toggleDark } = useTheme();
   const { token } = useAuth();
   const { activeJobId, dismiss: dismissActiveJob } = useActiveJob();
+  const searchParams = useSearchParams();
+  const checkoutStatus = searchParams.get("checkout");
   const [job, setJob] = useState<Job | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
 
   async function handleUnlock() {
     if (!token || unlocking) return;
     setUnlocking(true);
+    setUnlockError(null);
     try {
-      const updated = await unlockInstructions(jobId, token);
-      setJob(updated);
-    } finally {
+      const { checkout_url } = await unlockInstructions(jobId, token);
+      window.location.href = checkout_url;
+    } catch (err) {
+      setUnlockError(err instanceof ApiError ? err.message : "Couldn't start checkout. Try again.");
       setUnlocking(false);
     }
   }
@@ -54,6 +75,7 @@ export default function GeneratePage({ params }: { params: Promise<{ jobId: stri
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let extraPolls = 0;
 
     async function poll() {
       try {
@@ -61,7 +83,15 @@ export default function GeneratePage({ params }: { params: Promise<{ jobId: stri
         if (cancelled) return;
         setJob(next);
         setPollError(null);
-        if (next.status !== "done" && next.status !== "failed") {
+        const stillWorking = next.status !== "done" && next.status !== "failed";
+        // Once the job itself is done, keep polling a few more times only
+        // if we're specifically waiting on a checkout-confirmed unlock
+        // that hasn't shown up yet -- not indefinitely, and not for any
+        // other reason.
+        const waitingOnUnlockWebhook =
+          checkoutStatus === "success" && !next.instructions_unlocked && extraPolls < POST_CHECKOUT_MAX_EXTRA_POLLS;
+        if (stillWorking || waitingOnUnlockWebhook) {
+          if (!stillWorking) extraPolls += 1;
           timer = setTimeout(poll, POLL_INTERVAL_MS);
         }
       } catch (err) {
@@ -76,7 +106,7 @@ export default function GeneratePage({ params }: { params: Promise<{ jobId: stri
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [jobId]);
+  }, [jobId, checkoutStatus]);
 
   // Once you've actually landed here and seen a finished (or failed)
   // result for the job the floating bar was tracking, there's nothing
@@ -203,14 +233,17 @@ export default function GeneratePage({ params }: { params: Promise<{ jobId: stri
                     }}
                   >
                     {unlocking
-                      ? "Unlocking…"
+                      ? "Redirecting…"
                       : `Unlock Instructions — £${job.instructions_price_gbp ?? 5}`}
                   </button>
                 )}
               </div>
-              {!job.instructions_unlocked && (
+              {unlockError && (
+                <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{unlockError}</p>
+              )}
+              {!job.instructions_unlocked && checkoutStatus === "success" && (
                 <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-                  Demo only — no real payment yet (Stripe integration coming later).
+                  Payment received — confirming now, this usually takes just a few seconds.
                 </p>
               )}
 

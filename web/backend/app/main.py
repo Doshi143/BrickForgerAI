@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import auth, content_filter, rate_limit
+from . import auth, billing, content_filter, rate_limit
 from .storage import R2Storage
 from .jobs import (
     JOB_TIMEOUT_S,
@@ -364,24 +364,82 @@ def download_ldr(job_id: str) -> Response:
 
 @app.post("/generate/{job_id}/unlock-instructions")
 def unlock_instructions(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> dict:
-    """Mock purchase: marks a free-plan job's instructions as unlocked with
-    no real payment behind it (Stripe is explicitly deferred -- see the
-    pricing page and auth.py's module docstring). Exists so the pricing
-    model has a real, working data flow end to end; wiring an actual
-    charge here is the next step, not a rewrite of this endpoint.
+    """Real charge, via Stripe Checkout -- returns a checkout_url to
+    redirect the browser to rather than unlocking immediately. The actual
+    unlock happens from the webhook (see _unlock_instructions_for_job
+    below and billing.handle_webhook_event), once Stripe confirms the
+    payment actually went through, not before.
 
-    Reads/writes meta.json directly (via load_job_meta / _write_job_meta_dict)
-    rather than an in-memory JOBS dict -- once the pipeline runs in a
-    separate worker process, there is no live Job object left in this
-    process to mutate; persisted meta is the only thing both processes
-    actually share."""
+    Dynamic price (£5-15, scaled by part count -- see
+    jobs.py::_estimate_instructions_price_gbp), so this can't use one of
+    billing.PRICE_IDS the way plan checkout does; billing.py builds an
+    inline price_data line item instead."""
     data = _get_job_dict_or_404(job_id)
     if data.get("user_id") != user.id:
         raise HTTPException(403, "not your job")
+    if data.get("instructions_unlocked"):
+        raise HTTPException(400, "already unlocked")
 
+    checkout_url = billing.create_unlock_instructions_checkout(
+        user, job_id, data.get("instructions_price_gbp", 5)
+    )
+    return {"checkout_url": checkout_url}
+
+
+def _unlock_instructions_for_job(job_id: str) -> None:
+    """Called from the Stripe webhook once a job's instructions-unlock
+    payment is confirmed. Separate from the endpoint above (which creates
+    the checkout, not the unlock itself) -- injected into
+    billing.handle_webhook_event to avoid a circular import between
+    main.py and billing.py."""
+    data = load_job_meta(job_id)
+    if data is None:
+        return
     data["instructions_unlocked"] = True
     _write_job_meta_dict(job_id, data)
-    return _strip_internal_fields(data)
+
+
+class PlanCheckoutRequest(BaseModel):
+    plan: str  # "builder" or "pro"
+
+
+@app.post("/billing/checkout")
+def billing_checkout(req: PlanCheckoutRequest, user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """Free -> Builder/Master Builder, or a plan change between the two --
+    returns a checkout_url to redirect the browser to. The actual plan
+    change happens from the webhook once Stripe confirms the
+    subscription, not here."""
+    if req.plan not in billing.PRICE_IDS:
+        raise HTTPException(400, f"Unknown plan: {req.plan!r}")
+    return {"checkout_url": billing.create_subscription_checkout(user, req.plan)}
+
+
+@app.post("/billing/topup-checkout")
+def billing_topup_checkout(user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """+5 credits for £6, available to any signed-in user on any plan."""
+    return {"checkout_url": billing.create_topup_checkout(user)}
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request) -> dict:
+    """Verifies the signature, dedupes by event ID (Stripe retries
+    delivery on anything short of a 200 -- see
+    auth.mark_stripe_event_processed's own docstring for why this matters
+    for the top-up flow specifically), then dispatches. Returns 200 for a
+    duplicate delivery too -- acknowledging it (rather than erroring) is
+    what stops Stripe from retrying forever."""
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature")
+    try:
+        event = billing.verify_and_parse_webhook(payload, signature)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    if not auth.mark_stripe_event_processed(event["id"]):
+        return {"received": True}
+
+    billing.handle_webhook_event(event, _unlock_instructions_for_job)
+    return {"received": True}
 
 
 @app.get("/generate/{job_id}/thumbnail")

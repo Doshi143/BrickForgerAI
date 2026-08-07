@@ -92,7 +92,11 @@ if not JWT_SECRET:
 
 TOKEN_TTL_DAYS = 30
 
-PLAN_CREDITS = {"free": 10, "pro": 30}
+# "builder" and "pro" (Master Builder) map directly to Stripe subscription
+# Prices in billing.py's PRICE_IDS -- the two dicts must stay in sync, but
+# live in separate modules deliberately (this one has no Stripe
+# dependency, so local dev/tests that never touch billing still work).
+PLAN_CREDITS = {"free": 5, "builder": 12, "pro": 30}
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -112,6 +116,33 @@ def init_db() -> None:
             )
             """
         )
+        # Added after the users table already existed in production --
+        # plain ADD COLUMN, not part of CREATE TABLE, so existing rows
+        # aren't affected (stripe_customer_id stays NULL until a user's
+        # first checkout creates one). Swallowing the failure is the
+        # simplest thing that's correct on both backends: SQLite has no
+        # portable ADD COLUMN IF NOT EXISTS, and Postgres's version isn't
+        # available on every server version either -- but "column already
+        # exists" is the only realistic failure mode for a fixed, known
+        # column add like this, so a bare try/except is safe here, not a
+        # hidden-failure risk.
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN stripe_customer_id TEXT")
+        except Exception:
+            pass
+        # Webhook idempotency: Stripe retries delivery on anything short of
+        # a 200, so the same event can arrive more than once. Recording
+        # every event ID we've already handled -- checked before any
+        # side-effecting work runs -- is what makes a retried "add 5
+        # credits" a no-op instead of a double-credit.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS processed_stripe_events (
+                event_id TEXT PRIMARY KEY,
+                processed_at TEXT NOT NULL
+            )
+            """
+        )
 
 
 def _current_month() -> str:
@@ -125,6 +156,7 @@ def _row_to_user(row: sqlite3.Row) -> "User":
         plan=row["plan"],
         credits_remaining=row["credits_remaining"],
         credits_reset_month=row["credits_reset_month"],
+        stripe_customer_id=row["stripe_customer_id"],
     )
     # Monthly reset: if the stored reset-month doesn't match the real
     # current month, this user's credits haven't been topped up yet.
@@ -147,6 +179,7 @@ class User:
     plan: str
     credits_remaining: int
     credits_reset_month: str
+    stripe_customer_id: str | None = None
 
 
 def create_user(email: str, password: str) -> User:
@@ -212,6 +245,85 @@ def consume_credit(user_id: str) -> User:
     return user
 
 
+def get_user_by_stripe_customer_id(customer_id: str) -> User | None:
+    with _connect() as conn:
+        row = conn.execute(_ph("SELECT * FROM users WHERE stripe_customer_id = ?"), (customer_id,)).fetchone()
+    return None if row is None else _row_to_user(row)
+
+
+def set_stripe_customer_id(user_id: str, customer_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(_ph("UPDATE users SET stripe_customer_id = ? WHERE id = ?"), (customer_id, user_id))
+
+
+def set_user_plan_and_provision(user_id: str, plan: str) -> User:
+    """Sets a user's plan and immediately tops their credits up to that
+    plan's full monthly allowance -- called from the Stripe webhook on a
+    genuine plan change (upgrade, downgrade, or cancellation-to-free), not
+    on every subscription.updated ping (billing.py only calls this when
+    the derived plan actually differs from what's stored, so an unrelated
+    Stripe-side update can't silently reset a user's remaining credits
+    mid-cycle). Idempotent by construction -- setting a specific plan and
+    credit amount has the same result no matter how many times a retried
+    webhook delivery runs it, unlike consume_credit's relative decrement."""
+    if plan not in PLAN_CREDITS:
+        raise ValueError(f"Unknown plan: {plan!r}")
+    this_month = _current_month()
+    with _connect() as conn:
+        conn.execute(
+            _ph("UPDATE users SET plan = ?, credits_remaining = ?, credits_reset_month = ? WHERE id = ?"),
+            (plan, PLAN_CREDITS[plan], this_month, user_id),
+        )
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise ValueError("User not found")
+    return user
+
+
+def add_credits(user_id: str, amount: int) -> User:
+    """Adds credits on top of the current balance without touching plan or
+    credits_reset_month -- the top-up purchase, which stacks on whatever a
+    user already has rather than replacing it. NOT idempotent by itself
+    (unlike set_user_plan_and_provision) -- the caller (billing.py's
+    webhook handler) must only call this once per Stripe event, via
+    mark_stripe_event_processed below."""
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise ValueError("User not found")
+    with _connect() as conn:
+        conn.execute(
+            _ph("UPDATE users SET credits_remaining = ? WHERE id = ?"),
+            (user.credits_remaining + amount, user_id),
+        )
+    user.credits_remaining += amount
+    return user
+
+
+def mark_stripe_event_processed(event_id: str) -> bool:
+    """Returns True the first time this event_id is seen (and records it),
+    False on every subsequent call -- Stripe's own recommended idempotency
+    pattern, since it retries webhook delivery on anything short of a 200.
+    A plain INSERT that fails on the primary-key conflict is simpler and
+    more directly correct here than a SELECT-then-INSERT race."""
+    with _connect() as conn:
+        try:
+            conn.execute(
+                _ph("INSERT INTO processed_stripe_events (event_id, processed_at) VALUES (?, ?)"),
+                (event_id, datetime.now(timezone.utc).isoformat()),
+            )
+            return True
+        except Exception:
+            # Explicit rollback, not just "let the caught exception fall
+            # through" -- Postgres specifically leaves a transaction
+            # aborted after any failed statement, and swallowing the
+            # exception here (so _connect()'s own commit-on-clean-exit
+            # runs next) would otherwise depend on "committing an aborted
+            # transaction is defined to roll back" rather than saying so
+            # directly.
+            conn.rollback()
+            return False
+
+
 def _make_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
@@ -227,7 +339,7 @@ def _user_to_dict(user: User) -> dict:
         "plan": user.plan,
         "credits_remaining": user.credits_remaining,
         "monthly_credit_allowance": PLAN_CREDITS[user.plan],
-        "instructions_included": user.plan == "pro",
+        "instructions_included": user.plan in ("builder", "pro"),
     }
 
 

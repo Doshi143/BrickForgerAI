@@ -77,7 +77,7 @@ function AuthFormInner({ mode }: { mode: "signin" | "signup" }) {
             </h1>
             <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 28 }}>
               {isSignup
-                ? "Free plan includes 10 build credits a month."
+                ? "Free plan includes 5 build credits a month."
                 : "Sign in to keep building."}
             </p>
 
