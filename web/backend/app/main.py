@@ -88,13 +88,25 @@ async def _security_headers(request: Request, call_next):
     deployment), so a strict CSP here can't break anything self-hosted.
     Skipped for /docs, /redoc, /openapi.json (only reachable at all when
     ENABLE_API_DOCS=true) since Swagger/ReDoc's UI loads CDN JS/CSS that
-    default-src 'none' would otherwise block."""
+    default-src 'none' would otherwise block.
+
+    Also skipped on redirect responses (3xx) -- confirmed as the actual
+    cause of the 3D preview silently failing in every browser while
+    working fine from curl and from a direct fetch of the redirect
+    target: _serve_job_file's 307 to a presigned R2 URL carried this same
+    CSP header, and Chrome refuses to auto-follow a cross-origin redirect
+    whose response sets a restrictive CSP, even though the redirect
+    itself has no body/content for a CSP to meaningfully restrict in the
+    first place. Skipping it for every redirect (not just these three
+    endpoints) means this can't quietly break again if another
+    redirect-returning endpoint is added later."""
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-    if request.url.path not in ("/docs", "/redoc", "/openapi.json"):
+    is_redirect = 300 <= response.status_code < 400
+    if not is_redirect and request.url.path not in ("/docs", "/redoc", "/openapi.json"):
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     return response
 
