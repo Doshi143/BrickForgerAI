@@ -54,15 +54,43 @@ _PRICE_ID_TO_PLAN = {v: k for k, v in PRICE_IDS.items()}
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
 
-def _get_or_create_customer(user: auth.User) -> str:
+def _get_or_create_customer(user: auth.User, force_new: bool = False) -> str:
     """Every Checkout Session needs a Stripe Customer -- created once per
     user, on first checkout, and reused after (stored on our own users
-    row, not looked up from Stripe on every call)."""
-    if user.stripe_customer_id:
+    row, not looked up from Stripe on every call).
+
+    force_new bypasses the stored ID -- used by _create_checkout_session
+    below to self-heal a stripe_customer_id that's stale for the *current*
+    STRIPE_SECRET_KEY's mode. Confirmed as a real production failure, not
+    a hypothetical: an account that transacted while STRIPE_SECRET_KEY was
+    still test-mode has a customer ID that only exists in test mode's
+    entirely separate object space -- Stripe rejects any live-mode call
+    referencing it with "No such customer ... a similar object exists in
+    test mode". That's a one-time transition case per affected account
+    (once it has a live-mode customer, it stays valid), not an ongoing
+    cost, so this is handled by retrying on failure rather than verifying
+    the stored ID on every single checkout."""
+    if user.stripe_customer_id and not force_new:
         return user.stripe_customer_id
     customer = stripe.Customer.create(email=user.email, metadata={"user_id": user.id})
     auth.set_stripe_customer_id(user.id, customer.id)
     return customer.id
+
+
+def _create_checkout_session(user: auth.User, **session_kwargs) -> str:
+    """Shared by all three checkout flows below: resolves the user's Stripe
+    Customer and creates the session, retrying once with a freshly created
+    Customer if the stored one turns out to be invalid for the current API
+    key's mode (see _get_or_create_customer's own docstring)."""
+    customer_id = _get_or_create_customer(user)
+    try:
+        session = stripe.checkout.Session.create(customer=customer_id, **session_kwargs)
+    except stripe.InvalidRequestError as exc:
+        if "No such customer" not in str(exc):
+            raise
+        customer_id = _get_or_create_customer(user, force_new=True)
+        session = stripe.checkout.Session.create(customer=customer_id, **session_kwargs)
+    return session.url
 
 
 def create_subscription_checkout(user: auth.User, plan: str) -> str:
@@ -73,32 +101,28 @@ def create_subscription_checkout(user: auth.User, plan: str) -> str:
     it."""
     if plan not in PRICE_IDS:
         raise ValueError(f"Unknown plan: {plan!r}")
-    customer_id = _get_or_create_customer(user)
-    session = stripe.checkout.Session.create(
-        customer=customer_id,
+    return _create_checkout_session(
+        user,
         mode="subscription",
         line_items=[{"price": PRICE_IDS[plan], "quantity": 1}],
         success_url=f"{FRONTEND_URL}/pricing?checkout=success",
         cancel_url=f"{FRONTEND_URL}/pricing?checkout=cancelled",
         client_reference_id=user.id,
     )
-    return session.url
 
 
 def create_topup_checkout(user: auth.User) -> str:
     """+5 credits for £6, one-time payment, available regardless of plan.
     Stacks on top of the user's existing credits_remaining -- see
     auth.add_credits -- rather than replacing it."""
-    customer_id = _get_or_create_customer(user)
-    session = stripe.checkout.Session.create(
-        customer=customer_id,
+    return _create_checkout_session(
+        user,
         mode="payment",
         line_items=[{"price": TOPUP_PRICE_ID, "quantity": 1}],
         success_url=f"{FRONTEND_URL}/pricing?checkout=success",
         cancel_url=f"{FRONTEND_URL}/pricing?checkout=cancelled",
         metadata={"type": "topup", "user_id": user.id},
     )
-    return session.url
 
 
 def create_unlock_instructions_checkout(user: auth.User, job_id: str, price_gbp: int) -> str:
@@ -107,9 +131,8 @@ def create_unlock_instructions_checkout(user: auth.User, job_id: str, price_gbp:
     an inline price_data line item instead of one of the fixed Prices
     above -- there's no way to pre-create a Price for an amount that isn't
     known until the model exists."""
-    customer_id = _get_or_create_customer(user)
-    session = stripe.checkout.Session.create(
-        customer=customer_id,
+    return _create_checkout_session(
+        user,
         mode="payment",
         line_items=[
             {
@@ -125,7 +148,6 @@ def create_unlock_instructions_checkout(user: auth.User, job_id: str, price_gbp:
         cancel_url=f"{FRONTEND_URL}/generate/{job_id}?checkout=cancelled",
         metadata={"type": "unlock_instructions", "job_id": job_id, "user_id": user.id},
     )
-    return session.url
 
 
 def verify_and_parse_webhook(payload: bytes, signature_header: str | None) -> stripe.Event:
