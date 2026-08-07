@@ -84,6 +84,13 @@ export default function Home() {
         setError("You're out of credits this month. Upgrade on the pricing page for more.");
       } else if (err instanceof ApiError && err.status === 401) {
         router.push(`/signin?next=${encodeURIComponent("/")}`);
+      } else if (err instanceof ApiError) {
+        // Any other ApiError means the backend responded -- just a
+        // rejection (content filter, validation, etc.), not an outage --
+        // so show its message as-is instead of the "is the backend
+        // running" suffix below, which only makes sense when the backend
+        // never responded at all.
+        setError(err.message);
       } else {
         setError(
           `${(err as Error).message}. Is the backend running on ${
