@@ -267,9 +267,7 @@ export default function Home() {
 
           <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
             {user
-              ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month${
-                  user.instructions_included ? " • .ldr download included" : " • .ldr download from £5–£15"
-                }`
+              ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month`
               : "Free plan: 5 credits a month • Pay only to download the .ldr file"}
           </p>
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
