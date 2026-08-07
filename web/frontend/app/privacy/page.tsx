@@ -63,8 +63,8 @@ export default function PrivacyPage() {
           necessary data with the service providers that make the Service work:
         </p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
-          <li>Your prompt is sent to OpenAI to generate a reference image</li>
-          <li>That image is sent to our 3D-generation provider (fal.ai, running TRELLIS 2) to produce a mesh</li>
+          <li>Your prompt is used to generate a reference image via a third-party AI image-generation service</li>
+          <li>That image is used to generate a 3D model via a third-party AI 3D-generation service</li>
           <li>Railway hosts our servers, database, and job queue</li>
           <li>Cloudflare R2 stores your generated files</li>
           <li>Sentry receives error/crash reports to help us fix bugs — this can include request metadata such as your IP address, but never your password</li>
