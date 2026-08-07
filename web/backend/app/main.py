@@ -32,6 +32,7 @@ from .jobs import (
     STORAGE,
     Job,
     JobStatus,
+    _job_dir,
     _write_job_meta_dict,
     load_job_meta,
     process_job,
@@ -416,9 +417,18 @@ def save_render(job_id: str, body: RenderCapture) -> dict:
     here -- worst case someone overwrites a gallery thumbnail with a
     wrong image, not a real security concern for a trial app."""
     _validate_job_id_or_404(job_id)
-    jdir = os.path.join(JOBS_DIR, job_id)
-    if not os.path.isdir(jdir):
+    # load_job_meta, not a bare os.path.isdir(JOBS_DIR/job_id) -- the same
+    # bug as the "stuck at queued" fix above, just in a different
+    # function: this container's own local disk only has a directory for
+    # a job if THIS container happened to be the one that created or
+    # processed it. Any redeploy since then (this endpoint is on
+    # `backend`, which redeploys on every push, same as `worker`) wipes
+    # that clean, and a real, already-completed job then gets a false
+    # "job not found" the moment its render is captured on a fresh
+    # container -- confirmed on a real job, not assumed.
+    if load_job_meta(job_id) is None:
         raise HTTPException(404, "job not found")
+    jdir = _job_dir(job_id)
 
     prefix = "data:image/png;base64,"
     if not body.image_data_url.startswith(prefix):
