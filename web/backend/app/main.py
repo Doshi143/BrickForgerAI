@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from . import auth, content_filter, rate_limit
+from .storage import R2Storage
 from .jobs import (
     JOB_TIMEOUT_S,
     JOBS_DIR,
@@ -289,14 +290,36 @@ def _serve_job_file(
     media_type: str,
     download_filename: str | None = None,
 ) -> Response:
-    """Shared by preview/download/thumbnail below: redirect to a short-lived
-    signed URL when the storage backend can produce one (R2), otherwise
-    fall back to serving straight from local disk (LocalStorage -- signed
-    urls don't mean anything for a file on this same machine). Raises 404
-    itself so callers can just return its result."""
+    """Shared by preview/download/thumbnail below. Raises 404 itself so
+    callers can just return its result.
+
+    download_filename unset (preview/thumbnail) streams the bytes through
+    this backend rather than redirecting to R2, even though R2 can
+    produce a signed URL. A 307 redirect there is a confirmed dead end:
+    R2's own CORS response is independently correct (verified directly
+    with curl -- both the preflight and the final GET, from multiple
+    angles, with the right Access-Control-Allow-Origin every time), yet
+    real browsers still fail the *redirected* fetch with "No
+    Access-Control-Allow-Origin header is present" -- cross-origin
+    redirect + CORS-mode fetch is a known-fragile combination across
+    browser implementations, not something fixable by correcting either
+    origin's headers further. Streaming through this backend sidesteps
+    it entirely: the browser only ever talks to api.brickforgerai.com,
+    already proven to work correctly for every other endpoint.
+
+    download_filename set (an actual "save this file" click) keeps
+    redirecting: a plain <a download> click is a top-level navigation,
+    not a JS fetch -- browsers handle that redirect with no CORS
+    involved at all -- and letting R2 serve it directly saves this
+    backend's own bandwidth for files users are actually saving."""
     _validate_job_id_or_404(job_id)
     if not STORAGE.exists(job_id, filename):
         raise HTTPException(404, "file not ready")
+
+    if download_filename is None and isinstance(STORAGE, R2Storage):
+        data = STORAGE.get_bytes(job_id, filename)
+        if data is not None:
+            return Response(content=data, media_type=media_type, headers={"Cache-Control": "no-store"})
 
     url = STORAGE.signed_url(job_id, filename, download_filename=download_filename)
     if url:
