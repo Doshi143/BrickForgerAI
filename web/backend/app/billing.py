@@ -150,6 +150,46 @@ def create_unlock_instructions_checkout(user: auth.User, job_id: str, price_gbp:
     )
 
 
+def create_billing_portal_session(user: auth.User) -> str:
+    """Returns a URL to Stripe's own hosted Billing Portal -- shows the
+    customer their next billing date, lets them update their saved card,
+    view past invoices, and cancel their subscription, all without this
+    app ever touching a card number (same PCI-scope reasoning as
+    Checkout, see this module's own docstring). No custom "next billing
+    date" or "update card" page should be built to replace this.
+
+    Cancelling through the portal is also how downgrade-to-free actually
+    happens -- Stripe's own default behavior keeps the plan active until
+    the current period ends (the customer already paid for it), then
+    fires customer.subscription.deleted, which handle_webhook_event
+    already handles by setting the plan back to 'free'. No separate
+    downgrade endpoint or webhook logic is needed on top of what already
+    exists for that event.
+
+    Raises ValueError (never a raw stripe.InvalidRequestError) if this
+    user has never had a Stripe customer record at all, or if the one on
+    file doesn't resolve against the current API key's mode -- same
+    stale-test-mode-customer-ID scenario _create_checkout_session
+    self-heals by creating a fresh customer, but that fix doesn't apply
+    here: the whole point of the portal is showing *existing* billing
+    history, and a freshly created empty customer has none to show, so
+    surfacing a clear error instead is more honest than silently opening
+    a blank portal. Confirmed as a real gap by testing this function
+    directly, not just assumed: an unresolvable customer ID previously
+    propagated as an unhandled stripe.InvalidRequestError, a raw 500 to
+    the caller."""
+    if not user.stripe_customer_id:
+        raise ValueError("No billing history yet -- nothing to manage")
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=user.stripe_customer_id,
+            return_url=f"{FRONTEND_URL}/pricing",
+        )
+    except stripe.InvalidRequestError as exc:
+        raise ValueError("Couldn't find your billing account -- contact support") from exc
+    return session.url
+
+
 def verify_and_parse_webhook(payload: bytes, signature_header: str | None) -> stripe.Event:
     """Raises ValueError on a missing/invalid signature -- the caller
     (main.py) turns that into an HTTP 400. Never process a webhook body

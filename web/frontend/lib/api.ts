@@ -40,6 +40,7 @@ export type AuthUser = {
   credits_remaining: number;
   monthly_credit_allowance: number;
   instructions_included: boolean;
+  has_billing_account: boolean;
 };
 
 export class ApiError extends Error {
@@ -148,6 +149,23 @@ export async function startTopupCheckout(token: string): Promise<{ checkout_url:
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new ApiError(res.status, detail?.detail ?? "Failed to start checkout");
+  }
+  return res.json();
+}
+
+/** Returns a URL to Stripe's own hosted Billing Portal -- next billing
+ * date, saved card, invoices, and cancellation (which downgrades to free
+ * at the end of the current billing period) are all handled there, not
+ * by any page in this app. Only meaningful for a user who has a Stripe
+ * customer record at all (see AuthUser.has_billing_account). */
+export async function startBillingPortal(token: string): Promise<{ portal_url: string }> {
+  const res = await fetch(`${API_BASE}/billing/portal`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to open billing portal");
   }
   return res.json();
 }

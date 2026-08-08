@@ -500,6 +500,12 @@ def _user_to_dict(user: User) -> dict:
         "credits_remaining": user.credits_remaining + user.topup_credits_remaining,
         "monthly_credit_allowance": PLAN_CREDITS[user.plan],
         "instructions_included": user.plan in ("builder", "pro"),
+        # Not the raw Stripe customer ID (that stays server-side) -- just
+        # enough for the frontend to decide whether "Manage billing" has
+        # anything to show. True for anyone who's ever subscribed or
+        # bought a top-up, even if they're back on the free plan now (a
+        # cancelled subscriber still has past invoices worth showing).
+        "has_billing_account": user.stripe_customer_id is not None,
     }
 
 

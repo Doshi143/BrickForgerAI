@@ -9,7 +9,7 @@ import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
-import { ApiError, startPlanCheckout, startTopupCheckout } from "@/lib/api";
+import { ApiError, startBillingPortal, startPlanCheckout, startTopupCheckout } from "@/lib/api";
 
 type Plan = {
   id: "free" | "builder" | "pro";
@@ -100,6 +100,22 @@ function PricingContent() {
       window.location.href = checkout_url;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start checkout. Try again.");
+      setLoadingPlan(null);
+    }
+  }
+
+  // Stripe's own hosted portal -- next billing date, saved card, invoices,
+  // and cancellation (which downgrades to free once the current billing
+  // period ends) all live there, not in a page this app builds itself.
+  async function handleManageBilling() {
+    if (!token) return;
+    setError(null);
+    setLoadingPlan("portal");
+    try {
+      const { portal_url } = await startBillingPortal(token);
+      window.location.href = portal_url;
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't open billing portal. Try again.");
       setLoadingPlan(null);
     }
   }
@@ -233,10 +249,21 @@ function PricingContent() {
                   </ul>
 
                   <button
-                    disabled={isCurrent || (isPaid && loadingPlan === plan.id)}
+                    disabled={
+                      isCurrent ||
+                      (isPaid && loadingPlan === plan.id) ||
+                      (!isPaid && !!user && loadingPlan === "portal")
+                    }
                     onClick={() => {
                       if (!isPaid) {
+                        // "Downgrade to Free" for a currently-paid user has
+                        // to go through Stripe's own cancellation flow in
+                        // the billing portal, not just flip a plan flag in
+                        // our own DB -- otherwise the Stripe subscription
+                        // stays active and they'd still be charged next
+                        // cycle. See handleManageBilling's own comment.
                         if (!user) router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
+                        else handleManageBilling();
                         return;
                       }
                       handleUpgrade(plan.id as "builder" | "pro");
@@ -252,25 +279,27 @@ function PricingContent() {
                       fontSize: 15,
                       cursor: isCurrent ? "default" : "pointer",
                       fontFamily: "inherit",
-                      opacity: isPaid && loadingPlan === plan.id ? 0.6 : 1,
+                      opacity: (isPaid && loadingPlan === plan.id) || (!isPaid && loadingPlan === "portal") ? 0.6 : 1,
                     }}
                   >
                     {isCurrent
                       ? "Your current plan"
                       : !user
                       ? "Sign up free"
-                      : isPaid && loadingPlan === plan.id
+                      : !isPaid
+                      ? loadingPlan === "portal"
+                        ? "Redirecting…"
+                        : "Downgrade to Free"
+                      : loadingPlan === plan.id
                       ? "Redirecting…"
-                      : isPaid
-                      ? "Upgrade"
-                      : "Downgrade to Free"}
+                      : "Upgrade"}
                   </button>
                 </div>
               );
             })}
           </div>
 
-          {user && (
+          {user?.has_billing_account && (
             <div
               style={{
                 marginTop: 40,
@@ -280,6 +309,54 @@ function PricingContent() {
                 padding: "28px 32px",
                 maxWidth: 520,
                 margin: "40px auto 0",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 20,
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
+                  Manage your billing
+                </div>
+                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
+                  See your next billing date, update your card, or view past invoices.
+                </div>
+              </div>
+              <button
+                onClick={handleManageBilling}
+                disabled={loadingPlan === "portal"}
+                style={{
+                  background: "none",
+                  border: `2px solid ${colors.cardBorder}`,
+                  color: colors.textPrimary,
+                  padding: "12px 22px",
+                  borderRadius: 12,
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  whiteSpace: "nowrap",
+                  opacity: loadingPlan === "portal" ? 0.6 : 1,
+                }}
+              >
+                {loadingPlan === "portal" ? "Redirecting…" : "Manage billing"}
+              </button>
+            </div>
+          )}
+
+          {user && (
+            <div
+              style={{
+                marginTop: 20,
+                background: colors.cardBg,
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 20,
+                padding: "28px 32px",
+                maxWidth: 520,
+                margin: "20px auto 0",
                 textAlign: "left",
                 display: "flex",
                 alignItems: "center",

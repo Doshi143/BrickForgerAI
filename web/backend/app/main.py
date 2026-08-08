@@ -444,6 +444,20 @@ def billing_topup_checkout(user: auth.User = Depends(auth.get_current_user)) -> 
     return {"checkout_url": billing.create_topup_checkout(user)}
 
 
+@app.post("/billing/portal")
+def billing_portal(user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """Returns a URL to Stripe's hosted Billing Portal -- next billing
+    date, card updates, invoices, and cancellation, all handled by Stripe
+    itself. Not gated by _check_generation_allowlist: managing an
+    already-existing subscription doesn't start a new charge or cost this
+    app anything, unlike checkout/topup/unlock, which is what that gate
+    exists to restrict (see its own docstring)."""
+    try:
+        return {"portal_url": billing.create_billing_portal_session(user)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request) -> dict:
     """Verifies the signature, dedupes by event ID (Stripe retries
