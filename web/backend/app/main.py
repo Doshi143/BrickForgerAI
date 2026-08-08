@@ -48,16 +48,33 @@ if SENTRY_DSN:
 
 auth.init_db()
 
-# Empty by default -- every signed-up user can generate, the normal
-# behavior. Set to a comma-separated list of emails (case-insensitive) to
-# temporarily restrict POST /generate to just those accounts, e.g. while
-# payments aren't live yet and every generation is a real API cost with no
-# revenue behind it. Signup/login stay open either way -- only the
-# expensive endpoint is gated -- so lifting this later is just clearing
-# the env var in Railway, no code change or redeploy needed.
+# Empty by default -- every signed-up user can generate and pay, the
+# normal behavior. Set to a comma-separated list of emails
+# (case-insensitive) to temporarily restrict every cost-incurring or
+# money-moving action -- generating, subscribing, buying a top-up, or
+# unlocking instructions -- to just those accounts, e.g. while doing
+# further testing/maintenance and real strangers shouldn't be able to
+# either run up API costs or complete real charges. Signup/login stay
+# open either way -- only these specific endpoints are gated -- so
+# lifting this later is just clearing the env var in Railway, no code
+# change or redeploy needed. Does NOT gate the Stripe webhook itself: a
+# payment that already completed must still be honored regardless, this
+# only stops new purchase attempts from starting.
 GENERATION_ALLOWLIST = {
     e.strip().lower() for e in os.environ.get("GENERATION_ALLOWLIST", "").split(",") if e.strip()
 }
+
+
+def _check_generation_allowlist(user: "auth.User") -> None:
+    """Raises 403 if GENERATION_ALLOWLIST is set and this user isn't on
+    it -- shared by every endpoint that either costs real API money
+    (generate) or moves real money (checkout/top-up/unlock). See
+    GENERATION_ALLOWLIST's own docstring above for why webhook handling
+    itself is deliberately excluded from this check."""
+    if GENERATION_ALLOWLIST and user.email.lower() not in GENERATION_ALLOWLIST:
+        raise HTTPException(
+            403, "This action is temporarily restricted while we finish setting up payments -- check back soon!"
+        )
 
 # Off by default: public interactive docs (/docs, /redoc, /openapi.json)
 # hand anyone your complete route/parameter surface for free reconnaissance,
@@ -144,10 +161,7 @@ def generate(
 
     # Checked first, before anything else costs a request cycle -- see
     # GENERATION_ALLOWLIST's own docstring above.
-    if GENERATION_ALLOWLIST and user.email.lower() not in GENERATION_ALLOWLIST:
-        raise HTTPException(
-            403, "Generations are temporarily paused while we finish setting up payments -- check back soon!"
-        )
+    _check_generation_allowlist(user)
 
     # Runs before rate limiting/credits too -- rejecting a copyrighted-
     # character prompt should never cost the user a credit or count
@@ -374,6 +388,7 @@ def unlock_instructions(job_id: str, user: auth.User = Depends(auth.get_current_
     jobs.py::_estimate_instructions_price_gbp), so this can't use one of
     billing.PRICE_IDS the way plan checkout does; billing.py builds an
     inline price_data line item instead."""
+    _check_generation_allowlist(user)
     data = _get_job_dict_or_404(job_id)
     if data.get("user_id") != user.id:
         raise HTTPException(403, "not your job")
@@ -409,6 +424,7 @@ def billing_checkout(req: PlanCheckoutRequest, user: auth.User = Depends(auth.ge
     returns a checkout_url to redirect the browser to. The actual plan
     change happens from the webhook once Stripe confirms the
     subscription, not here."""
+    _check_generation_allowlist(user)
     if req.plan not in billing.PRICE_IDS:
         raise HTTPException(400, f"Unknown plan: {req.plan!r}")
     return {"checkout_url": billing.create_subscription_checkout(user, req.plan)}
@@ -417,6 +433,7 @@ def billing_checkout(req: PlanCheckoutRequest, user: auth.User = Depends(auth.ge
 @app.post("/billing/topup-checkout")
 def billing_topup_checkout(user: auth.User = Depends(auth.get_current_user)) -> dict:
     """+5 credits for £6, available to any signed-in user on any plan."""
+    _check_generation_allowlist(user)
     return {"checkout_url": billing.create_topup_checkout(user)}
 
 
