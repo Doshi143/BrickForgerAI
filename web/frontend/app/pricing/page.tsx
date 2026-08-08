@@ -299,99 +299,93 @@ function PricingContent() {
             })}
           </div>
 
-          {user?.has_billing_account && (
-            <div
-              style={{
-                marginTop: 40,
-                background: colors.cardBg,
-                border: `1px solid ${colors.cardBorder}`,
-                borderRadius: 20,
-                padding: "28px 32px",
-                maxWidth: 520,
-                margin: "40px auto 0",
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 20,
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
-                  Manage your billing
-                </div>
-                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
-                  See your next billing date, update your card, or view past invoices.
-                </div>
-              </div>
-              <button
-                onClick={handleManageBilling}
-                disabled={loadingPlan === "portal"}
-                style={{
-                  background: "none",
-                  border: `2px solid ${colors.cardBorder}`,
-                  color: colors.textPrimary,
-                  padding: "12px 22px",
-                  borderRadius: 12,
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  whiteSpace: "nowrap",
-                  opacity: loadingPlan === "portal" ? 0.6 : 1,
-                }}
-              >
-                {loadingPlan === "portal" ? "Redirecting…" : "Manage billing"}
-              </button>
-            </div>
-          )}
-
           {user && (
             <div
               style={{
-                marginTop: 20,
-                background: colors.cardBg,
-                border: `1px solid ${colors.cardBorder}`,
-                borderRadius: 20,
-                padding: "28px 32px",
-                maxWidth: 520,
-                margin: "20px auto 0",
-                textAlign: "left",
+                marginTop: 40,
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 20,
                 flexWrap: "wrap",
+                gap: 20,
+                justifyContent: "center",
               }}
             >
-              <div>
+              {user.has_billing_account && (
+                <div
+                  style={{
+                    background: colors.cardBg,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 20,
+                    padding: "28px 32px",
+                    flex: "1 1 420px",
+                    maxWidth: 480,
+                    textAlign: "left",
+                  }}
+                >
+                  <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
+                    Manage your billing
+                  </div>
+                  <div style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 20 }}>
+                    See your next billing date, update your card, or view past invoices.
+                  </div>
+                  <button
+                    onClick={handleManageBilling}
+                    disabled={loadingPlan === "portal"}
+                    style={{
+                      background: "none",
+                      border: `2px solid ${colors.cardBorder}`,
+                      color: colors.textPrimary,
+                      padding: "12px 22px",
+                      borderRadius: 12,
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      whiteSpace: "nowrap",
+                      opacity: loadingPlan === "portal" ? 0.6 : 1,
+                    }}
+                  >
+                    {loadingPlan === "portal" ? "Redirecting…" : "Manage billing"}
+                  </button>
+                </div>
+              )}
+
+              <div
+                style={{
+                  background: colors.cardBg,
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 20,
+                  padding: "28px 32px",
+                  flex: "1 1 420px",
+                  maxWidth: 480,
+                  textAlign: "left",
+                }}
+              >
                 <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
                   Need more credits this month?
                 </div>
-                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
+                <div style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 20 }}>
                   +5 credits for £6, on top of your current plan — no subscription change.
                 </div>
+                <button
+                  onClick={handleTopup}
+                  disabled={loadingPlan === "topup"}
+                  style={{
+                    background: "none",
+                    border: `2px solid ${colors.accent}`,
+                    color: colors.accent,
+                    padding: "12px 22px",
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    whiteSpace: "nowrap",
+                    opacity: loadingPlan === "topup" ? 0.6 : 1,
+                  }}
+                >
+                  {loadingPlan === "topup" ? "Redirecting…" : "Buy +5 credits — £6"}
+                </button>
               </div>
-              <button
-                onClick={handleTopup}
-                disabled={loadingPlan === "topup"}
-                style={{
-                  background: "none",
-                  border: `2px solid ${colors.accent}`,
-                  color: colors.accent,
-                  padding: "12px 22px",
-                  borderRadius: 12,
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  whiteSpace: "nowrap",
-                  opacity: loadingPlan === "topup" ? 0.6 : 1,
-                }}
-              >
-                {loadingPlan === "topup" ? "Redirecting…" : "Buy +5 credits — £6"}
-              </button>
             </div>
           )}
         </div>
