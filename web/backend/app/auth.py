@@ -20,6 +20,7 @@ from "trial" to "real."
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -34,6 +35,8 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "users.db")
 
@@ -132,6 +135,41 @@ PLAN_CREDITS = {"free": 5, "builder": 12, "pro": 30}
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _add_column_if_missing(conn, alter_sql: str, column_name: str) -> None:
+    """Runs an ALTER TABLE ... ADD COLUMN, tolerating only the one
+    expected failure mode -- the column already exists, from a previous
+    startup (SQLite says "duplicate column name", Postgres says "already
+    exists"; checked as a substring so this works against both without
+    needing a backend-specific exception type). Anything else is logged
+    loudly, with a full traceback, and re-raised -- crashing startup
+    visibly rather than continuing with a column silently missing.
+
+    Confirmed as a real production bug, not a hypothetical: an earlier
+    version of this pattern caught every exception identically and threw
+    it away with a bare `except Exception: conn.rollback()`. The
+    signup_source migration (see its own call site below) genuinely
+    failed for some reason that was never logged -- every signup crashed
+    in production with column "signup_source" does not exist until a
+    live traceback caught it by chance, well after the fact. A loud
+    startup failure here is a far better outcome than a silent partial
+    one: it shows up immediately as a failed Railway deployment instead
+    of as a mystery 500 the next time someone happens to hit the
+    affected code path."""
+    try:
+        conn.execute(alter_sql)
+    except Exception as exc:
+        conn.rollback()
+        msg = str(exc).lower()
+        if "already exists" in msg or "duplicate column" in msg:
+            return
+        logger.error(
+            "Migration failed adding column %r -- not a benign 'already exists' error",
+            column_name,
+            exc_info=True,
+        )
+        raise
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.execute(
@@ -150,48 +188,27 @@ def init_db() -> None:
         # Added after the users table already existed in production --
         # plain ADD COLUMN, not part of CREATE TABLE, so existing rows
         # aren't affected (stripe_customer_id stays NULL until a user's
-        # first checkout creates one). Swallowing the failure is the
-        # simplest thing that's correct on both backends: SQLite has no
-        # portable ADD COLUMN IF NOT EXISTS, and Postgres's version isn't
-        # available on every server version either -- but "column already
-        # exists" is the only realistic failure mode for a fixed, known
-        # column add like this, so a bare try/except is safe here, not a
-        # hidden-failure risk.
-        try:
-            conn.execute("ALTER TABLE users ADD COLUMN stripe_customer_id TEXT")
-        except Exception:
-            # Explicit rollback, not just swallowing the exception --
-            # confirmed as a real production bug (Sentry:
-            # InFailedSqlTransaction in init_db, first seen right after
-            # this column shipped): Postgres marks the whole transaction
-            # aborted after ANY failed statement, so the very next
-            # statement below (CREATE TABLE processed_stripe_events, on
-            # this same connection/transaction) failed too, on every
-            # restart after the first one ever added the column
-            # successfully. Same fix as mark_stripe_event_processed's own
-            # except block, which got this right from the start.
-            conn.rollback()
-        try:
-            # Purely for the founder's own marketing attribution (e.g.
-            # "reddit-sideproject") -- captured client-side from a
-            # first-touch ?ref=... query param (ReferralCapture.tsx) and
-            # never shown back to any user. Nullable: every signup before
-            # this column existed, and any signup with no ?ref= at all,
-            # just has NULL here rather than needing a default value.
-            conn.execute("ALTER TABLE users ADD COLUMN signup_source TEXT")
-        except Exception:
-            conn.rollback()
-        try:
-            # A separate pool from credits_remaining, deliberately -- see
-            # add_credits and consume_credit below for why top-up credits
-            # need to be trackable independently of plan credits (whether
-            # a generation used a paid-for top-up credit determines
-            # whether its instructions download is free, regardless of
-            # plan; plan credits also get wiped by the monthly reset
-            # below in a way top-up credits deliberately never should).
-            conn.execute("ALTER TABLE users ADD COLUMN topup_credits_remaining INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            conn.rollback()
+        # first checkout creates one).
+        _add_column_if_missing(conn, "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT", "stripe_customer_id")
+        # Purely for the founder's own marketing attribution (e.g.
+        # "reddit-sideproject") -- captured client-side from a
+        # first-touch ?ref=... query param (ReferralCapture.tsx) and
+        # never shown back to any user. Nullable: every signup before
+        # this column existed, and any signup with no ?ref= at all, just
+        # has NULL here rather than needing a default value.
+        _add_column_if_missing(conn, "ALTER TABLE users ADD COLUMN signup_source TEXT", "signup_source")
+        # A separate pool from credits_remaining, deliberately -- see
+        # add_credits and consume_credit below for why top-up credits
+        # need to be trackable independently of plan credits (whether a
+        # generation used a paid-for top-up credit determines whether its
+        # instructions download is free, regardless of plan; plan
+        # credits also get wiped by the monthly reset below in a way
+        # top-up credits deliberately never should).
+        _add_column_if_missing(
+            conn,
+            "ALTER TABLE users ADD COLUMN topup_credits_remaining INTEGER NOT NULL DEFAULT 0",
+            "topup_credits_remaining",
+        )
         # Webhook idempotency: Stripe retries delivery on anything short of
         # a 200, so the same event can arrive more than once. Recording
         # every event ID we've already handled -- checked before any
