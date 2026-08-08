@@ -71,6 +71,20 @@ export function login(email: string, password: string): Promise<{ token: string;
   return _authJson("/auth/login", { email, password });
 }
 
+/** Always resolves with a generic message, whether or not the email is
+ * registered -- the backend deliberately returns the same response
+ * either way, so this can't be used to test which emails have accounts. */
+export function forgotPassword(email: string): Promise<{ message: string }> {
+  return _authJson("/auth/forgot-password", { email });
+}
+
+/** Resolves on a successful password change, throws ApiError(400, ...) if
+ * the token is invalid/expired/already used -- the caller should send the
+ * user back to /forgot-password to request a fresh link in that case. */
+export function resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+  return _authJson("/auth/reset-password", { token, new_password: newPassword });
+}
+
 export async function fetchMe(token: string): Promise<AuthUser> {
   const res = await fetch(`${API_BASE}/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },

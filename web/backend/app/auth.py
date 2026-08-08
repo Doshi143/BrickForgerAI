@@ -19,8 +19,10 @@ from "trial" to "real."
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import secrets
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -92,6 +94,13 @@ if not JWT_SECRET:
 
 TOKEN_TTL_DAYS = 30
 
+# Same var billing.py reads for Stripe Checkout redirect URLs -- reused
+# here to build the reset-password link that goes out in email, so both
+# modules point at the same real frontend origin without a second env var.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+
+RESET_TOKEN_TTL_MINUTES = 60
+
 # "builder" and "pro" (Master Builder) map directly to Stripe subscription
 # Prices in billing.py's PRICE_IDS -- the two dicts must stay in sync, but
 # live in separate modules deliberately (this one has no Stripe
@@ -161,6 +170,22 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS processed_stripe_events (
                 event_id TEXT PRIMARY KEY,
                 processed_at TEXT NOT NULL
+            )
+            """
+        )
+        # Only the SHA-256 hash of the token is ever stored, the same
+        # reasoning as storing a bcrypt hash instead of a plaintext
+        # password -- a leaked DB row alone must never be enough to reset
+        # someone's password, only the raw token mailed to their inbox is.
+        # One row per outstanding request (create_password_reset_token
+        # deletes any previous rows for the user first), consumed
+        # (deleted) on first successful use so a token can't be replayed.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                expires_at TEXT NOT NULL
             )
             """
         )
@@ -371,6 +396,67 @@ def mark_stripe_event_processed(event_id: str) -> bool:
             return False
 
 
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_password_reset_token(email: str) -> str | None:
+    """Returns a fresh raw reset token for this email, or None if no
+    account matches -- the caller (the /auth/forgot-password endpoint)
+    deliberately returns the same generic response either way, so this
+    return value must never leak into an HTTP response, only into the
+    email that gets sent when it's not None. Any previous outstanding
+    token for this user is deleted first, so at most one reset link is
+    ever valid at a time -- requesting a new one implicitly revokes an
+    earlier email still sitting unread in an inbox."""
+    email = email.strip().lower()
+    with _connect() as conn:
+        row = conn.execute(_ph("SELECT id FROM users WHERE email = ?"), (email,)).fetchone()
+        if row is None:
+            return None
+        user_id = row["id"]
+
+        token = secrets.token_urlsafe(32)
+        token_hash = _hash_reset_token(token)
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)).isoformat()
+
+        conn.execute(_ph("DELETE FROM password_reset_tokens WHERE user_id = ?"), (user_id,))
+        conn.execute(
+            _ph("INSERT INTO password_reset_tokens (token_hash, user_id, expires_at) VALUES (?, ?, ?)"),
+            (token_hash, user_id, expires_at),
+        )
+    return token
+
+
+def reset_password_with_token(token: str, new_password: str) -> None:
+    """Raises ValueError (turned into an HTTP 400 by the caller) if the
+    token doesn't match, has expired, or the new password is too short.
+    The token row is deleted whether or not the rest of the update
+    succeeds validation-wise up front, is only actually consumed on a
+    genuinely successful password change, matching create_user's own
+    length check so both entry points enforce the same minimum."""
+    if len(new_password) < 8:
+        raise ValueError("Password must be at least 8 characters")
+
+    token_hash = _hash_reset_token(token)
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        row = conn.execute(
+            _ph("SELECT user_id, expires_at FROM password_reset_tokens WHERE token_hash = ?"),
+            (token_hash,),
+        ).fetchone()
+        if row is None or row["expires_at"] < now:
+            raise ValueError("This reset link is invalid or has expired -- request a new one")
+
+        password_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        conn.execute(
+            _ph("UPDATE users SET password_hash = ? WHERE id = ?"),
+            (password_hash, row["user_id"]),
+        )
+        # Consumed -- a used or expired token must never work twice.
+        conn.execute(_ph("DELETE FROM password_reset_tokens WHERE token_hash = ?"), (token_hash,))
+
+
 def _make_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
@@ -407,6 +493,15 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 class AuthResponse(BaseModel):
@@ -455,6 +550,47 @@ def login(req: LoginRequest, request: Request) -> AuthResponse:
     except ValueError as exc:
         raise HTTPException(401, str(exc)) from exc
     return AuthResponse(token=_make_token(user.id), user=_user_to_dict(user))
+
+
+_GENERIC_FORGOT_PASSWORD_RESPONSE = {
+    "message": "If an account exists for that email, we've sent password reset instructions."
+}
+
+
+@router.post("/forgot-password")
+def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
+    # Deferred imports for the same circular-import reason as signup/login
+    # above (rate_limit imports PLAN_CREDITS from this module; email_client
+    # has no such dependency but is deferred too, for consistency and so a
+    # missing/misconfigured RESEND_API_KEY only surfaces when this endpoint
+    # is actually hit, not at import time for every process that loads auth.py).
+    from . import email_client, rate_limit
+
+    if not rate_limit.check_auth_rate_limit(_client_ip(request), "forgot-password", limit=5, window_s=3600):
+        raise HTTPException(429, "Too many requests -- try again later.")
+
+    token = create_password_reset_token(req.email)
+    if token is not None:
+        reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
+        email_client.send_password_reset_email(req.email.strip().lower(), reset_url)
+
+    # Identical response whether or not the email is registered -- telling
+    # an unregistered caller "no account with that email" would let anyone
+    # enumerate which addresses have accounts on this site.
+    return _GENERIC_FORGOT_PASSWORD_RESPONSE
+
+
+@router.post("/reset-password")
+def reset_password_endpoint(req: ResetPasswordRequest, request: Request) -> dict:
+    from . import rate_limit
+
+    if not rate_limit.check_auth_rate_limit(_client_ip(request), "reset-password", limit=10, window_s=3600):
+        raise HTTPException(429, "Too many attempts -- try again later.")
+    try:
+        reset_password_with_token(req.token, req.new_password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"message": "Password updated -- you can now sign in."}
 
 
 def get_current_user(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> User:

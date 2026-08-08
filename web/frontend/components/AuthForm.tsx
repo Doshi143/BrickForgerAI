@@ -8,8 +8,9 @@ import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { darkColors, lightColors } from "@/app/theme";
 import { ApiError } from "@/lib/api";
+import { inputStyle } from "@/components/authFormStyles";
 
 // useSearchParams() (used below, for the post-login "next" redirect target)
 // requires a Suspense boundary for Next.js to statically prerender a page
@@ -93,7 +94,14 @@ function AuthFormInner({ mode }: { mode: "signin" | "signup" }) {
                 />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: colors.textSecondary }}>Password</span>
+                <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: colors.textSecondary }}>Password</span>
+                  {!isSignup && (
+                    <Link href="/forgot-password" style={{ fontSize: 12, color: colors.accent, textDecoration: "none" }}>
+                      Forgot password?
+                    </Link>
+                  )}
+                </span>
                 <input
                   type="password"
                   required
@@ -151,17 +159,4 @@ function AuthFormInner({ mode }: { mode: "signin" | "signup" }) {
       </div>
     </div>
   );
-}
-
-function inputStyle(colors: ThemeColors): React.CSSProperties {
-  return {
-    padding: "12px 14px",
-    borderRadius: 10,
-    border: `1px solid ${colors.inputBorder}`,
-    background: colors.skyBottom,
-    color: colors.textPrimary,
-    fontSize: 15,
-    outline: "none",
-    fontFamily: "inherit",
-  };
 }
