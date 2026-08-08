@@ -51,7 +51,29 @@ if _USE_POSTGRES:
     # min/max sized for a small always-on service, not a high-concurrency
     # API -- a handful of pooled connections is plenty and avoids paying
     # Postgres's per-connection setup cost on every request.
-    _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=5, kwargs={"row_factory": dict_row})
+    #
+    # check=ConnectionPool.check_connection -- confirmed as the fix for a
+    # real production failure: "psycopg.OperationalError: consuming input
+    # failed: SSL error: decryption failed or bad record mac" on the
+    # worker's very first DB write of a job (see jobs.py::_record_job_index).
+    # The worker sits idle between jobs, sometimes for a long stretch, and
+    # Railway's Postgres (or a proxy in front of it) can silently drop an
+    # idle TCP connection without a clean close; the pool doesn't know and
+    # hands that same now-dead connection back out for the next job, and
+    # reusing a connection whose TLS session has gone stale like that
+    # produces exactly this "bad record mac" corruption, not a real auth or
+    # query error. check_connection is psycopg_pool's own built-in health
+    # check (psycopg_pool >= 3.2, matches this project's pinned version): it
+    # runs a trivial query before handing out a pooled connection and
+    # transparently discards+reconnects if that fails, closing the gap
+    # instead of just retrying after the fact.
+    _pool = ConnectionPool(
+        DATABASE_URL,
+        min_size=1,
+        max_size=5,
+        kwargs={"row_factory": dict_row},
+        check=ConnectionPool.check_connection,
+    )
     _pool.wait()
 
 
