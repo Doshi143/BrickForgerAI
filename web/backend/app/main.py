@@ -34,6 +34,7 @@ from .jobs import (
     JobStatus,
     _job_dir,
     _write_job_meta_dict,
+    list_job_ids_for_user,
     load_job_meta,
     process_job,
     save_job_meta,
@@ -239,10 +240,14 @@ def generate(
 
 @app.get("/generate")
 def list_jobs(month_only: bool = True, user: auth.User = Depends(auth.get_current_user)) -> list[dict]:
-    """This user's own completed jobs, newest first. Reads meta.json files
-    directly off disk -- see jobs.py::load_job_meta's own docstring for why
-    this is still a local-directory enumeration, not something that can see
-    jobs whose local copy is gone after a redeploy.
+    """This user's own completed jobs, newest first. Discovers which job
+    IDs exist via jobs.py's Postgres/SQLite-backed job_index, not a local
+    directory listing -- the previous approach only ever saw whatever
+    *this specific container* happened to have written locally, which a
+    redeploy (backend redeploys on every push) wipes clean, silently
+    emptying "My Builds" for jobs that are still completely safe in R2,
+    just no longer discoverable. Confirmed as a real, repeatedly-hit
+    production issue, not a hypothetical.
 
     Requires auth and filters to the caller's own user_id -- previously
     this was public and returned *every* user's completed jobs (prompts and
@@ -251,13 +256,9 @@ def list_jobs(month_only: bool = True, user: auth.User = Depends(auth.get_curren
     Scoping to the caller closes both issues at once."""
     now = datetime.now(timezone.utc)
     results: list[dict] = []
-    for entry in os.listdir(JOBS_DIR):
-        if not os.path.isdir(os.path.join(JOBS_DIR, entry)):
-            continue
+    for entry in list_job_ids_for_user(user.id):
         data = load_job_meta(entry)
         if data is None or data.get("status") != JobStatus.DONE.value:
-            continue
-        if data.get("user_id") != user.id:
             continue
         if month_only:
             created = data.get("created_at")

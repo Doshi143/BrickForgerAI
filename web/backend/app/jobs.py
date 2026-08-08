@@ -24,6 +24,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 import redis
 from rq import Queue
 
+from . import auth
 from .clients.image_gen import build_image_prompt, get_image_client
 from .clients.mesh_gen import get_mesh_client
 from .pipeline.brickforge_bridge import mesh_to_ldr
@@ -33,6 +34,60 @@ JOBS_DIR = os.path.join(os.path.dirname(__file__), "..", "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 STORAGE = get_storage()
+
+
+def _init_job_index() -> None:
+    """A durable (Postgres/SQLite, not local-disk) record of which job IDs
+    exist and who owns them -- fixes a real production bug: main.py's
+    list_jobs used to discover jobs by listing JOBS_DIR, which only ever
+    contains whatever this *specific* container has locally written.
+    backend redeploys on every push (several times a day some days), each
+    one wiping that listing clean -- a user's actual jobs were always
+    safe in R2, just no longer *discoverable*, so "My Builds" would
+    silently go back to empty after every deploy. This table is the fix:
+    populated from save_job_meta below (every process, every write), so
+    it survives exactly the redeploys local-disk listing couldn't."""
+    with auth._connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_index (
+                job_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+
+_init_job_index()
+
+
+def _record_job_index(job_id: str, user_id: str, status: str, created_at: str) -> None:
+    """Upsert, not insert -- called on every save_job_meta, so a job's
+    entry here tracks its latest status exactly as reliably as meta.json
+    itself does (same call site, always in lockstep)."""
+    with auth._connect() as conn:
+        conn.execute(
+            auth._ph(
+                """
+                INSERT INTO job_index (job_id, user_id, status, created_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT (job_id) DO UPDATE SET status = excluded.status
+                """
+            ),
+            (job_id, user_id, status, created_at),
+        )
+
+
+def list_job_ids_for_user(user_id: str) -> list[str]:
+    """Every job ID this user has ever created, in no particular order --
+    main.py's list_jobs still does its own status/month filtering after
+    calling load_job_meta on each, this only replaces *discovery*."""
+    with auth._connect() as conn:
+        rows = conn.execute(
+            auth._ph("SELECT job_id FROM job_index WHERE user_id = ?"), (user_id,)
+        ).fetchall()
+    return [row["job_id"] for row in rows]
 
 REDIS_URL = os.environ.get("REDIS_URL")
 REDIS_CONN = redis.from_url(REDIS_URL) if REDIS_URL else None
@@ -128,6 +183,13 @@ def _write_job_meta_dict(job_id: str, data: dict) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f)
     STORAGE.put(job_id, "meta.json", path)
+    # Hooked here rather than only in save_job_meta below: main.py's
+    # _unlock_instructions_for_job calls this directly with a plain dict
+    # (from the webhook, no live Job object to hand save_job_meta), so
+    # this is the one choke point every write -- from either process --
+    # actually goes through.
+    if data.get("user_id") and data.get("status") and data.get("created_at"):
+        _record_job_index(job_id, data["user_id"], data["status"], data["created_at"])
 
 
 def save_job_meta(job: Job) -> None:
