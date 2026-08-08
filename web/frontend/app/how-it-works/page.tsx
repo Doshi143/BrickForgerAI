@@ -7,7 +7,7 @@ export default function HowItWorksPage() {
       <Section title="1. Describe what you want to build">
         <p>
           Type a description — anything from &ldquo;a small red sports car&rdquo; to
-          &ldquo;a medieval castle with a drawbridge.&rdquo; Pick a build size (Small, Medium,
+          &ldquo;a stylized cartoon pineapple.&rdquo; Pick a build size (Small, Medium,
           or Large) to control roughly how big and detailed the finished model is.
         </p>
       </Section>

@@ -179,7 +179,7 @@ export default function Home() {
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
               disabled={submitting}
-              placeholder="A medieval castle with drawbridge..."
+              placeholder="A stylized cartoon pineapple..."
               style={{
                 flex: 1,
                 padding: "18px 22px",
