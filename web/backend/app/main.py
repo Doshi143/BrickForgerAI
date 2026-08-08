@@ -182,7 +182,7 @@ def generate(
         raise HTTPException(503, "Daily generation limit reached -- try again tomorrow.")
 
     try:
-        user = auth.consume_credit(user.id)
+        user, used_topup_credit = auth.consume_credit(user.id)
     except ValueError as exc:
         raise HTTPException(402, str(exc)) from exc
 
@@ -193,7 +193,13 @@ def generate(
         target_size_studs=req.target_size_studs,
         created_at=datetime.now(timezone.utc).isoformat(),
         user_id=user.id,
-        instructions_unlocked=(user.plan == "pro"),
+        # Builder was missing here before -- only "pro" (Master Builder)
+        # ever got free instructions at job-creation time, contradicting
+        # what the account info/pricing page/Terms all actually promise
+        # Builder subscribers. A top-up credit always requires paying
+        # separately regardless of plan -- see consume_credit's own
+        # docstring for why.
+        instructions_unlocked=(user.plan in ("builder", "pro")) and not used_topup_credit,
     )
     save_job_meta(job)
 
