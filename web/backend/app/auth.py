@@ -172,6 +172,16 @@ def init_db() -> None:
             # except block, which got this right from the start.
             conn.rollback()
         try:
+            # Purely for the founder's own marketing attribution (e.g.
+            # "reddit-sideproject") -- captured client-side from a
+            # first-touch ?ref=... query param (ReferralCapture.tsx) and
+            # never shown back to any user. Nullable: every signup before
+            # this column existed, and any signup with no ?ref= at all,
+            # just has NULL here rather than needing a default value.
+            conn.execute("ALTER TABLE users ADD COLUMN signup_source TEXT")
+        except Exception:
+            conn.rollback()
+        try:
             # A separate pool from credits_remaining, deliberately -- see
             # add_credits and consume_credit below for why top-up credits
             # need to be trackable independently of plan credits (whether
@@ -255,7 +265,7 @@ class User:
     topup_credits_remaining: int = 0
 
 
-def create_user(email: str, password: str) -> User:
+def create_user(email: str, password: str, source: str | None = None) -> User:
     email = email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise ValueError("Invalid email address")
@@ -273,11 +283,19 @@ def create_user(email: str, password: str) -> User:
         conn.execute(
             _ph(
                 """
-                INSERT INTO users (id, email, password_hash, plan, credits_remaining, credits_reset_month, created_at)
-                VALUES (?, ?, ?, 'free', ?, ?, ?)
+                INSERT INTO users (id, email, password_hash, plan, credits_remaining, credits_reset_month, created_at, signup_source)
+                VALUES (?, ?, ?, 'free', ?, ?, ?, ?)
                 """
             ),
-            (user_id, email, password_hash, PLAN_CREDITS["free"], this_month, datetime.now(timezone.utc).isoformat()),
+            (
+                user_id,
+                email,
+                password_hash,
+                PLAN_CREDITS["free"],
+                this_month,
+                datetime.now(timezone.utc).isoformat(),
+                source,
+            ),
         )
 
     return User(id=user_id, email=email, plan="free", credits_remaining=PLAN_CREDITS["free"], credits_reset_month=this_month)
@@ -516,6 +534,12 @@ _bearer = HTTPBearer(auto_error=False)
 class SignupRequest(BaseModel):
     email: str
     password: str
+    # Marketing attribution only (e.g. "reddit-sideproject") -- see
+    # ReferralCapture.tsx and create_user's own docstring. Never required,
+    # never validated against a known set -- an arbitrary or malformed
+    # value here can't do anything beyond being a slightly odd row in a
+    # column nothing else reads.
+    source: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -556,7 +580,7 @@ def signup(req: SignupRequest, request: Request) -> AuthResponse:
     if not rate_limit.check_auth_rate_limit(_client_ip(request), "signup", limit=5, window_s=3600):
         raise HTTPException(429, "Too many signup attempts -- try again later.")
     try:
-        user = create_user(req.email, req.password)
+        user = create_user(req.email, req.password, source=req.source)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return AuthResponse(token=_make_token(user.id), user=_user_to_dict(user))

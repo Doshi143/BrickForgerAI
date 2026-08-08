@@ -64,8 +64,18 @@ async function _authJson<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
-export function signup(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
-  return _authJson("/auth/signup", { email, password });
+/** source is whatever ?ref=... the visitor first arrived with (see
+ * ReferralCapture.tsx), e.g. "reddit-sideproject" -- purely for the
+ * founder's own attribution, never shown back to the user. Omitted
+ * entirely for a visitor with no captured source rather than sent as
+ * null/empty, so the backend can tell "no source" from "empty string"
+ * if that distinction ever matters later. */
+export function signup(
+  email: string,
+  password: string,
+  source?: string
+): Promise<{ token: string; user: AuthUser }> {
+  return _authJson("/auth/signup", source ? { email, password, source } : { email, password });
 }
 
 export function login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {

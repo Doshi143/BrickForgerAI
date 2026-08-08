@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 import { AuthUser, fetchMe, login as apiLogin, signup as apiSignup } from "@/lib/api";
+import { getStoredSignupSource } from "@/components/ReferralCapture";
 
 const STORAGE_KEY = "brickforgerai-token";
 
@@ -55,7 +56,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   }
 
   async function signup(email: string, password: string) {
-    const { token: t, user: u } = await apiSignup(email, password);
+    const { token: t, user: u } = await apiSignup(email, password, getStoredSignupSource() ?? undefined);
     _apply(t, u);
   }
 
