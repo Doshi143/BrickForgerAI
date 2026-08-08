@@ -11,7 +11,9 @@ not a Python object either process could mutate in place.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,6 +34,8 @@ from .storage import R2Storage, get_storage
 
 JOBS_DIR = os.path.join(os.path.dirname(__file__), "..", "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
+
+logger = logging.getLogger(__name__)
 
 STORAGE = get_storage()
 
@@ -66,17 +70,46 @@ _init_job_index()
 def _record_job_index(job_id: str, user_id: str, status: str, created_at: str) -> None:
     """Upsert, not insert -- called on every save_job_meta, so a job's
     entry here tracks its latest status exactly as reliably as meta.json
-    itself does (same call site, always in lockstep)."""
-    with auth._connect() as conn:
-        conn.execute(
-            auth._ph(
-                """
-                INSERT INTO job_index (job_id, user_id, status, created_at) VALUES (?, ?, ?, ?)
-                ON CONFLICT (job_id) DO UPDATE SET status = excluded.status
-                """
-            ),
-            (job_id, user_id, status, created_at),
-        )
+    itself does (same call site, always in lockstep).
+
+    Never raises -- confirmed as a real production failure, not a
+    hypothetical: a psycopg_pool.PoolTimeout here (the connection pool
+    momentarily exhausted, e.g. by a redeploy landing mid-job and the old
+    container's connections not yet reclaimed by Postgres) propagated all
+    the way up through save_job_meta -> _set_status and killed an entire
+    multi-minute, real-API-cost generation over what is fundamentally a
+    non-essential side write: the job's actual result is already durably
+    saved via STORAGE.put/meta.json regardless of whether this specific
+    index update succeeds, and job_index only powers "My Builds"
+    discoverability (see its own docstring above), not the job itself.
+    One retry after a short pause rides out a genuinely transient blip;
+    if it still fails, this logs and moves on rather than taking the job
+    down with it -- same fail-open-for-a-non-critical-path reasoning as
+    rate_limit.py's Redis handling."""
+    for attempt in range(2):
+        try:
+            with auth._connect() as conn:
+                conn.execute(
+                    auth._ph(
+                        """
+                        INSERT INTO job_index (job_id, user_id, status, created_at) VALUES (?, ?, ?, ?)
+                        ON CONFLICT (job_id) DO UPDATE SET status = excluded.status
+                        """
+                    ),
+                    (job_id, user_id, status, created_at),
+                )
+            return
+        except Exception:
+            if attempt == 0:
+                time.sleep(3)
+                continue
+            logger.warning(
+                "job_index write failed for job %s (status=%s) -- job itself is unaffected, "
+                "only this update's visibility in 'My Builds' until the next status write succeeds",
+                job_id,
+                status,
+                exc_info=True,
+            )
 
 
 def list_job_ids_for_user(user_id: str) -> list[str]:
