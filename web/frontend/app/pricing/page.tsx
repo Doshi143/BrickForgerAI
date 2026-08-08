@@ -319,21 +319,25 @@ function PricingContent() {
                     flex: "1 1 420px",
                     maxWidth: 480,
                     textAlign: "left",
+                    display: "flex",
+                    flexDirection: "column",
                   }}
                 >
                   <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
                     Manage your billing
                   </div>
-                  <div style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 20 }}>
+                  <div style={{ color: colors.textSecondary, fontSize: 14 }}>
                     See your next billing date, update your card, or view past invoices.
                   </div>
                   <button
                     onClick={handleManageBilling}
                     disabled={loadingPlan === "portal"}
                     style={{
+                      marginTop: "auto",
+                      alignSelf: "flex-start",
                       background: "none",
-                      border: `2px solid ${colors.cardBorder}`,
-                      color: colors.textPrimary,
+                      border: `2px solid ${colors.accent}`,
+                      color: colors.accent,
                       padding: "12px 22px",
                       borderRadius: 12,
                       fontWeight: 700,
@@ -358,18 +362,22 @@ function PricingContent() {
                   flex: "1 1 420px",
                   maxWidth: 480,
                   textAlign: "left",
+                  display: "flex",
+                  flexDirection: "column",
                 }}
               >
                 <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
                   Need more credits this month?
                 </div>
-                <div style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 20 }}>
+                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
                   +5 credits for £6, on top of your current plan — no subscription change.
                 </div>
                 <button
                   onClick={handleTopup}
                   disabled={loadingPlan === "topup"}
                   style={{
+                    marginTop: "auto",
+                    alignSelf: "flex-start",
                     background: "none",
                     border: `2px solid ${colors.accent}`,
                     color: colors.accent,
