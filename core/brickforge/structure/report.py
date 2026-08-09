@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..model import Model
+from ..snot import SnotChild
 from .graph import GROUND, build_connectivity_graph
 from .load import LoadResult, propagate_gravity_load
 from .weakpoints import (
@@ -21,7 +22,8 @@ from .weakpoints import (
 class StabilityReport:
     model: Model
     components: list[set]
-    outside_main_component: set[int]  # undirected connectivity -- what critical_bricks actually uses
+    outside_main_component: set  # undirected connectivity -- what critical_bricks actually uses; may
+    # contain SNOT node ids (("snot", i) tuples, see structure/graph.py) alongside int brick indices
     ungrounded_bricks: set[int]  # informational only -- see weakpoints.py module docstring; NOT what critical_bricks uses
     articulation_points: set[int]
     bridges: list[tuple]
@@ -32,7 +34,7 @@ class StabilityReport:
         return len(self.components) == 1
 
     @property
-    def critical_bricks(self) -> set[int]:
+    def critical_bricks(self) -> set:
         """Bricks with no plausible way to be structurally sound: not part
         of the model's main connected mass at all (see
         weakpoints.find_bricks_outside_main_component -- undirected
@@ -59,8 +61,13 @@ class StabilityReport:
         return warning - self.critical_bricks
 
 
-def analyze(model: Model) -> StabilityReport:
-    graph = build_connectivity_graph(model)
+def analyze(model: Model, snot_children: list[SnotChild] | None = None) -> StabilityReport:
+    """`snot_children` (optional, Phase B): SNOT sub-assembly parts to
+    fold into the connectivity graph alongside `model`'s own ordinary
+    bricks -- see structure/graph.py's own module docstring. Omitted (the
+    default), this is byte-for-byte the pre-Phase-B behavior: no SNOT
+    nodes are ever added, so every existing call site is unaffected."""
+    graph = build_connectivity_graph(model, snot_children)
     return StabilityReport(
         model=model,
         components=find_disconnected_components(graph),

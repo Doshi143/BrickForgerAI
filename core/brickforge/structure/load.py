@@ -72,7 +72,17 @@ def propagate_gravity_load(
         if graph.has_edge(i, GROUND):
             continue  # externally supported; load terminates here
 
-        down_neighbors = [n for n in graph.neighbors(i) if n != GROUND and model.bricks[n].pos.y < brick.pos.y]
+        # isinstance(n, int) excludes SNOT nodes (structure/graph.py's
+        # ("snot", i) tuples) -- this simplified model has no notion yet of
+        # a sideways connection bearing gravity load, so a SNOT branch is
+        # treated as contributing neither load onto its parent nor support
+        # back, rather than crashing on model.bricks[n] with a tuple index.
+        # Real SNOT load propagation is future work (see DESIGN.md sec. 5).
+        down_neighbors = [
+            n
+            for n in graph.neighbors(i)
+            if n != GROUND and isinstance(n, int) and model.bricks[n].pos.y < brick.pos.y
+        ]
         if not down_neighbors:
             floating.append(i)
             continue

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from .lattice import Rotation
+from .lattice import Rotation, STUD_LDU
 
 Coverage = str  # "full" | "none"
 
@@ -42,10 +42,35 @@ class Part:
     # default silently.
     side_stud_face: str | None = None  # "+x" | "-x" | "+z" | "-z", or None
     side_stud_offset: tuple[int, int | None] = (0, None)
+    # How many side studs sit in a row on side_stud_face, evenly spaced
+    # STUD_LDU apart and centered on side_stud_offset's own `along` --
+    # default 1 (every SNOT part until this field was added, e.g. 87087,
+    # has exactly one). Verified against real raw .dat geometry for the
+    # one multi-stud part in this catalog so far, not assumed from the
+    # part's name: 30414.dat's four `stud2a.dat` placements sit at local
+    # X = -30, -10, 10, 30 (fetched from library.ldraw.org) -- exactly
+    # what side_stud_local_positions() below produces for
+    # side_stud_offset=(0, 10), side_stud_count=4.
+    side_stud_count: int = 1
 
     @property
     def ldraw_file(self) -> str:
         return f"{self.id}.dat"
+
+    def side_stud_local_positions(self) -> list[tuple[int, int]]:
+        """(along, from_top) LDU pairs, one per stud in this part's side-stud
+        row, in the part's own unrotated local frame (same along/from_top
+        convention as side_stud_offset -- along measured from the part's
+        own footprint center). Empty if this part has no side stud at all.
+        Symmetric about side_stud_offset's own `along`, STUD_LDU apart --
+        see side_stud_count's own docstring for the real geometry this is
+        verified against."""
+        if self.side_stud_face is None:
+            return []
+        along, from_top = self.side_stud_offset
+        n = self.side_stud_count
+        span = STUD_LDU * (n - 1)
+        return [(along + STUD_LDU * k - span // 2, from_top) for k in range(n)]
 
     def footprint_at(self, rotation: Rotation) -> tuple[int, int]:
         return rotation.rotate_footprint(*self.footprint)
@@ -97,6 +122,7 @@ class PartCatalog:
                 y_anchor=entry.get("y_anchor", "top"),
                 side_stud_face=entry.get("side_stud_face"),
                 side_stud_offset=(side_stud_offset_raw[0], side_stud_offset_raw[1]),
+                side_stud_count=int(entry.get("side_stud_count", 1)),
             )
             parts[part.id] = part
 

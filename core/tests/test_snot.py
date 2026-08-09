@@ -202,3 +202,74 @@ def test_87087_catalog_entry_matches_its_verified_raw_geometry():
     assert part.top == "none"  # no top stud on this part -- only the side one
     assert part.side_stud_face == "-z"
     assert part.side_stud_offset == (0, 10)
+    assert part.side_stud_count == 1
+
+
+def test_30414_catalog_entry_matches_its_verified_raw_geometry():
+    # Pins the exact measured values fetched from 30414.dat: four
+    # `stud2a.dat` placements at local X = -30, -10, 10, 30, Y=10, Z=-10 --
+    # same face/from_top convention as 87087, but 4 studs in a row instead
+    # of 1. Also has real top studs (`stud.dat` at Y=0), unlike 87087.
+    part = _CATALOG.get("30414")
+    assert part.category == "snot"
+    assert part.footprint == (4, 1)
+    assert part.height_plates == 3
+    assert part.top == "full"
+    assert part.side_stud_face == "-z"
+    assert part.side_stud_offset == (0, 10)
+    assert part.side_stud_count == 4
+    assert part.side_stud_local_positions() == [(-30, 10), (-10, 10), (10, 10), (30, 10)]
+
+
+def test_single_stud_children_land_exactly_on_30414s_real_measured_stud_positions():
+    # The real claim this test pins: SnotChild.local_pos's in-plane axis
+    # (local_pos.x, for a -z face) indexes a parent's side-stud ROW the
+    # same corner-based way GridPos.x indexes the ordinary grid -- a child
+    # at local_pos.x=k lands on stud index k. Verified against 30414's own
+    # independently-fetched real stud positions (-30, -10, 10, 30, relative
+    # to the PART's own center), not just checked for internal
+    # self-consistency: converts each real local stud X to its expected
+    # WORLD X (parent's own footprint center + the real local offset) and
+    # compares against place_in_frame's actual computed geometry for a
+    # 1-wide plate placed at local_pos.x=k, k=0..3.
+    longbrick = _CATALOG.get("30414")
+    plate = _CATALOG.get("3024")
+    parent = Brick(part=longbrick, color=4, pos=GridPos(0, 0, 0), rotation=Rotation.YAW_0)
+    frame = snot_frame_for_brick(parent, "-z")
+
+    real_local_stud_x = [-30, -10, 10, 30]
+    parent_center_x = 0 * 20 + (4 * 20) // 2  # pos.x*STUD_LDU + ew*STUD_LDU//2 = 40
+
+    for k, expected_local_x in enumerate(real_local_stud_x):
+        pos, matrix = place_in_frame(frame, plate, GridPos(k, 0, 0), Rotation.YAW_0)
+        x_range, _, _ = _raw_geometry_bbox(pos, matrix)
+        center = (x_range[0] + x_range[1]) / 2
+        assert center == parent_center_x + expected_local_x, f"stud {k}: got {center}"
+
+
+def test_wide_child_spans_the_entire_side_stud_row_flush_and_centered():
+    # The other real claim this test pins: a SINGLE child whose own
+    # footprint matches the parent's full side-stud row width (here, a
+    # "Plate 1 x 4" against 30414's 4-stud row) needs NO extra
+    # face_offset math at all -- along=0 (the default) already spans the
+    # parent's entire face exactly, because placement_to_ldraw's own
+    # per-child centering and the frame's corner-based origin combine
+    # correctly regardless of child width, not just for the child-width
+    # == parent-width == 1 case Phase A shipped with. Checked against the
+    # FULL raw geometry (all 8 corners), not just the origin point --
+    # this module's own established discipline (see place_in_frame's
+    # docstring for why an origin-only check has already let two real
+    # bugs through).
+    longbrick = _CATALOG.get("30414")
+    wide_plate = _CATALOG.get("3710")  # Plate 1 x 4, footprint [4, 1]
+    parent = Brick(part=longbrick, color=4, pos=GridPos(0, 0, 0), rotation=Rotation.YAW_0)
+    frame = snot_frame_for_brick(parent, "-z")
+
+    pos, matrix = place_in_frame(frame, wide_plate, GridPos(0, 0, 0), Rotation.YAW_0)
+    x_range, _, z_range = _raw_geometry_bbox(pos, matrix, half_x=40, half_z=10)
+
+    # Parent's own face spans world X [0, 80] (4 studs); the wide plate
+    # should land flush across the whole thing, outward face at Z<0
+    # (matching the -z direction), no gap or overlap.
+    assert x_range == (0, 80)
+    assert z_range == (-8, 0)

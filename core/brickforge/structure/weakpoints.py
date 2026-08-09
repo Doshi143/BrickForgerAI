@@ -58,14 +58,22 @@ def find_ungrounded_bricks(graph: nx.Graph, model: Model) -> set[int]:
     already-grounded node to a neighbor sitting strictly higher (i.e. "this
     grounded brick supports that one"). Anything the BFS never reaches has
     no such chain -- there is no possible path to GROUND for it that
-    doesn't at some point require an edge to go the wrong way."""
+    doesn't at some point require an edge to go the wrong way.
+
+    **SNOT nodes** (see structure/graph.py's `("snot", i)` node ids) are
+    skipped as neighbors, not traversed -- this directed, straight-down
+    notion of "resting on" doesn't have an equivalent for a sideways
+    stud connection, and this check is informational-only (module
+    docstring), so a brick reachable from GROUND only via a SNOT branch
+    will still show up here as "ungrounded." find_bricks_outside_main_component
+    (undirected) is what drives repair and does not have this limitation."""
     grounded: set = {GROUND}
     frontier = [GROUND]
     while frontier:
         node = frontier.pop()
         node_y = None if node == GROUND else model.bricks[node].pos.y
         for neighbor in graph.neighbors(node):
-            if neighbor in grounded:
+            if neighbor in grounded or not isinstance(neighbor, int):
                 continue
             if node == GROUND or model.bricks[neighbor].pos.y > node_y:
                 grounded.add(neighbor)
@@ -83,20 +91,30 @@ def find_disconnected_components(graph: nx.Graph) -> list[set]:
     return list(nx.connected_components(graph))
 
 
-def find_bricks_outside_main_component(graph: nx.Graph) -> set[int]:
-    """Brick indices not part of the largest connected component (the one
-    containing GROUND for any non-degenerate model) -- see module
+def find_bricks_outside_main_component(graph: nx.Graph) -> set:
+    """Brick indices (int) AND SNOT child node ids (`("snot", i)` tuples,
+    see structure/graph.py) not part of the largest connected component
+    (the one containing GROUND for any non-degenerate model) -- see module
     docstring for why this, not find_ungrounded_bricks, is what should
-    drive repair decisions."""
+    drive repair decisions.
+
+    Deliberately does not filter to `isinstance(i, int)` -- an earlier
+    version did, which correctly excluded the GROUND string but would also
+    have silently EXCLUDED a genuinely-disconnected SNOT island (one with
+    no int brick in it at all, e.g. its own parent staying grounded while
+    only the SNOT edge itself is missing) from this result entirely,
+    turning a real disconnection into an empty, "all clear" set. Filtering
+    on identity against GROUND specifically is the correct, general
+    exclusion regardless of what other node id types this graph grows."""
     components = list(nx.connected_components(graph))
     if not components:
         return set()
     main = max(components, key=len)
-    outside: set[int] = set()
+    outside: set = set()
     for component in components:
         if component is main:
             continue
-        outside.update(i for i in component if isinstance(i, int))
+        outside.update(i for i in component if i != GROUND)
     return outside
 
 

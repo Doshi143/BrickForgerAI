@@ -570,3 +570,44 @@ parts:
     local_offset: [0, 0]
     side_stud_face: "-z"
     side_stud_offset: [0, 10]
+
+  # --- SNOT, Phase B: a real "longer" SNOT brick, added at the user's
+  # request so sideways attachment isn't limited to 1x1 studs. Fetched
+  # 30414.dat's full raw geometry directly from library.ldraw.org (not
+  # assumed from the name), same discipline as 87087 above and every other
+  # entry in this file:
+  #
+  #   1 16 -30 10 -10 1 0 0 0 0 1 0 1 0 stud2a.dat
+  #   1 16 -10 10 -10 1 0 0 0 0 1 0 1 0 stud2a.dat
+  #   1 16  10 10 -10 1 0 0 0 0 1 0 1 0 stud2a.dat
+  #   1 16  30 10 -10 1 0 0 0 0 1 0 1 0 stud2a.dat
+  #
+  # Four `stud2a.dat` placements (the SAME side-stud primitive 87087 uses)
+  # at local X = -30, -10, 10, 30 -- symmetric about 0, 20 LDU (1 stud)
+  # apart, exactly what side_stud_count: 4 with side_stud_offset [0, 10]
+  # produces via Part.side_stud_local_positions() -- and all at Y=10,
+  # Z=-10: the SAME "-z face, 10 LDU down from the top" convention as
+  # 87087, not re-derived independently. Overall X span is -40..40 (80 LDU
+  # / 4 studs, symmetric -- local_offset: [0, 0], no asymmetry unlike the
+  # slope families), Z span -10..10 (1 stud), Y span 0..24 (top-anchored
+  # brick height) -- footprint [4, 1] matches "Brick 1 x 4" under this
+  # catalog's established second-number-is-X convention.
+  #
+  # Unlike 87087, this part is genuinely dual-purpose: its raw geometry
+  # ALSO includes four ordinary `stud.dat` placements at Y=0 (the true
+  # top face, standard un-scaled stud primitive) at the same four X
+  # positions -- real top studs, not a naming assumption -- so this brick
+  # can be built into the ordinary stud-up grid exactly like any other
+  # 1x4 brick AND offer a 4-stud sideways attachment row on its -z face.
+  # top: full (not none, unlike 87087, which has no top stud at all).
+  - id: "30414"
+    name: "Brick 1 x 4 with Studs on Side"
+    category: snot
+    footprint: [4, 1]
+    height_plates: 3
+    top: full
+    bottom: full
+    local_offset: [0, 0]
+    side_stud_face: "-z"
+    side_stud_offset: [0, 10]
+    side_stud_count: 4

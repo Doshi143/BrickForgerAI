@@ -37,6 +37,24 @@ Face = str  # "+x" | "-x" | "+z" | "-z"
 
 _FACES: tuple[Face, ...] = ("+x", "-x", "+z", "-z")
 
+# Which of a SNOT child's own LOCAL axes runs IN-PLANE (parallel to the
+# parent's face, i.e. along a multi-stud side row) rather than outward
+# (always GridPos.y, the frame's own stacking axis) or vertical (whichever
+# axis the tilt matrix redirects into world Y -- see place_in_frame's own
+# docstring). Same distinction snot_frame_for_brick's `in_face_local`
+# already encodes ad hoc; exposed as a named function so callers outside
+# this module (structure/graph.py, for SNOT edge weights) don't have to
+# re-derive it from the tilt matrices.
+_IN_PLANE_AXIS: dict[Face, str] = {"+x": "z", "-x": "z", "+z": "x", "-z": "x"}
+
+
+def in_plane_axis(face: Face) -> str:
+    """'x' or 'z' -- which of a child's own local GridPos axes indexes
+    position along `face`'s in-plane, multi-stud direction."""
+    if face not in _FACES:
+        raise ValueError(f"Unknown face {face!r}, expected one of {_FACES}")
+    return _IN_PLANE_AXIS[face]
+
 # A face is a fixed property of a SNOT part's own geometry (like top/bottom
 # coverage) -- expressed in the part's own UNROTATED local frame, as a unit
 # (dx, dz) direction. Reused directly as input to Rotation.rotate_offset,
@@ -325,3 +343,39 @@ def place_in_frame(
     world_ldraw = tuple(o + w for o, w in zip(world_ldraw, frame.origin_ldu))
     world_matrix = _matmul(frame.matrix, local_rotation.matrix)
     return world_ldraw, world_matrix
+
+
+@dataclass(frozen=True)
+class SnotChild:
+    """One SNOT sub-assembly part attached in a parent brick's local
+    `SnotFrame` -- Phase B's own unit of work, and the thing
+    `structure/graph.py::build_connectivity_graph` treats as a graph node
+    once wired in. Deliberately NOT stored on `Model` (see this module's
+    own top-of-file docstring for why SNOT children stay outside Model's
+    shared grid/collision system) -- this is a parallel, explicitly-indexed
+    list a caller keeps alongside a `Model` and hands to both
+    `place_in_frame` (for LDR serialization, via `snot_frame_for_brick`)
+    and `build_connectivity_graph` (for structural analysis).
+
+    `parent_index` is the index into `model.bricks` of the already-placed
+    SNOT-category brick this child is anchored to -- its own
+    `part.side_stud_face` supplies which face, so there is currently no
+    support for a parent with more than one side-stud face active at once.
+    `local_pos`/`local_rotation` are passed straight through to
+    `place_in_frame`: `local_pos.y == 0` means flush against the parent's
+    own molded stud(s) (the sideways equivalent of `GridPos.y == 0` meaning
+    "resting on the ground"), and the in-plane axis (`local_pos.x` for a
+    +/-z face, `local_pos.z` for a +/-x face -- see `in_plane_axis`)
+    indexes along the parent's side-stud ROW the same corner-based way
+    `GridPos.x` already indexes the ordinary grid: a child placed with its
+    in-plane coordinate equal to `k` lands on stud index `k` (0-indexed
+    from the frame's own corner), for a parent whose SnotFrame was built at
+    the default `face_offset=(0, ...)`. Verified computationally against
+    30414's own real, independently-fetched stud positions in
+    tests/test_snot.py -- not just asserted to generalize from the
+    single-stud 87087 case Phase A shipped with."""
+
+    parent_index: int
+    part: Part
+    local_pos: GridPos
+    local_rotation: Rotation = Rotation.YAW_0
