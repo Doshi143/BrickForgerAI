@@ -130,6 +130,33 @@ def test_child_full_geometry_sits_flush_outward_and_centered_in_plane(
     assert in_plane == expected_in_plane, f"{face}: in-plane span {in_plane}, expected {expected_in_plane}"
 
 
+@pytest.mark.parametrize("face", ["+x", "-x", "+z", "-z"])
+def test_child_full_geometry_is_vertically_centered_on_the_frame_origin(face):
+    # Real bug, caught only by the user's own Studio screenshot after
+    # Phase A shipped, not by this test suite -- the horizontal tests
+    # above all passed while this was still broken, because none of them
+    # checked the vertical span at all. placement_to_ldraw centers a part
+    # within its own local grid cell on both horizontal axes, which is
+    # correct for the outward and in-plane axes (tested above), but WRONG
+    # for the third axis -- whichever of local X/Z the tilt redirects
+    # into world Y (vertical) -- since a single stud is a point on the
+    # parent's face, not a cell to center within. This left every SNOT
+    # child's vertical midpoint 10 LDU (half a 1-stud footprint) away
+    # from the frame's own measured origin. Pins that the child's raw
+    # geometry is now centered exactly on frame.origin_ldu[1], for all 4
+    # faces, not just the one face the user happened to screenshot.
+    brick = _CATALOG.get("3005")
+    plate = _CATALOG.get("3024")
+    core = Brick(part=brick, color=4, pos=GridPos(0, 0, 0), rotation=Rotation.YAW_0)
+
+    frame = snot_frame_for_brick(core, face)
+    pos, matrix = place_in_frame(frame, plate, GridPos(0, 0, 0), Rotation.YAW_0)
+    _, y_range, _ = _raw_geometry_bbox(pos, matrix)
+
+    midpoint = (y_range[0] + y_range[1]) / 2
+    assert midpoint == frame.origin_ldu[1], f"{face}: vertical midpoint {midpoint}, expected {frame.origin_ldu[1]}"
+
+
 def test_stacked_children_extend_further_outward_without_overlapping_each_other():
     brick = _CATALOG.get("3005")
     plate = _CATALOG.get("3024")

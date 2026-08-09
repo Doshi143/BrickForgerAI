@@ -276,7 +276,33 @@ def place_in_frame(
     silently re-introduced a mismatched convention in the opposite
     direction. Both fixes were required together, each verified with a
     full raw-geometry bounding box, not just an origin point, before
-    being trusted (see this module's own test suite)."""
+    being trusted (see this module's own test suite).
+
+    A THIRD bug, caught only by the user's own Studio screenshot after
+    Phase A shipped -- the horizontal/outward tests all passed while this
+    one was still broken, because none of them checked the vertical span
+    at all. `placement_to_ldraw` centers a part within its own local grid
+    cell on BOTH horizontal axes (`pos*STUD_LDU + footprint*STUD_LDU//2`)
+    -- correct for the two axes this frame actually uses (local Y, the
+    outward-stacking axis; and whichever of local X/Z the tilt keeps
+    in-plane, matching the parent's face width -- both independently
+    verified flush/centered by this module's own test suite). But the
+    THIRD axis -- whichever of local X/Z the tilt matrix redirects into
+    WORLD Y (vertical) -- isn't a footprint-covering axis at all: a
+    single stud is a POINT on the parent's face, not a cell to center
+    within. Leaving that axis's automatic half-footprint centering in
+    place put every SNOT child a half-footprint-width (10 LDU for a
+    1-stud part) away from the real attachment point -- confirmed by hand
+    computation against the real 87087 example: the child landed centered
+    at world Y -2 instead of the frame's own measured -12/-14 origin,
+    exactly the "10 LDU too high" the screenshot showed. Fixed by
+    detecting which local axis feeds world Y directly from frame.matrix's
+    own world-Y row (index 3:6) -- exactly one of its local-X or local-Z
+    coefficient is nonzero for every _LOCAL_TILT_MATRIX entry, since
+    tilting about a horizontal axis always swaps one horizontal axis with
+    vertical -- and subtracting that axis's own automatic centering back
+    out, so it lands exactly on the frame's origin instead of a
+    half-footprint-width away from it."""
     local_ldraw = placement_to_ldraw(
         local_pos,
         *part.footprint,
@@ -285,7 +311,17 @@ def place_in_frame(
         local_offset=part.local_offset,
         y_anchor=part.y_anchor,
     )
+
+    eff_width, eff_depth = local_rotation.rotate_footprint(*part.footprint)
+    _, _, _, world_y_from_x, _, world_y_from_z, _, _, _ = frame.matrix
+    lx, ly, lz = local_ldraw
+    if world_y_from_x != 0:
+        lx -= (eff_width * STUD_LDU) // 2
+    elif world_y_from_z != 0:
+        lz -= (eff_depth * STUD_LDU) // 2
+    local_ldraw = (lx, ly, lz)
+
     world_ldraw = _matvec(frame.matrix, local_ldraw)
-    world_ldraw = tuple(o + f for o, f in zip(world_ldraw, frame.origin_ldu))
+    world_ldraw = tuple(o + w for o, w in zip(world_ldraw, frame.origin_ldu))
     world_matrix = _matmul(frame.matrix, local_rotation.matrix)
     return world_ldraw, world_matrix
