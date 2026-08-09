@@ -29,6 +29,7 @@ export type Job = {
   ldr_download_url: string | null;
   thumbnail_url: string | null;
   has_render: boolean | null;
+  is_published: boolean;
 };
 
 export type Plan = "free" | "builder" | "pro";
@@ -235,8 +236,29 @@ export async function fetchJob(jobId: string): Promise<Job> {
   return res.json();
 }
 
-export function downloadUrl(jobId: string): string {
-  return `${API_BASE}/generate/${jobId}/download`;
+/** Downloads the .ldr file via a real authenticated fetch, not a bare
+ * <a href> link -- /generate/{id}/download now requires auth (closing
+ * the gap where anyone who knew/guessed a job_id could download a
+ * job whose creator had unlocked it -- see main.py::download_ldr's own
+ * docstring), and a plain link can't carry an Authorization header.
+ * Fetches the bytes, then triggers a save via a temporary object URL. */
+export async function downloadLdr(jobId: string, token: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/generate/${jobId}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to download file");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${jobId}.ldr`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /** Unrestricted -- used by the 3D viewer to fetch/render the model. The
@@ -261,6 +283,103 @@ export async function fetchGallery(token: string): Promise<Job[]> {
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch your builds (${res.status})`);
+  }
+  return res.json();
+}
+
+// --- Public gallery (/discover) -- distinct from fetchGallery above,
+// which is "My Builds" (the caller's own private job history). These
+// are for the public, publish-and-browse gallery instead. ---
+
+export type GalleryCard = {
+  job_id: string;
+  prompt: string | null;
+  published_at: string | null;
+  part_count: number | null;
+  color_count: number | null;
+  thumbnail_url: string | null;
+  instructions_price_gbp: number;
+};
+
+export type GalleryDetail = GalleryCard & {
+  slope_count: number | null;
+  tile_count: number | null;
+};
+
+/** No auth -- the gallery is browsable while logged out. q is an
+ * optional case-insensitive substring search over prompts. */
+export async function fetchPublicGallery(q?: string): Promise<GalleryCard[]> {
+  const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+  const res = await fetch(`${API_BASE}/gallery${params}`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Failed to load gallery (${res.status})`);
+  }
+  return res.json();
+}
+
+/** No auth -- 404s alike for an unpublished job and a nonexistent one,
+ * so this can't be used to probe whether a private job_id exists. */
+export async function fetchGalleryItem(jobId: string): Promise<GalleryDetail> {
+  const res = await fetch(`${API_BASE}/gallery/${jobId}`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new ApiError(res.status, res.status === 404 ? "Not found in the gallery" : "Failed to load");
+  }
+  return res.json();
+}
+
+/** Whether the signed-in caller already owns (as creator, or as a paying
+ * buyer) this gallery job's download -- lets the detail page show
+ * "Download" instead of "Buy" on a return visit, not just right after a
+ * checkout redirect. */
+export async function fetchGalleryAccess(
+  jobId: string,
+  token: string
+): Promise<{ is_owner: boolean; has_access: boolean }> {
+  const res = await fetch(`${API_BASE}/gallery/${jobId}/access`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, "Failed to check access");
+  }
+  return res.json();
+}
+
+export async function publishToGallery(jobId: string, token: string): Promise<{ published: true }> {
+  const res = await fetch(`${API_BASE}/gallery/${jobId}/publish`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to publish");
+  }
+  return res.json();
+}
+
+export async function unpublishFromGallery(jobId: string, token: string): Promise<{ published: false }> {
+  const res = await fetch(`${API_BASE}/gallery/${jobId}/unpublish`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to unpublish");
+  }
+  return res.json();
+}
+
+/** A non-creator buying download access to someone else's published
+ * gallery build. Returns a Stripe Checkout URL, same pattern as every
+ * other checkout function here -- the purchase is only recorded once
+ * Stripe's webhook confirms it, not on this call. */
+export async function startGalleryPurchaseCheckout(jobId: string, token: string): Promise<{ checkout_url: string }> {
+  const res = await fetch(`${API_BASE}/gallery/${jobId}/purchase-checkout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to start checkout");
   }
   return res.json();
 }

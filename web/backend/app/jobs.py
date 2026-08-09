@@ -62,12 +62,49 @@ def _init_job_index() -> None:
             )
             """
         )
+        # Denormalized from meta.json specifically so the gallery's search
+        # box can query Postgres/SQLite directly (LIKE over this column)
+        # rather than pulling every published job's full meta.json out of
+        # R2 just to filter by prompt text.
+        auth._add_column_if_missing(conn, "ALTER TABLE job_index ADD COLUMN prompt TEXT", "prompt")
+        # is_published/published_at, not a separate table -- a job's
+        # gallery status is 1:1 with the job itself, same relationship as
+        # status/created_at already have here. Uses the shared
+        # _add_column_if_missing helper (see auth.py) specifically because
+        # a repeat of the earlier signup_source incident -- a migration
+        # that silently fails and leaves this column missing -- would
+        # break the publish endpoint for everyone, not just crash quietly.
+        auth._add_column_if_missing(
+            conn, "ALTER TABLE job_index ADD COLUMN is_published BOOLEAN NOT NULL DEFAULT FALSE", "is_published"
+        )
+        auth._add_column_if_missing(conn, "ALTER TABLE job_index ADD COLUMN published_at TEXT", "published_at")
+        # Who has paid to download which gallery job -- deliberately NOT
+        # the same instructions_unlocked flag a job already carries for
+        # its own creator. That flag is a single value on the job itself;
+        # once true, the existing (pre-gallery) download endpoint let
+        # *anyone* with the URL download for free. Reusing it for gallery
+        # purchases would mean the very first buyer's payment silently
+        # unlocks free downloads for every other visitor too -- a real
+        # revenue hole, not a hypothetical one, the moment a job is both
+        # published and already-unlocked for its creator (any Builder/Pro
+        # creator's published job, immediately). One row per (job, buyer)
+        # keeps each purchase scoped to the person who actually paid.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gallery_purchases (
+                job_id TEXT NOT NULL,
+                buyer_user_id TEXT NOT NULL,
+                purchased_at TEXT NOT NULL,
+                PRIMARY KEY (job_id, buyer_user_id)
+            )
+            """
+        )
 
 
 _init_job_index()
 
 
-def _record_job_index(job_id: str, user_id: str, status: str, created_at: str) -> None:
+def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, prompt: str | None = None) -> None:
     """Upsert, not insert -- called on every save_job_meta, so a job's
     entry here tracks its latest status exactly as reliably as meta.json
     itself does (same call site, always in lockstep).
@@ -92,11 +129,11 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str) -
                 conn.execute(
                     auth._ph(
                         """
-                        INSERT INTO job_index (job_id, user_id, status, created_at) VALUES (?, ?, ?, ?)
-                        ON CONFLICT (job_id) DO UPDATE SET status = excluded.status
+                        INSERT INTO job_index (job_id, user_id, status, created_at, prompt) VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT (job_id) DO UPDATE SET status = excluded.status, prompt = excluded.prompt
                         """
                     ),
-                    (job_id, user_id, status, created_at),
+                    (job_id, user_id, status, created_at, prompt),
                 )
             return
         except Exception:
@@ -121,6 +158,93 @@ def list_job_ids_for_user(user_id: str) -> list[str]:
             auth._ph("SELECT job_id FROM job_index WHERE user_id = ?"), (user_id,)
         ).fetchall()
     return [row["job_id"] for row in rows]
+
+
+def set_job_published(job_id: str, user_id: str, published: bool) -> bool:
+    """Returns False if job_id doesn't exist in the index or doesn't
+    belong to user_id -- the caller (main.py) turns that into a 403/404.
+    Only touches is_published/published_at; a job's own status/prompt
+    tracking is untouched by publishing or unpublishing it."""
+    with auth._connect() as conn:
+        row = conn.execute(auth._ph("SELECT user_id FROM job_index WHERE job_id = ?"), (job_id,)).fetchone()
+        if row is None or row["user_id"] != user_id:
+            return False
+        if published:
+            conn.execute(
+                auth._ph("UPDATE job_index SET is_published = TRUE, published_at = ? WHERE job_id = ?"),
+                (datetime.now(timezone.utc).isoformat(), job_id),
+            )
+        else:
+            conn.execute(auth._ph("UPDATE job_index SET is_published = FALSE WHERE job_id = ?"), (job_id,))
+    return True
+
+
+def is_job_published(job_id: str) -> bool:
+    with auth._connect() as conn:
+        row = conn.execute(
+            auth._ph("SELECT is_published FROM job_index WHERE job_id = ?"), (job_id,)
+        ).fetchone()
+    return bool(row and row["is_published"])
+
+
+def list_gallery_jobs(search: str | None, limit: int, offset: int) -> list[tuple[str, str | None, str | None]]:
+    """Returns (job_id, prompt, published_at) tuples for published jobs,
+    newest first. Case-insensitive substring match on prompt when search
+    is given, via LOWER()-wrapped LIKE rather than Postgres-only ILIKE --
+    SQLite has no ILIKE, and this way the exact same query string works
+    against both backends."""
+    with auth._connect() as conn:
+        if search:
+            rows = conn.execute(
+                auth._ph(
+                    "SELECT job_id, prompt, published_at FROM job_index "
+                    "WHERE is_published = TRUE AND LOWER(prompt) LIKE LOWER(?) "
+                    "ORDER BY published_at DESC LIMIT ? OFFSET ?"
+                ),
+                (f"%{search}%", limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                auth._ph(
+                    "SELECT job_id, prompt, published_at FROM job_index "
+                    "WHERE is_published = TRUE "
+                    "ORDER BY published_at DESC LIMIT ? OFFSET ?"
+                ),
+                (limit, offset),
+            ).fetchall()
+    return [(r["job_id"], r["prompt"], r["published_at"]) for r in rows]
+
+
+def has_gallery_access(job_id: str, user_id: str) -> bool:
+    """True if user_id has specifically paid for this gallery job -- see
+    gallery_purchases's own docstring in _init_job_index for why this is
+    a separate per-buyer record rather than reusing the job's own
+    instructions_unlocked flag."""
+    with auth._connect() as conn:
+        row = conn.execute(
+            auth._ph("SELECT 1 FROM gallery_purchases WHERE job_id = ? AND buyer_user_id = ?"),
+            (job_id, user_id),
+        ).fetchone()
+    return row is not None
+
+
+def record_gallery_purchase(job_id: str, buyer_user_id: str) -> None:
+    """Called from the Stripe webhook once a gallery purchase is
+    confirmed -- see billing.handle_webhook_event. ON CONFLICT DO NOTHING
+    since a retried webhook delivery for the same event must not error --
+    idempotency is already enforced earlier by main.py's
+    auth.mark_stripe_event_processed check, this is just a harmless
+    second line of defense for the same scenario."""
+    with auth._connect() as conn:
+        conn.execute(
+            auth._ph(
+                """
+                INSERT INTO gallery_purchases (job_id, buyer_user_id, purchased_at) VALUES (?, ?, ?)
+                ON CONFLICT (job_id, buyer_user_id) DO NOTHING
+                """
+            ),
+            (job_id, buyer_user_id, datetime.now(timezone.utc).isoformat()),
+        )
 
 REDIS_URL = os.environ.get("REDIS_URL")
 REDIS_CONN = redis.from_url(REDIS_URL) if REDIS_URL else None
@@ -222,7 +346,7 @@ def _write_job_meta_dict(job_id: str, data: dict) -> None:
     # this is the one choke point every write -- from either process --
     # actually goes through.
     if data.get("user_id") and data.get("status") and data.get("created_at"):
-        _record_job_index(job_id, data["user_id"], data["status"], data["created_at"])
+        _record_job_index(job_id, data["user_id"], data["status"], data["created_at"], data.get("prompt"))
 
 
 def save_job_meta(job: Job) -> None:

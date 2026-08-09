@@ -150,6 +150,36 @@ def create_unlock_instructions_checkout(user: auth.User, job_id: str, price_gbp:
     )
 
 
+def create_gallery_purchase_checkout(user: auth.User, job_id: str, price_gbp: int) -> str:
+    """A non-creator buying access to someone else's published gallery
+    build. Same inline price_data shape as create_unlock_instructions_checkout
+    (dynamic £5-15 price, no fixed Price object makes sense here either) --
+    deliberately a distinct "gallery_purchase" metadata type rather than
+    reusing "unlock_instructions", since the webhook needs to route this
+    to jobs.record_gallery_purchase (a per-buyer record), not
+    _unlock_instructions_for_job (which would incorrectly flip the job's
+    own single instructions_unlocked flag, unlocking free downloads for
+    every future visitor -- see gallery_purchases's own docstring in
+    jobs.py for why that distinction matters)."""
+    return _create_checkout_session(
+        user,
+        mode="payment",
+        line_items=[
+            {
+                "price_data": {
+                    "currency": "gbp",
+                    "unit_amount": price_gbp * 100,
+                    "product_data": {"name": f"BrickForgerAI gallery build ({job_id})"},
+                },
+                "quantity": 1,
+            }
+        ],
+        success_url=f"{FRONTEND_URL}/discover/{job_id}?checkout=success",
+        cancel_url=f"{FRONTEND_URL}/discover/{job_id}?checkout=cancelled",
+        metadata={"type": "gallery_purchase", "job_id": job_id, "user_id": user.id},
+    )
+
+
 def create_billing_portal_session(user: auth.User) -> str:
     """Returns a URL to Stripe's own hosted Billing Portal -- shows the
     customer their next billing date, lets them update their saved card,
@@ -203,17 +233,17 @@ def verify_and_parse_webhook(payload: bytes, signature_header: str | None) -> st
         raise ValueError(str(exc)) from exc
 
 
-def handle_webhook_event(event: stripe.Event, unlock_instructions_for_job) -> None:
+def handle_webhook_event(event: stripe.Event, unlock_instructions_for_job, record_gallery_purchase) -> None:
     """Dispatches a verified event to the right side effect. Idempotency
     is handled by the caller (main.py checks
     auth.mark_stripe_event_processed(event.id) before calling this at
     all) -- every function called from here assumes it's genuinely only
     running once per event.
 
-    unlock_instructions_for_job is injected (job_id) -> None rather than
-    imported directly, to avoid a circular import: main.py already
-    imports this module, and the job-unlocking logic lives in main.py
-    alongside _get_job_dict_or_404/_write_job_meta_dict."""
+    unlock_instructions_for_job (job_id) -> None and record_gallery_purchase
+    (job_id, buyer_user_id) -> None are both injected rather than imported
+    directly, to avoid a circular import: main.py already imports this
+    module, and the actual job-mutating logic lives in main.py/jobs.py."""
     event_type = event["type"]
     obj = event["data"]["object"]
 
@@ -224,6 +254,8 @@ def handle_webhook_event(event: stripe.Event, unlock_instructions_for_job) -> No
             auth.add_credits(meta["user_id"], TOPUP_CREDITS)
         elif obj.get("mode") == "payment" and checkout_type == "unlock_instructions":
             unlock_instructions_for_job(meta["job_id"])
+        elif obj.get("mode") == "payment" and checkout_type == "gallery_purchase":
+            record_gallery_purchase(meta["job_id"], meta["user_id"])
         # Subscription-mode sessions are deliberately not handled here --
         # customer.subscription.created below is what actually provisions
         # the plan, since it's the source of truth for what was actually

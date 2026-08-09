@@ -16,7 +16,7 @@ import {
   Job,
   STATUS_LABELS,
   STATUS_ORDER,
-  downloadUrl,
+  downloadLdr,
   fetchJob,
   previewUrl,
   saveRender,
@@ -56,6 +56,21 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
   const [pollError, setPollError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  async function handleDownload() {
+    if (!token || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadLdr(jobId, token);
+    } catch (err) {
+      setDownloadError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   async function handleUnlock() {
     if (!token || unlocking) return;
@@ -201,9 +216,9 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
 
               <div style={{ display: "flex", gap: 14, marginTop: 28, flexWrap: "wrap" }}>
                 {job.instructions_unlocked ? (
-                  <a
-                    href={downloadUrl(jobId)}
-                    download
+                  <button
+                    onClick={handleDownload}
+                    disabled={downloading}
                     style={{
                       background: colors.accent,
                       color: "#fff",
@@ -211,11 +226,14 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                       borderRadius: 14,
                       fontWeight: 700,
                       fontSize: 16,
-                      textDecoration: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      opacity: downloading ? 0.6 : 1,
                     }}
                   >
-                    Download .ldr ↓
-                  </a>
+                    {downloading ? "Downloading…" : "Download .ldr ↓"}
+                  </button>
                 ) : (
                   <button
                     onClick={handleUnlock}
@@ -240,6 +258,9 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
               </div>
               {unlockError && (
                 <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{unlockError}</p>
+              )}
+              {downloadError && (
+                <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadError}</p>
               )}
               {!job.instructions_unlocked && checkoutStatus === "success" && (
                 <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>

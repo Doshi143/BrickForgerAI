@@ -34,10 +34,15 @@ from .jobs import (
     JobStatus,
     _job_dir,
     _write_job_meta_dict,
+    has_gallery_access,
+    is_job_published,
+    list_gallery_jobs,
     list_job_ids_for_user,
     load_job_meta,
     process_job,
+    record_gallery_purchase,
     save_job_meta,
+    set_job_published,
 )
 
 # No-op when SENTRY_DSN is unset -- sentry_sdk.init(dsn=None) disables
@@ -273,6 +278,11 @@ def list_jobs(month_only: bool = True, user: auth.User = Depends(auth.get_curren
             created_dt = datetime.fromisoformat(created)
             if (created_dt.year, created_dt.month) != (now.year, now.month):
                 continue
+        # Lives in job_index (Postgres/SQLite), not meta.json (R2/local) --
+        # gallery publish state was never part of the pipeline's own
+        # output, so it has to be joined in here rather than already
+        # being on `data`.
+        data["is_published"] = is_job_published(entry)
         results.append(data)
 
     results.sort(key=lambda d: d.get("created_at") or "", reverse=True)
@@ -371,14 +381,32 @@ def preview_ldr(job_id: str) -> Response:
 
 
 @app.get("/generate/{job_id}/download")
-def download_ldr(job_id: str) -> Response:
-    """Gated behind instructions_unlocked (free-plan pay-per-model, or
-    included automatically for pro-plan jobs -- see generate()). The 3D
-    preview (GET .../preview, above) is intentionally not behind this
-    gate; only actually saving the file is."""
+def download_ldr(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> Response:
+    """Gated on TWO different rules depending on who's asking, not one:
+    the job's own creator uses instructions_unlocked exactly as before
+    (free-plan pay-per-model, or included automatically for Builder/Pro);
+    anyone else can only download if they've specifically paid for this
+    job through the gallery (see has_gallery_access/gallery_purchases).
+
+    Now requires auth -- it didn't before. That's a deliberate, necessary
+    tightening, not scope creep: previously this endpoint only checked
+    the job's own instructions_unlocked flag with no notion of who was
+    asking, so *anyone* who knew or guessed a job_id could download it
+    for free the moment its creator had unlocked it. That was low-risk
+    while job_ids were only ever shared privately by their own creator,
+    but the gallery makes published job_ids genuinely public and
+    searchable -- without this change, the very first Builder/Pro
+    creator to publish a job would have handed out free downloads to
+    every visitor, bypassing the gallery's own pricing entirely. The 3D
+    preview (GET .../preview, above) stays unauthenticated on purpose --
+    only the actual "save this file" action needs to know who's asking."""
     data = _get_job_dict_or_404(job_id)
-    if not data.get("instructions_unlocked"):
-        raise HTTPException(402, "Unlock instructions to download this model's .ldr file")
+    is_owner = data.get("user_id") == user.id
+    if is_owner:
+        if not data.get("instructions_unlocked"):
+            raise HTTPException(402, "Unlock instructions to download this model's .ldr file")
+    elif not has_gallery_access(job_id, user.id):
+        raise HTTPException(402, "Purchase this gallery build to download its .ldr file")
 
     return _serve_job_file(job_id, "model.ldr", media_type="text/plain", download_filename=f"{job_id}.ldr")
 
@@ -419,6 +447,118 @@ def _unlock_instructions_for_job(job_id: str) -> None:
         return
     data["instructions_unlocked"] = True
     _write_job_meta_dict(job_id, data)
+
+
+@app.post("/gallery/{job_id}/publish")
+def publish_to_gallery(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """Only the job's own creator can publish it, and only once it's
+    actually finished -- a queued/failed job has no thumbnail, parts
+    list, or price to show in the gallery yet."""
+    data = _get_job_dict_or_404(job_id)
+    if data.get("user_id") != user.id:
+        raise HTTPException(403, "not your job")
+    if data.get("status") != JobStatus.DONE.value:
+        raise HTTPException(400, "only a completed build can be published")
+    if not set_job_published(job_id, user.id, True):
+        raise HTTPException(404, "job not found")
+    return {"published": True}
+
+
+@app.post("/gallery/{job_id}/unpublish")
+def unpublish_from_gallery(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> dict:
+    if not set_job_published(job_id, user.id, False):
+        raise HTTPException(403, "not your job")
+    return {"published": False}
+
+
+def _gallery_card(job_id: str, prompt: str | None, published_at: str | None) -> dict | None:
+    """Public-safe summary for one gallery listing row -- an explicit
+    whitelist of fields, not a reuse of _strip_internal_fields: this
+    endpoint has no auth at all (the gallery is browsable logged out), so
+    nothing beyond what's listed here should ever be reachable from it,
+    unlike the single-owner-authenticated /generate/{id} response
+    _strip_internal_fields was designed for."""
+    meta = load_job_meta(job_id)
+    if meta is None:
+        return None
+    return {
+        "job_id": job_id,
+        "prompt": prompt,
+        "published_at": published_at,
+        "part_count": meta.get("part_count"),
+        "color_count": meta.get("color_count"),
+        "thumbnail_url": meta.get("thumbnail_url"),
+        "instructions_price_gbp": meta.get("instructions_price_gbp", 5),
+    }
+
+
+@app.get("/gallery")
+def gallery_list(q: str | None = None, limit: int = 24, offset: int = 0) -> list[dict]:
+    """Public -- no auth required, since the gallery is meant to be
+    browsable while logged out. q searches prompt text, case-insensitive
+    substring match (see jobs.list_gallery_jobs)."""
+    limit = min(max(limit, 1), 60)
+    offset = max(offset, 0)
+    rows = list_gallery_jobs(search=q.strip() if q else None, limit=limit, offset=offset)
+    cards = [_gallery_card(job_id, prompt, published_at) for job_id, prompt, published_at in rows]
+    return [c for c in cards if c is not None]
+
+
+@app.get("/gallery/{job_id}")
+def gallery_detail(job_id: str) -> dict:
+    """Public detail view for one published gallery job. 404s for an
+    unpublished job the same as a nonexistent one -- this must not be
+    usable to probe whether a private job_id exists at all."""
+    _validate_job_id_or_404(job_id)
+    if not is_job_published(job_id):
+        raise HTTPException(404, "gallery item not found")
+    meta = load_job_meta(job_id)
+    if meta is None:
+        raise HTTPException(404, "gallery item not found")
+    return {
+        "job_id": job_id,
+        "prompt": meta.get("prompt"),
+        "part_count": meta.get("part_count"),
+        "slope_count": meta.get("slope_count"),
+        "tile_count": meta.get("tile_count"),
+        "color_count": meta.get("color_count"),
+        "thumbnail_url": meta.get("thumbnail_url"),
+        "instructions_price_gbp": meta.get("instructions_price_gbp", 5),
+    }
+
+
+@app.get("/gallery/{job_id}/access")
+def gallery_access(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """Lets the frontend show "Download" vs "Buy — £X" correctly on a
+    return visit, not just right after a checkout redirect -- without
+    this, a signed-in user who already bought a gallery build yesterday
+    would see a "Buy" button again today (harmless if clicked, since
+    purchase-checkout itself still rejects an already-owned job, but a
+    confusing button to show)."""
+    data = _get_job_dict_or_404(job_id)
+    is_owner = data.get("user_id") == user.id
+    has_access = bool(data.get("instructions_unlocked")) if is_owner else has_gallery_access(job_id, user.id)
+    return {"is_owner": is_owner, "has_access": has_access}
+
+
+@app.post("/gallery/{job_id}/purchase-checkout")
+def gallery_purchase_checkout(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """A non-creator buying download access to a published gallery
+    build. The creator viewing/downloading their own published job never
+    hits this -- they already have (or can buy) access through the
+    normal unlock-instructions flow, gated on their own plan, not this
+    always-pay gallery price."""
+    _check_generation_allowlist(user)
+    if not is_job_published(job_id):
+        raise HTTPException(404, "gallery item not found")
+    data = _get_job_dict_or_404(job_id)
+    if data.get("user_id") == user.id:
+        raise HTTPException(400, "this is your own build -- use the normal unlock flow, not a gallery purchase")
+    if has_gallery_access(job_id, user.id):
+        raise HTTPException(400, "already purchased")
+
+    checkout_url = billing.create_gallery_purchase_checkout(user, job_id, data.get("instructions_price_gbp", 5))
+    return {"checkout_url": checkout_url}
 
 
 class PlanCheckoutRequest(BaseModel):
@@ -476,7 +616,7 @@ async def stripe_webhook(request: Request) -> dict:
     if not auth.mark_stripe_event_processed(event["id"]):
         return {"received": True}
 
-    billing.handle_webhook_event(event, _unlock_instructions_for_job)
+    billing.handle_webhook_event(event, _unlock_instructions_for_job, record_gallery_purchase)
     return {"received": True}
 
 

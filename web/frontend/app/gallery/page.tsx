@@ -10,7 +10,16 @@ import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "@/app/theme";
-import { Job, fetchGallery, previewUrl, saveRender, thumbnailUrl } from "@/lib/api";
+import {
+  ApiError,
+  Job,
+  fetchGallery,
+  previewUrl,
+  publishToGallery,
+  saveRender,
+  thumbnailUrl,
+  unpublishFromGallery,
+} from "@/lib/api";
 
 // three.js touches `window` at import time, so it can never run during SSR.
 const Viewer3D = dynamic(() => import("@/components/Viewer3D"), { ssr: false });
@@ -146,6 +155,12 @@ export default function GalleryPage() {
                   colors={colors}
                   job={job}
                   cacheBust={thumbVersions[job.job_id]}
+                  token={token ?? ""}
+                  onTogglePublish={(jobId, nextPublished) =>
+                    setJobs((prev) =>
+                      prev?.map((j) => (j.job_id === jobId ? { ...j, is_published: nextPublished } : j)) ?? prev
+                    )
+                  }
                 />
               ))}
             </div>
@@ -183,11 +198,18 @@ function GalleryCard({
   colors,
   job,
   cacheBust,
+  token,
+  onTogglePublish,
 }: {
   colors: ThemeColors;
   job: Job;
   cacheBust?: number;
+  token: string;
+  onTogglePublish: (jobId: string, nextPublished: boolean) => void;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const date = job.created_at
     ? new Date(job.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
     : null;
@@ -195,44 +217,86 @@ function GalleryCard({
     ? `${thumbnailUrl(job.job_id)}${cacheBust ? `?v=${cacheBust}` : ""}`
     : undefined;
 
+  // A <button> can't be nested inside the <Link> below (invalid HTML,
+  // and a click would fire both the button and the navigation) -- kept
+  // as a sibling row instead, its own click never triggers the link.
+  async function handleToggle() {
+    if (busy || !token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (job.is_published) {
+        await unpublishFromGallery(job.job_id, token);
+        onTogglePublish(job.job_id, false);
+      } else {
+        await publishToGallery(job.job_id, token);
+        onTogglePublish(job.job_id, true);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <Link
-      href={`/generate/${job.job_id}`}
+    <div
       style={{
-        display: "block",
         background: colors.cardBg,
         border: `1px solid ${colors.cardBorder}`,
         borderRadius: 16,
         overflow: "hidden",
-        textDecoration: "none",
       }}
     >
-      <div
-        style={{
-          aspectRatio: "1 / 1",
-          background: colors.badgeBg,
-          backgroundImage: thumbSrc ? `url(${thumbSrc})` : undefined,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      />
-      <div style={{ padding: "14px 16px" }}>
+      <Link href={`/generate/${job.job_id}`} style={{ display: "block", textDecoration: "none" }}>
         <div
           style={{
-            color: colors.textPrimary,
+            aspectRatio: "1 / 1",
+            background: colors.badgeBg,
+            backgroundImage: thumbSrc ? `url(${thumbSrc})` : undefined,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        />
+        <div style={{ padding: "14px 16px 10px" }}>
+          <div
+            style={{
+              color: colors.textPrimary,
+              fontWeight: 700,
+              fontSize: 15,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {job.prompt}
+          </div>
+          <div style={{ color: colors.textSecondary, fontSize: 13, marginTop: 6 }}>
+            {job.part_count?.toLocaleString() ?? "—"} parts{date ? ` · ${date}` : ""}
+          </div>
+        </div>
+      </Link>
+      <div style={{ padding: "0 16px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+        <button
+          onClick={handleToggle}
+          disabled={busy}
+          style={{
+            background: job.is_published ? "none" : colors.accent,
+            border: job.is_published ? `1px solid ${colors.cardBorder}` : "none",
+            color: job.is_published ? colors.textSecondary : "#fff",
+            padding: "8px 12px",
+            borderRadius: 10,
             fontWeight: 700,
-            fontSize: 15,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            fontSize: 12,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            opacity: busy ? 0.6 : 1,
           }}
         >
-          {job.prompt}
-        </div>
-        <div style={{ color: colors.textSecondary, fontSize: 13, marginTop: 6 }}>
-          {job.part_count?.toLocaleString() ?? "—"} parts{date ? ` · ${date}` : ""}
-        </div>
+          {busy ? "…" : job.is_published ? "Published — remove from Gallery" : "Publish to Gallery"}
+        </button>
+        {error && <span style={{ color: "#ff8f6b", fontSize: 12 }}>{error}</span>}
       </div>
-    </Link>
+    </div>
   );
 }
