@@ -10,6 +10,7 @@ Spec reference: https://www.ldraw.org/article/218.html
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from .lattice import placement_to_ldraw
@@ -22,8 +23,35 @@ def _format_matrix(matrix: tuple[int, ...]) -> str:
     return " ".join(str(v) for v in matrix)
 
 
-def to_ldr(model: Model, name: str, author: str = "BrickForgerAI") -> str:
-    """Render a Model as LDR text. `name` becomes the file title (line 1)."""
+@dataclass(frozen=True)
+class RawPlacement:
+    """A part placed directly in world LDU space with an explicit
+    rotation matrix, bypassing Model's grid entirely -- used for SNOT
+    sub-assembly children (see snot.py::place_in_frame), which don't
+    live on Model's single shared Y-up grid and so can't be expressed as
+    a normal Brick.
+
+    Phase A only: these are NOT tracked by Model's collision detection
+    or the structural connectivity graph (see snot.py's own module
+    docstring) -- this is purely a way to get a verified-correct SNOT
+    placement into a real .ldr file for visual confirmation in Studio,
+    not yet a full citizen of the rest of the pipeline."""
+
+    part_id: str
+    color: int
+    pos_ldu: tuple[int, int, int]
+    matrix: tuple[int, ...]
+
+
+def to_ldr(
+    model: Model,
+    name: str,
+    author: str = "BrickForgerAI",
+    raw_placements: list[RawPlacement] | None = None,
+) -> str:
+    """Render a Model as LDR text. `name` becomes the file title (line 1).
+    `raw_placements` (optional) are appended after the model's own
+    bricks -- see RawPlacement's own docstring."""
     lines: list[str] = [
         f"0 {name}",
         f"0 Name: {name}.ldr",
@@ -53,13 +81,31 @@ def to_ldr(model: Model, name: str, author: str = "BrickForgerAI") -> str:
         )
         lines.append(line)
 
+    for rp in raw_placements or []:
+        part = model.catalog.get(rp.part_id)
+        line = LDR_LINE_TEMPLATE.format(
+            color=rp.color,
+            x=rp.pos_ldu[0],
+            y=rp.pos_ldu[1],
+            z=rp.pos_ldu[2],
+            matrix=_format_matrix(rp.matrix),
+            file=part.ldraw_file,
+        )
+        lines.append(line)
+
     return "\n".join(lines) + "\n"
 
 
-def save_ldr(model: Model, path: str | Path, name: str | None = None, author: str = "BrickForgerAI") -> Path:
+def save_ldr(
+    model: Model,
+    path: str | Path,
+    name: str | None = None,
+    author: str = "BrickForgerAI",
+    raw_placements: list[RawPlacement] | None = None,
+) -> Path:
     """Write a Model to `path` as an .ldr file. If `name` is omitted, the
     file's stem is used as the model title."""
     path = Path(path)
     title = name if name is not None else path.stem
-    path.write_text(to_ldr(model, title, author=author), encoding="utf-8")
+    path.write_text(to_ldr(model, title, author=author, raw_placements=raw_placements), encoding="utf-8")
     return path

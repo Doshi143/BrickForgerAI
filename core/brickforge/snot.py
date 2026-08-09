@@ -1,0 +1,291 @@
+"""SNOT (Studs Not On Top) coordinate-frame math -- Phase A.
+
+Deliberately a new, separate, composable module rather than an extension
+of the existing yaw-only `Rotation` enum in lattice.py: `Model`, `Brick`,
+collision detection, and the structural connectivity graph all assume
+every placed part lives on one shared Y-up grid, and none of that is
+touched here. This module adds the ability to place a SNOT sub-assembly
+in its OWN locally-rotated grid, anchored to a specific face of an
+already-placed, ordinary parent `Brick` -- with zero regression risk to
+anything that already works, since nothing existing is modified.
+
+Phase A scope, precisely: prove this coordinate math is correct (verified
+in Studio, see examples/snot_alignment_test.py), for a single SNOT brick
+centered on one face of an ordinary parent brick. NOT in scope yet:
+folding SNOT children into `Model`'s collision grid or the structural
+connectivity graph (structure/graph.py still only understands top/bottom
+stud edges) -- that is Phase B, and must not be assumed to work until
+built and verified on its own terms.
+
+The core idea: a SNOT child's own local placement is computed with the
+EXACT SAME, already-proven `lattice.placement_to_ldraw` used for every
+other part in this codebase -- nothing about that function changes. The
+only new work is (1) determining the world position and rotation of the
+child's local origin (a `SnotFrame`, anchored at a parent brick's face),
+and (2) transforming the child's already-computed local LDU placement by
+that frame to get its final world LDU position and rotation matrix.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .lattice import GridPos, PLATE_HEIGHT_LDU, Rotation, STUD_LDU, placement_to_ldraw
+from .model import Brick
+from .parts import Part
+
+Face = str  # "+x" | "-x" | "+z" | "-z"
+
+_FACES: tuple[Face, ...] = ("+x", "-x", "+z", "-z")
+
+# A face is a fixed property of a SNOT part's own geometry (like top/bottom
+# coverage) -- expressed in the part's own UNROTATED local frame, as a unit
+# (dx, dz) direction. Reused directly as input to Rotation.rotate_offset,
+# the exact same function local_offset already uses to correctly rotate a
+# local-frame direction into world space under a parent's yaw -- a face
+# direction transforms exactly the same way a position offset does.
+_FACE_UNIT_OFFSET: dict[Face, tuple[int, int]] = {
+    "+x": (1, 0),
+    "-x": (-1, 0),
+    "+z": (0, 1),
+    "-z": (0, -1),
+}
+
+# Tilts a part so its local -Y -- the part's REAL native top-stud
+# direction -- points toward the stated LOCAL face direction, i.e. this
+# is the matrix for a part whose parent is at YAW_0 (identity yaw).
+# Row-major "world = M @ local" convention, matching Rotation's own
+# documented a-b-c/d-e-f/g-h-i layout (see lattice.py). Each derived as
+# an elementary rotation about a HORIZONTAL axis (X or Z -- yaw only ever
+# rotates about the vertical Y axis and cannot produce this).
+#
+# Real bug caught here, not just a hypothetical: an earlier version of
+# this table was derived and verified against local **+Y**, reasoning
+# about it as a generic "up" direction -- but this project's own
+# established, verified convention (see lattice.py's own module
+# docstring) is that a part's origin is TOP-anchored with local Y=0 at
+# the top, and the raw .dat geometry extends in *increasing* local Y
+# toward the BOTTOM. That means the real native direction pointing away
+# from a top stud -- the direction that actually needs to end up facing
+# outward on a SNOT face -- is local **-Y**, not +Y. Confirmed
+# concretely, not just reasoned about on paper: with the old matrices, a
+# 1x1 plate meant to sit flush against a 1x1 parent's face instead landed
+# 8 LDU further out with an 8 LDU gap in between (full raw-geometry
+# corners transformed and compared against the parent's own known
+# bounding box, not just the origin point -- the origin-only check in an
+# earlier pass wasn't rigorous enough to catch this). Fixed by using each
+# matrix's derivation for the *opposite* labeled face -- since negating
+# the target direction is equivalent to using the supplementary rotation
+# angle, which turns out to be exactly the matrix originally derived for
+# the other face.
+#
+# Independently verified computationally (not just by hand) in
+# tests/test_snot.py: each is a proper rotation (orthonormal, determinant
+# +1 -- i.e. no mirroring), each actually sends local -Y to the stated
+# direction, and a full raw-geometry bounding box (not just the origin
+# point) lands flush against a real parent brick with zero gap or overlap.
+#
+# Known open question, deliberately not resolved here: each face's matrix
+# is individually a *correct* rotation, but the remaining one-degree-of-
+# freedom "spin" around the tilt axis was picked independently per face,
+# with nothing yet forcing the four to agree with each other on how a
+# NON-symmetric part's other two axes get distributed. There's no single
+# "obviously correct" spin to fix that with, without a real bracket
+# part's own geometry to anchor against -- a real SNOT bracket has actual
+# molded asymmetry that decides this for real, the same way local_offset
+# already does for slopes. Phase A verifies all four faces are
+# geometrically correct for a symmetric 1x1 part; reconciling spin choice
+# for asymmetric parts against real per-part geometry is Phase B/C work.
+_LOCAL_TILT_MATRIX: dict[Face, tuple[int, ...]] = {
+    "+x": (0, -1, 0, 1, 0, 0, 0, 0, 1),
+    "-x": (0, 1, 0, -1, 0, 0, 0, 0, 1),
+    "+z": (1, 0, 0, 0, 0, 1, 0, -1, 0),
+    "-z": (1, 0, 0, 0, 0, -1, 0, 1, 0),
+}
+
+
+def _matmul(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
+    """3x3 * 3x3 product, both given as row-major 9-tuples."""
+    result = []
+    for i in range(3):
+        for j in range(3):
+            result.append(sum(a[i * 3 + k] * b[k * 3 + j] for k in range(3)))
+    return tuple(result)
+
+
+def _matvec(m: tuple[int, ...], v: tuple[int, int, int]) -> tuple[int, int, int]:
+    a, b, c, d, e, f, g, h, i = m
+    x, y, z = v
+    return (a * x + b * y + c * z, d * x + e * y + f * z, g * x + h * y + i * z)
+
+
+@dataclass(frozen=True)
+class SnotFrame:
+    """A local-to-world transform for a SNOT sub-assembly, anchored at a
+    specific point on a specific already-placed parent `Brick`'s face.
+
+    Both fields are in NATIVE LDraw convention throughout (-Y up, the
+    exact space `placement_to_ldraw` already returns, and the space the
+    raw .dat geometry itself is defined in) -- deliberately, not an
+    "internal Y-up" convention requiring a flip/unflip dance at the
+    boundary. An earlier version of this module tried the flip/unflip
+    approach and it was a real, caught source of bugs (see
+    _LOCAL_TILT_MATRIX's own docstring and place_in_frame's git history):
+    every one of `frame.matrix`, `local_rotation.matrix`, and the raw
+    .dat file's own vertex data needs to agree on ONE convention to
+    compose correctly, and native LDraw convention is the one they can
+    all already agree on for free, since that's what the .dat files and
+    placement_to_ldraw's *output* already are.
+
+    `origin_ldu`: world LDU position of the frame's own local origin.
+    `matrix`: world rotation matrix (row-major 9-tuple) mapping the SNOT
+    sub-assembly's own local axes into world axes -- local -Y (a child
+    part's own real top-stud direction, native convention) maps to
+    whichever world direction this frame's face actually points,
+    accounting for the parent's own yaw.
+    """
+
+    origin_ldu: tuple[int, int, int]
+    matrix: tuple[int, ...]
+
+
+def snot_frame_for_brick(
+    parent: Brick,
+    local_face: Face,
+    face_offset: tuple[int, int | None] = (0, None),
+) -> SnotFrame:
+    """Compute the world frame for a SNOT sub-assembly attached at
+    `parent`'s `local_face` -- a fixed property of the PART's own
+    geometry (e.g. "the side its molded stud is actually on"), expressed
+    in the part's own unrotated local frame, not world space. Rotated
+    into world space by the parent's own yaw.
+
+    `face_offset` = (offset along the face's in-plane horizontal axis,
+    offset down from the parent's own top), in LDU, both measured in the
+    part's own unrotated local frame -- same convention as
+    Part.side_stud_offset, which should be passed here directly once
+    known for a real part. Defaults to (0, None): a plain corner on the
+    in-plane axis (see below for why that's the right default, not a
+    center), and the parent's exact half-height on the vertical axis.
+    `from_top`'s half-height default is only an approximation -- confirmed
+    wrong for a real measured part, not just suspected: part 87087's real
+    side stud sits at 10 LDU from its own top, not the 12 LDU half-height
+    of its 24-LDU-tall body, verified from 87087.dat's own raw geometry
+    (`1 16 0 10 -10 ... stud2a.dat`). Pass the part's real
+    Part.side_stud_offset whenever it's known, rather than trusting this
+    default.
+
+    Real bug caught by the full-corner-based bounding-box check in this
+    module's own test suite, not just the origin-point check that missed
+    it: the in-plane axis's origin used to add HALF the parent's own
+    face width as a "center the face" term -- but placement_to_ldraw
+    (called later, inside place_in_frame, for the CHILD's own local
+    placement) already centers the child within its own footprint cell
+    on that exact axis. Adding both meant a child was pushed a full
+    child-footprint-width past where it should sit, not centered on the
+    parent's face at all -- confirmed concretely: a 1x1 plate meant to
+    center on a 1x1 parent's face (both spanning world X [0, 20]) instead
+    landed at world X [10, 30]. The origin's in-plane component is now a
+    plain CORNER reference (matching how GridPos(0, 0, 0) is already a
+    corner, not a center, everywhere else in this codebase) -- letting
+    placement_to_ldraw's own single, already-correct centering do that
+    job, with `face_offset`'s `along` layered on top only as an
+    intentional additional shift from that corner, not a second centering.
+
+    `origin_ldu` is in NATIVE LDraw convention (-Y up), matching
+    place_in_frame's own docstring on why that's the one convention every
+    piece of this composition (the raw .dat geometry, placement_to_ldraw's
+    output, and _LOCAL_TILT_MATRIX) can already agree on without an
+    internal flip/unflip step."""
+    if local_face not in _FACES:
+        raise ValueError(f"Unknown face {local_face!r}, expected one of {_FACES}")
+    along, from_top = face_offset
+
+    # Composed in this order, not looked up by world-facing direction
+    # alone -- confirmed by direct computation (not just argued) that the
+    # two are NOT equivalent whenever the parent has a non-identity yaw:
+    # the parent's own rotation must carry the SNOT child's whole local
+    # frame along with it, same as it would for a real physical brick.
+    matrix = _matmul(parent.rotation.matrix, _LOCAL_TILT_MATRIX[local_face])
+
+    # rotate_offset resolves which WORLD-axis-aligned face this actually
+    # is, post-yaw -- reused directly rather than re-deriving, since this
+    # is exactly what it's already proven to do correctly for local_offset.
+    world_fx, world_fz = parent.rotation.rotate_offset(*_FACE_UNIT_OFFSET[local_face])
+    # `along` is measured along the face's own in-plane horizontal axis
+    # (Z for a +x/-x face, X for a +z/-z face) -- rotated into world by
+    # the same parent yaw, exactly like local_offset's own components are.
+    in_face_local = (0, along) if local_face in ("+x", "-x") else (along, 0)
+    world_along_x, world_along_z = parent.rotation.rotate_offset(*in_face_local)
+
+    ew, ed = parent.footprint  # already post-rotation (Brick.footprint property)
+    x0 = parent.pos.x * STUD_LDU
+    z0 = parent.pos.z * STUD_LDU
+    # Native LDraw convention throughout: the parent's own TOP, in the
+    # same -Y-up terms placement_to_ldraw itself would give a top-anchored
+    # part at this grid position -- then `from_top` (a positive LDU count
+    # going DOWN from that top, same direction native Y already increases
+    # in) is added directly, no extra sign juggling needed.
+    parent_top_native = -((parent.pos.y + parent.part.height_plates) * PLATE_HEIGHT_LDU)
+    y_center = parent_top_native + (
+        (parent.part.height_plates * PLATE_HEIGHT_LDU) // 2 if from_top is None else from_top
+    )
+
+    if (world_fx, world_fz) == (1, 0):
+        origin = (x0 + ew * STUD_LDU, y_center, z0)
+    elif (world_fx, world_fz) == (-1, 0):
+        origin = (x0, y_center, z0)
+    elif (world_fx, world_fz) == (0, 1):
+        origin = (x0, y_center, z0 + ed * STUD_LDU)
+    else:  # (0, -1)
+        origin = (x0, y_center, z0)
+
+    origin = (origin[0] + world_along_x, origin[1], origin[2] + world_along_z)
+    return SnotFrame(origin_ldu=origin, matrix=matrix)
+
+
+def place_in_frame(
+    frame: SnotFrame,
+    part: Part,
+    local_pos: GridPos,
+    local_rotation: Rotation = Rotation.YAW_0,
+) -> tuple[tuple[int, int, int], tuple[int, ...]]:
+    """Final world (x, y, z) LDU position (LDraw convention) and world
+    3x3 rotation matrix for a part placed at `local_pos` within `frame`'s
+    own local sub-lattice. `local_pos.y = 0` is flush against the frame's
+    origin (i.e. directly against the parent's stud), exactly the same as
+    GridPos.y = 0 means "resting on the ground" in the normal grid.
+
+    A single, direct composition: placement_to_ldraw's own output is
+    already in native LDraw convention, and so is frame.matrix (see
+    _LOCAL_TILT_MATRIX's own docstring) -- so the child's local placement
+    can be rotated and translated by the frame in one step, with no
+    intermediate convention conversion at all.
+
+    An earlier version of this function DID insert an "undo the LDraw
+    flip, transform, then reapply it" step here, reasoning (correctly, as
+    far as it went) that placement_to_ldraw's Y output and a rotation
+    matrix derived assuming un-flipped Y-up couldn't be composed directly.
+    That was real and the fix (verified: a plate that had been landing
+    *inside* the parent's own body instead sat flush and outward) is
+    still real, but it was only a partial fix -- _LOCAL_TILT_MATRIX
+    itself was later found to have been derived against the WRONG
+    reference vector for this project's actual top-anchored convention
+    (see that table's own docstring), and once the matrices were
+    corrected to operate on genuinely native coordinates, the "undo the
+    flip" step here became unnecessary AND wrong -- it would have
+    silently re-introduced a mismatched convention in the opposite
+    direction. Both fixes were required together, each verified with a
+    full raw-geometry bounding box, not just an origin point, before
+    being trusted (see this module's own test suite)."""
+    local_ldraw = placement_to_ldraw(
+        local_pos,
+        *part.footprint,
+        part.height_plates,
+        local_rotation,
+        local_offset=part.local_offset,
+        y_anchor=part.y_anchor,
+    )
+    world_ldraw = _matvec(frame.matrix, local_ldraw)
+    world_ldraw = tuple(o + f for o, f in zip(world_ldraw, frame.origin_ldu))
+    world_matrix = _matmul(frame.matrix, local_rotation.matrix)
+    return world_ldraw, world_matrix

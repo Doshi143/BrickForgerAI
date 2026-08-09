@@ -541,3 +541,32 @@ parts:
     top: none
     bottom: full
     local_offset: [0, 20]
+
+  # --- SNOT (Studs Not On Top) -- Phase A, one part only. ---
+  #
+  # side_stud_face / side_stud_offset: see Part's own docstring in
+  # parts.py for the exact semantics. Both fields verified from 87087's
+  # raw .dat geometry (fetched from library.ldraw.org, not assumed from
+  # the part name), the same discipline as every other catalog entry:
+  # the part's own subfile placement line for its side stud --
+  # `1 16 0 10 -10 1 0 0 0 0 1 0 1 0 stud2a.dat` -- puts the stud at
+  # local (x=0, y=10, z=-10), i.e. centered in X (along=0), on the -Z
+  # face (z=-10 is the extreme edge of the 1x1 footprint's Z range), at
+  # 10 LDU down from the part's own top -- NOT the 12 LDU half-height a
+  # naive "centered" assumption would give, a real measured asymmetry,
+  # not a guess. This is deliberately the ONLY SNOT part added this
+  # session -- DESIGN.md sec. 4.3 names five more (4070, 99207, 99780,
+  # 44728, 4733) as the rest of the intended v2 set, left for a later
+  # pass once Phase A's single coordinate-math proof is confirmed in
+  # Studio; adding more before that confirmation would be building on an
+  # unverified foundation.
+  - id: "87087"
+    name: "Brick 1 x 1 with Stud on 1 Side"
+    category: snot
+    footprint: [1, 1]
+    height_plates: 3
+    top: none
+    bottom: full
+    local_offset: [0, 0]
+    side_stud_face: "-z"
+    side_stud_offset: [0, 10]

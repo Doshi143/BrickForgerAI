@@ -20,13 +20,28 @@ Coverage = str  # "full" | "none"
 class Part:
     id: str  # LDraw part number, e.g. "3001"
     name: str
-    category: str  # brick | plate | tile | slope
+    category: str  # brick | plate | tile | slope | snot
     footprint: tuple[int, int]  # (x_studs, z_studs) at YAW_0
     height_plates: int
     top: Coverage
     bottom: Coverage
     local_offset: tuple[int, int] = (0, 0)  # (dx, dz) LDU; see lattice.placement_to_ldraw
     y_anchor: str = "top"  # "top" | "bottom"; see lattice.py module docstring
+    # Which face (in the part's own UNROTATED local frame) carries a
+    # sideways-facing stud, and exactly where on that face -- both fields
+    # verified from raw .dat geometry per part, the same discipline as
+    # local_offset, not assumed from the part's category or name. None
+    # for every part that isn't a SNOT connector (the overwhelming
+    # majority of the catalog). See core/brickforge/snot.py for how these
+    # are consumed -- `side_stud_offset` defaults to (0, None) meaning
+    # "centered on the face, at half the part's own height," an
+    # approximation confirmed WRONG for the one real part measured so far
+    # (87087: real offset is 10 LDU from top, not the 12 LDU half-height
+    # default) -- always prefer setting this explicitly once a part's
+    # real geometry has actually been checked, rather than trusting the
+    # default silently.
+    side_stud_face: str | None = None  # "+x" | "-x" | "+z" | "-z", or None
+    side_stud_offset: tuple[int, int | None] = (0, None)
 
     @property
     def ldraw_file(self) -> str:
@@ -69,6 +84,7 @@ class PartCatalog:
 
         parts: dict[str, Part] = {}
         for entry in parts_raw:
+            side_stud_offset_raw = entry.get("side_stud_offset", [0, None])
             part = Part(
                 id=str(entry["id"]),
                 name=entry["name"],
@@ -79,6 +95,8 @@ class PartCatalog:
                 bottom=entry["bottom"],
                 local_offset=tuple(entry.get("local_offset", (0, 0))),
                 y_anchor=entry.get("y_anchor", "top"),
+                side_stud_face=entry.get("side_stud_face"),
+                side_stud_offset=(side_stud_offset_raw[0], side_stud_offset_raw[1]),
             )
             parts[part.id] = part
 
