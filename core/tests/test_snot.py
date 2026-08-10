@@ -9,6 +9,7 @@ from brickforge.snot import (
     _matmul,
     _matvec,
     place_in_frame,
+    rotation_for_outward_face,
     snot_frame_for_brick,
 )
 
@@ -273,3 +274,81 @@ def test_wide_child_spans_the_entire_side_stud_row_flush_and_centered():
     # (matching the -z direction), no gap or overlap.
     assert x_range == (0, 80)
     assert z_range == (-8, 0)
+
+
+@pytest.mark.parametrize(
+    "rotation,expected_in_plane_axis",
+    [
+        (Rotation.YAW_0, "x"),
+        (Rotation.YAW_90, "z"),
+        (Rotation.YAW_180, "x"),
+        (Rotation.YAW_270, "z"),
+    ],
+)
+def test_wide_child_stays_flush_across_all_four_parent_rotations(rotation, expected_in_plane_axis):
+    # Real bug, found on the real turret model, not hypothetical: a wide
+    # (asymmetric) child spanning a parent's full row landed correctly for
+    # YAW_0 and YAW_270 but MIRRORED to the wrong side entirely for YAW_90
+    # and YAW_180 -- 2 of the turret's 6 real SNOT panels were affected.
+    # No earlier test could have caught this: Phase A's own tests only
+    # ever used a symmetric 1x1 child (a mirrored span is identical either
+    # way), and Phase B's wide-child test
+    # (test_wide_child_spans_the_entire_side_stud_row_flush_and_centered,
+    # above) only ever used a YAW_0 parent. This test is the first to
+    # cross an ASYMMETRIC child with ALL FOUR parent yaws -- exactly the
+    # combination that exposed the bug -- and pins the fix (snot_frame_for_brick
+    # now derives the in-plane origin's corner from the actual composed
+    # frame matrix's own sign, not an unconditional assumption).
+    longbrick = _CATALOG.get("30414")
+    wide_plate = _CATALOG.get("3710")  # Plate 1 x 4, footprint [4, 1]
+    parent = Brick(part=longbrick, color=4, pos=GridPos(0, 0, 0), rotation=rotation)
+    w, d = parent.footprint
+
+    frame = snot_frame_for_brick(parent, longbrick.side_stud_face, face_offset=longbrick.side_stud_offset)
+    pos, matrix = place_in_frame(frame, wide_plate, GridPos(0, 0, 0), Rotation.YAW_0)
+    x_range, _, z_range = _raw_geometry_bbox(pos, matrix, half_x=40, half_z=10)
+
+    in_plane_range = x_range if expected_in_plane_axis == "x" else z_range
+    expected = (0, max(w, d) * 20)
+    assert in_plane_range == expected, f"{rotation.name}: in-plane range {in_plane_range}, expected {expected}"
+
+
+def test_rotation_for_outward_face_raises_for_a_non_snot_part():
+    with pytest.raises(ValueError):
+        rotation_for_outward_face(_CATALOG.get("3005"), "+x", (1, 1))
+
+
+def test_rotation_for_outward_face_87087_resolves_for_every_face():
+    # 87087's footprint (1,1) is symmetric -- every rotation preserves it --
+    # so all 4 world faces should resolve to some rotation.
+    part = _CATALOG.get("87087")
+    for face in ("+x", "-x", "+z", "-z"):
+        assert rotation_for_outward_face(part, face, (1, 1)) is not None
+
+
+@pytest.mark.parametrize(
+    "target_face,world_footprint,expected_rotation",
+    [
+        ("-z", (4, 1), Rotation.YAW_0),
+        ("+z", (4, 1), Rotation.YAW_180),
+        ("-x", (1, 4), Rotation.YAW_90),
+        ("+x", (1, 4), Rotation.YAW_270),
+    ],
+)
+def test_rotation_for_outward_face_30414_resolves_only_for_its_long_faces(
+    target_face, world_footprint, expected_rotation
+):
+    part = _CATALOG.get("30414")
+    assert rotation_for_outward_face(part, target_face, world_footprint) == expected_rotation
+
+
+def test_rotation_for_outward_face_30414_never_resolves_for_its_short_ends():
+    # The real, provable claim: exactly 2 of the 4 rotations preserve an
+    # asymmetric footprint like [4, 1], and those 2 map the native face to
+    # the two faces PERPENDICULAR to the long axis -- so the short ends
+    # correctly never resolve, for either world orientation of the brick.
+    part = _CATALOG.get("30414")
+    assert rotation_for_outward_face(part, "+x", (4, 1)) is None
+    assert rotation_for_outward_face(part, "-x", (4, 1)) is None
+    assert rotation_for_outward_face(part, "+z", (1, 4)) is None
+    assert rotation_for_outward_face(part, "-z", (1, 4)) is None

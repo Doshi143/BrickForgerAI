@@ -17,10 +17,12 @@ Run:
 
 from pathlib import Path
 
-from brickforge import save_ldr
+from brickforge import GridPos, RawPlacement, save_ldr
 from brickforge.pipeline.mesh_to_model import mesh_to_model_full
 from brickforge.pipeline.slopes import substitute_staircase_slopes
+from brickforge.pipeline.snot_placement import place_snot_panels
 from brickforge.pipeline.surface_refine import substitute_tiles
+from brickforge.snot import place_in_frame, snot_frame_for_brick
 from brickforge.structure import (
     analyze,
     bridge_unstable,
@@ -76,23 +78,50 @@ def report_and_save(model, name: str, solid_grid=None) -> None:
     # the checks below compare counts, not raw index sets, and allow count
     # to drop.
     sloped = substitute_staircase_slopes(structurally_sound)
-    refined = substitute_tiles(sloped)
+
+    # SNOT Phase C.1: runs after slope substitution, not before -- both draw
+    # candidates from the same pool of brick-height blocks, so slopes get
+    # first pick of a genuine step-edge rather than the two features
+    # fighting over the same source material (see snot_placement.py's own
+    # module docstring). Tile substitution operates on plates only, so its
+    # ordering relative to SNOT doesn't matter either way -- SNOT runs
+    # before it here only because it's convenient to report together.
+    snot_result = place_snot_panels(sloped, solid_grid=solid_grid)
+    refined = substitute_tiles(snot_result.model)
+
     slope_count = sum(1 for b in refined if b.part.category == "slope")
     tile_count = sum(1 for b in refined if b.part.category == "tile")
-    if slope_count or tile_count:
+    if slope_count or tile_count or snot_result.swapped:
         report_pre_refine = analyze(structurally_sound)
-        report_refined = analyze(refined)
+        # The real, end-to-end use of Phase B's own snot_children param:
+        # confirms the SNOT branches AND the rest of the model are still
+        # one connected, non-critical structure together, not just that
+        # the ordinary-brick part of refined looks fine on its own.
+        report_refined = analyze(refined, snot_result.snot_children)
         assert len(report_refined.critical_bricks) <= len(report_pre_refine.critical_bricks)
         assert report_refined.is_single_piece == report_pre_refine.is_single_piece
+        # SNOT swaps and tile substitution are both 1:1 (count-preserving);
+        # only the 2-plate slope tier's merge can shrink the model's own
+        # part count. snot_children are additional sideways parts, not
+        # counted in len(refined) at all (they're not in model.bricks).
         assert len(refined) <= len(structurally_sound)
         print(
             f"--- {name} (surface refinement: {slope_count} step edge(s) -> slopes, "
             f"{tile_count} top-facing plate(s) -> tiles, "
-            f"{len(structurally_sound) - len(refined)} part(s) merged away by the 2-plate tier) ---"
+            f"{len(structurally_sound) - len(refined)} part(s) merged away by the 2-plate tier, "
+            f"{snot_result.swapped} SNOT anchor(s) with a flush panel attached) ---"
         )
         refined_path = OUT_DIR / f"{name}_refined.ldr"
-        save_ldr(refined, refined_path, name=f"BrickForgerAI Refined - {name}")
-        print(f"Wrote {refined_path}")
+
+        raw_placements: list[RawPlacement] = []
+        for child in snot_result.snot_children:
+            parent = refined.bricks[child.parent_index]
+            frame = snot_frame_for_brick(parent, parent.part.side_stud_face, face_offset=parent.part.side_stud_offset)
+            pos, matrix = place_in_frame(frame, child.part, child.local_pos, child.local_rotation)
+            raw_placements.append(RawPlacement(part_id=child.part.id, color=parent.color, pos_ldu=pos, matrix=matrix))
+
+        save_ldr(refined, refined_path, name=f"BrickForgerAI Refined - {name}", raw_placements=raw_placements)
+        print(f"Wrote {refined_path} ({len(raw_placements)} SNOT panel(s) as raw placements)")
     print()
 
 

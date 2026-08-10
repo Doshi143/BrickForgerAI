@@ -1,11 +1,12 @@
-# BrickForgerAI — Handoff: SNOT Phase C
+# BrickForgerAI — Handoff: SNOT Phase C.2
 
 **Purpose:** paste this whole file as your first message in a new conversation
-to resume exactly where this session left off. Written 2026-08-09 (updated
-same day after Phase B landed), supersedes the earlier Phase B/C handoff —
-that one's deployment content (live app, Railway layout, env vars, security
-posture) is still accurate and summarized briefly below, but the active work
-now is SNOT Phase C, not deployment.
+to resume exactly where this session left off. Written 2026-08-09, last
+updated 2026-08-10 after Phase C.1 (including region-growing) landed and was
+confirmed in Studio. Supersedes the earlier Phase B/C handoff — that one's
+deployment content (live app, Railway layout, env vars, security posture) is
+still accurate and summarized briefly below, but the active work now is SNOT
+Phase C.2, not deployment.
 
 ---
 
@@ -13,13 +14,13 @@ now is SNOT Phase C, not deployment.
 
 **The app is fully live** (`https://brickforgerai.com`), real Stripe payments
 in live mode, open signup, Railway (5 services: frontend/backend/worker/
-Postgres/Redis). Since the last deployment handoff, three more things
-shipped: a **public Gallery** (publish builds from "My Builds", browse/search
-even logged out, non-creators always pay regardless of plan — commit
-`5c5b072`), **SNOT Phase A** (commits `61b0c80`, `fff54a3`), and **SNOT Phase
-B** (this session — see below, **not yet committed**, working tree has real
-changes; commit once you've read this and are ready to continue). No other
-known outstanding bug or half-finished deployment work.
+Postgres/Redis). Since the last deployment handoff, four more things shipped:
+a **public Gallery** (publish builds from "My Builds", browse/search even
+logged out, non-creators always pay regardless of plan — commit `5c5b072`),
+**SNOT Phase A** (commits `61b0c80`, `fff54a3`), **SNOT Phase B** (commit
+`c743acb`), and **SNOT Phase C.1 with region-growing** (this session,
+committed — see below). No other known outstanding bug or half-finished
+deployment work.
 
 ## What SNOT is and why it matters here
 
@@ -40,8 +41,11 @@ before starting Phase B, it has the full reasoning, not just the phase list.
   with correct position and rotation.
 - **Phase B (done, this session)** — teach the structural connectivity graph
   about sideways connections. See below for what shipped.
-- **Phase C (not started — do this next)** — the actual automatic SNOT
-  placement algorithm.
+- **Phase C (in progress)** — the actual automatic SNOT placement algorithm.
+  **C.1 (anchor detection + flush panels + region-growing) is done, this
+  session** — see below, including 4 real bugs found and fixed via Studio
+  review. **C.2 (closing slopes, real depth, denser candidate detection) is
+  next** — start here.
 - **Phase D (not started, last)** — web app build-mode toggle.
 
 ## Phase A — what was built, and the bugs found (read before touching `snot.py`)
@@ -208,34 +212,206 @@ it as a floating island.
   own `snot_alignment_test.ldr` is *also* still unconfirmed as of this
   handoff — see below, that's now two files waiting on Studio review.)
 
-**Explicitly still not done, and not needed for Phase C to start:** SNOT
-children still aren't part of `Model`'s own collision grid (still written
-via `RawPlacement`) or included in real gravity-load propagation;
-`bridge_unstable`/`prune_unstable`/`refill_enclosed_holes` don't act on SNOT
-nodes.
+**Explicitly still not done after Phase B:** SNOT children still aren't
+part of `Model`'s own collision grid (still written via `RawPlacement`) or
+included in real gravity-load propagation; `bridge_unstable`/`prune_unstable`/
+`refill_enclosed_holes` don't act on SNOT nodes. (Phase C.1, below, doesn't
+change any of this either — still true as of this handoff.)
 
-## Phase C — automatic placement algorithm (start here)
+## Phase C.1 — automatic anchor detection + flush-panel attachment (done, this session)
 
-Scan a stable core's outward-facing faces (from the existing legalize +
-repair pipeline output — **the plan is explicit: don't build a second
-"stable core" generator, reuse `mesh_to_model_full` → `legalize` →
-`bridge_unstable`/`refill_enclosed_holes`/`prune_unstable`'s output
-directly**), use the mesh's original solid silhouette (`solid_grid` —
-already used by `bridge_unstable` for exactly this "stay inside the real
-shape" check) to decide protrusion depth per anchor point, and pick a
-closing slope/wedge. Needs additional verified SNOT parts beyond 87087
-(DESIGN.md §4.3 names `4070`, `99207`, `99780`, `44728`, `4733` — none
-fetched/verified yet) plus more slope/wedge variants for the
-surface-finishing pass, each verified against raw `.dat` geometry the same
-way every existing catalog entry was (see `CLAUDE.md`'s slope-family
-history for how many times "verify, don't assume" caught a real bug there).
+The full Phase C vision (scan outward faces, decide protrusion depth via
+`solid_grid`, pick a closing slope/wedge) was explicitly scoped down before
+starting, via a plan the founder approved
+(`C:\Users\aarya\.claude\plans\tranquil-dreaming-hamming.md` — read it in
+full before touching Phase C.2, it has the reasoning this section only
+summarizes) into one verified first slice, the same way Phase A/B were each
+scoped down from the full SNOT vision.
+
+**What shipped:**
+- `snot.py::rotation_for_outward_face(part, target_face, world_footprint)`
+  — given a SNOT part and the world direction its stud should point, tries
+  all 4 `Rotation`s, keeps only the ones that preserve `world_footprint`
+  (so a swap can't collide with anything else), and returns whichever of
+  those also points the part's native `side_stud_face` the right way (or
+  `None`). Provably correct for an asymmetric part like 30414 with zero
+  special-casing: exactly 2 of the 4 rotations preserve a `[4,1]`
+  footprint, and those 2 map the native face to the two faces
+  *perpendicular* to the long axis — so the two short ends correctly never
+  resolve. Pinned computationally (not just argued) in `tests/test_snot.py`.
+- New module `pipeline/snot_placement.py::place_snot_panels(model, solid_grid=None)`
+  — scans an already-repaired `Model` for ordinary bricks (`category ==
+  "brick"`, `top == "full"`) with a fully-exposed outward side face
+  (checked against the same `occupied_cells()` pattern `bridge_unstable`
+  already uses), swaps each candidate for the matching real SNOT part
+  (87087 or 30414) via `rotation_for_outward_face`, and attaches exactly
+  one flush plate outward — gated by `solid_grid` (every cell the panel
+  would occupy must be part of the original solid mesh, same "stay inside
+  the real shape" reasoning `bridge_unstable` already uses for its own
+  pillars) so nothing pokes into open air. `87087` (`top: none`) is only
+  swapped in where the candidate's own top is already exposed (same rule
+  tile substitution uses); `30414` (`top: full`) never needs that check.
+  Returns a `SnotPlacementResult` (`model`, `snot_children`, `swapped`,
+  `attached` counts).
+- Wired into `examples/structural_report.py` between
+  `substitute_staircase_slopes` and `substitute_tiles` (both SNOT and
+  staircase-slope detection draw from the same brick-height-block pool, so
+  SNOT running second lets slopes get first pick of a genuine step edge) —
+  the first real end-to-end use of Phase B's `analyze(model, snot_children)`
+  parameter, asserting no regression before/after, same discipline as
+  every other substitution pass in that file.
+- `tests/test_pipeline_snot_placement.py` (new): the rotation math (moved
+  into `tests/test_snot.py` instead, since it's a `snot.py` function, not a
+  pipeline one), hand-built swap/attach cases, top-connectivity and
+  `solid_grid` gate cases.
+
+**First measurement (turret 9, mushroom 92, bunny 0) was sent to the
+founder and shipped a real bug — caught in Studio, not by the test suite.**
+Reported back: the turret's panels looked visibly jumbled/misaligned, and
+none of the mushroom's 92 panels were visible at all. Root cause, found by
+tracing the actual placed geometry rather than re-arguing the code:
+`_find_panel`'s original "first exposed face wins, fixed order
++x/-x/+z/-z" rule breaks down for a brick with ALL 4 side faces open — a
+free-floating single-stud spike (a crenellation tip, a corner merlon) —
+which has no principled "outward" direction at all. The old rule always
+picked the fixed `+x` regardless of where the spike actually sat, so
+several isolated merlons on the turret all sprouted a panel pointing the
+same direction, several pointing straight at each other or into the gaps
+between merlons — exactly the jumble reported.
+
+**Fix**: a face only qualifies now if its OPPOSITE face has real backing
+material (`any` cell occupied, not `all` — a single thin plate is enough)
+— i.e. the brick reads as part of an actual wall, not a floating spike.
+`test_fully_isolated_brick_with_no_backing_anywhere_is_not_swapped` pins
+this down; the other hand-built tests were redesigned around a genuine
+2-brick "wall" (a thin backing plate + the candidate), since the originals
+used an isolated single brick as their success case — precisely the
+scenario the fix now (correctly) rejects.
+
+**150/150 → 151/151 tests pass after the fix** (+1 net: the new isolated-
+spike regression test).
+
+**Re-measured, and it's a large, honest drop, not a bug in the new
+numbers:** turret **9 → 6** (the 3 isolated merlon-tip panels correctly
+removed; the remaining 6 are 3 coherent opposite-facing pairs, one per
+height tier). mushroom **92 → 3** — only 3 of its brick-height blocks
+actually have real 2-brick-thick wall backing; the other 89 were isolated
+single-stud towers. Bunny stays at **0**, still not root-caused.
+
+**A second, DEEPER geometry bug turned up on re-review in Studio — the
+turret still looked wrong.** Root cause: `snot_frame_for_brick`'s in-plane
+origin used an unconditional MIN corner, correct only when the child's
+local X axis maps to that world axis with coefficient +1 — true for
+YAW_0/YAW_270 but not YAW_90/YAW_180 given this codebase's one real
+`local_face` ("-z"), and 2 of the turret's 6 panels landed mirrored to the
+wrong side of their parent entirely. **This bug predates this session** —
+latent in Phase A's own math since it shipped, invisible because Phase A
+only ever tested a symmetric child and Phase B's own wide-child test only
+ever used a YAW_0 parent. Fixed by reading the sign directly off the
+already-composed `frame.matrix` (`matrix[0]`/`matrix[6]`) instead of
+assuming it; pinned with `test_wide_child_stays_flush_across_all_four_parent_rotations`
+in `tests/test_snot.py`. All 6 turret + 3 mushroom panels re-verified
+geometrically flush by direct bounding-box computation before re-sending.
+
+**Region-growing was then implemented in the same session**, at the
+founder's explicit, direct request ("I want full stud coverage... not
+just partial") rather than deferred to a later phase. Swapped-in parents
+sharing the same part id + rotation (identical frame matrix) and
+contiguous `SnotFrame` origins now merge into one run, tiled with the
+widest available plates instead of one narrow plate per brick — see
+`pipeline/snot_placement.py`'s own module docstring.
+
+**This surfaced a THIRD and FOURTH bug**, both found by testing an actual
+multi-brick merge rather than trusting the (separately verified) placement
+math to compose correctly:
+- Merge direction: contiguity is checked in world-ascending order, but
+  whether increasing `local_pos` (used to walk from a run's anchor to its
+  other members) moves toward increasing or decreasing world coordinate
+  depends on the same sign the origin fix above deals with — a naive
+  world-ascending tiling order placed a run's second tile on the wrong
+  side of the anchor. Fixed by reversing a run's member order when its
+  coefficient is negative.
+- Missing graph edges: a region-grown tile can rest on studs belonging to
+  parents OTHER than the one anchoring its own frame, and the old edge
+  computation only ever credited the declared anchor — a merged run's
+  trailing tile could end up with ZERO graph edge at all. Fixed by giving
+  `SnotChild` an optional `parent_overlaps` field (pre-computed by
+  whichever stage builds the child; `None` preserves old single-parent
+  behavior exactly) that `structure/graph.py` trusts directly when present.
+
+Pinned with `test_five_adjacent_candidates_merge_into_one_region_grown_run`,
+which asserts the merged panel's FULL raw geometry spans the whole row
+with no gap/overlap — not just that swaps happened. **156/156 tests pass.**
+
+**Confirmed in Studio**: `examples/output/snot_region_growing_test.ldr` (a
+purpose-built 5-brick wall, since the real example models don't happen to
+have any physically-adjacent SNOT candidates — see below) — one continuous
+merged yellow panel spanning all 5 bricks, confirmed by the founder.
+
+**Net, honest result on the real models: turret/mushroom/bunny counts are
+UNCHANGED (6/3/0) after region-growing, with `attached == swapped` in every
+case — zero actual merges fired.** Not a bug: none of their current SNOT
+candidates happen to be physically adjacent to another candidate facing the
+same direction (turret's 6 are 3 isolated opposite-facing pairs at 3
+different height tiers; mushroom's 3 are similarly scattered). The
+mechanism is implemented and correctly tested; the current models simply
+don't have contiguous wall material to exercise it on. Getting a visibly
+denser look on a real model needs either a shape with more contiguous SNOT-
+eligible wall material, or loosening candidate detection — neither
+attempted this session.
+
+**Explicitly, deliberately NOT done this session** (see the plan file for
+full reasoning):
+- No closing slope/wedge on the panel — still a flat flush plate, not the
+  rounded silhouette DESIGN.md's reference image shows. Composing this
+  project's existing slope-orientation conventions through a SNOT local
+  frame is real new geometry work with the same bug shape this project has
+  hit repeatedly this session (2-plate tier shipped backwards historically,
+  the origin-sign bug now) — do this as its own verified pass, not rushed.
+- No multi-plate depth control past a single outward step — `solid_grid`
+  is stud-indexed (20 LDU) but a SNOT plate stack moves outward in plate
+  increments (8 LDU); real unit-conversion work, deferred rather than
+  hand-waved.
+- No collision-checking between two *different* runs' independently
+  attached panels (e.g. a concave corner) beyond one partial, sequential
+  mitigation: each accepted panel's own cells are added to the shared
+  `occupied` set as placement proceeds. Real and effective within one
+  pass, not a full symmetric collision system — SNOT children still aren't
+  part of `Model`'s own collision grid at all (unchanged from Phase A/B).
+- No `4070`/`99207`/`99780`/`44728`/`4733` catalog parts — not needed until
+  a bracket/panel shape beyond 87087/30414 is wanted.
+
+## Phase C.2+ — closing slopes, real depth, denser candidate detection (start here next)
+
+1. **Closing slope/wedge selection**, composing this catalog's existing
+   slope-orientation work (see `pipeline/slopes.py` and `CLAUDE.md`'s slope
+   history) through a SNOT local frame — the major remaining lever for
+   visual quality, matching the Niemann-Sculpt reference's rounded look.
+2. **Real, sub-stud-granularity depth control** using `solid_grid`, so a
+   panel can extend more than one flat plate outward where the mesh
+   actually allows it.
+3. **Denser candidate detection** — region-growing itself is done, but it
+   only helps if there's contiguous material to grow across, and the real
+   models currently don't have much (see the honest zero-merges result
+   above). Worth investigating whether the backing-check safety rule
+   (correct, not to be loosened carelessly — see the isolated-spike bug
+   above) is nonetheless leaving genuinely mergeable material on the table,
+   or whether this is a real, inherent scarcity in what the legalizer
+   produces (matching the already-documented brick-height-material
+   scarcity for staircase slopes).
+4. Additional verified SNOT parts (`4070`, `99207`, `99780`, `44728`,
+   `4733` — DESIGN.md §4.3) once a shape beyond 87087/30414 is actually
+   needed for one of the above, each verified against raw `.dat` geometry
+   the same way every existing catalog entry was.
 
 ## Phase D — web app toggle (last, deliberately)
 
 A build-mode selector (SNOT vs. plates/bricks) near the size selector on
 generation, threaded through `GenerateRequest` → `Job`/`process_job` →
-`mesh_to_ldr` → `mesh_to_model_full`. Nothing real to build here until
-Phases B and C exist — this is a UI stub with no logic behind it otherwise.
+`mesh_to_ldr` → `mesh_to_model_full`. Still premature — Phase C.1 exists but
+produces a flat-panel result, not the finished look a user-facing toggle
+should promise; wait for at least Phase C.2's closing slopes before wiring
+this into the web app.
 
 ## Files touched, Phase A (prior session, committed)
 
@@ -252,7 +428,7 @@ Phases B and C exist — this is a UI stub with no logic behind it otherwise.
 
 Commits: `61b0c80` (Phase A foundations), `fff54a3` (vertical-centering fix).
 
-## Files touched, Phase B (this session, **NOT yet committed**)
+## Files touched, Phase B (this session, committed as `c743acb`, pushed)
 
 - `core/brickforge/snot.py` — new `SnotChild` dataclass, `in_plane_axis()`
 - `core/brickforge/parts.py` — `Part.side_stud_count`,
@@ -278,9 +454,43 @@ Commits: `61b0c80` (Phase A foundations), `fff54a3` (vertical-centering fix).
   prior session's commits never touched it) and Phase B both documented
   now, right before the "See DESIGN.md §9" line
 
-**137/137 tests pass.** Nothing committed yet — review the diff, then
-commit with a message covering both the graph extension and the 30414
-addition (they landed together this session).
+**137/137 tests pass.**
+
+## Files touched, Phase C.1 (this session, including region-growing)
+
+- `core/brickforge/snot.py` — new `rotation_for_outward_face()`; the
+  origin-sign fix in `snot_frame_for_brick` (bug #2, predates this
+  session but only found/fixed now); new `SnotChild.parent_overlaps` field
+- `core/brickforge/__init__.py` — export `rotation_for_outward_face`
+- `core/brickforge/structure/graph.py` — SNOT edge computation trusts
+  `parent_overlaps` when present (bug #4 fix)
+- `core/brickforge/pipeline/snot_placement.py` (new) — `place_snot_panels`,
+  `SnotPlacementResult`, region-growing (`_group_into_runs`, `_tile_run`),
+  the backing-check fix in `_find_panel` (bug #1), the merge-direction fix
+  (bug #3)
+- `core/tests/test_snot.py` — `rotation_for_outward_face` tests +
+  `test_wide_child_stays_flush_across_all_four_parent_rotations` (pins
+  bug #2's fix)
+- `core/tests/test_pipeline_snot_placement.py` (new) — hand-built swap/
+  attach/gate cases (2-brick "wall" pattern, not an isolated single
+  brick) + `test_five_adjacent_candidates_merge_into_one_region_grown_run`
+  (pins bugs #3/#4's fixes with a full raw-geometry check)
+- `core/examples/structural_report.py` — SNOT placement wired in between
+  slope and tile substitution; builds and saves SNOT `RawPlacement`s into
+  each `*_refined.ldr`
+- `core/examples/output/turret_refined.ldr`, `mushroom_refined.ldr`,
+  `bunny_refined.ldr` — final counts turret 6, mushroom 3, bunny 0
+  (region-growing fires zero times on all three — see the honest-zero
+  writeup above)
+- `core/examples/snot_region_growing_test.py` (new) + its `.ldr` output —
+  purpose-built 5-brick wall demonstrating the merge; **confirmed correct
+  by the founder in Studio**
+- `CLAUDE.md` — full writeup of all 4 bugs, the fixes, and the honest
+  zero-merges result on real models
+- `C:\Users\aarya\.claude\plans\tranquil-dreaming-hamming.md` — the
+  approved plan for the original (pre-region-growing) scope of this slice
+
+**156/156 tests pass.**
 
 ## Deployment/security posture (unchanged since 2026-08-08, still accurate)
 
@@ -293,15 +503,17 @@ here since nothing in this area changed this session.
 
 ## Repo state
 
-Phase A is committed and pushed to `master` on GitHub (`Doshi143/BrickForgerAI`)
-as of commit `fff54a3`. **Phase B (this session) is uncommitted** — working
-tree has real, tested changes across the files listed above, plus this
-handoff and `web/OPERATIONS.md` (untracked from an earlier session, unrelated
-to SNOT). **First thing to do in the next session:**
-1. Check whether the founder has confirmed `snot_alignment_test.ldr`
-   (Phase A) and/or `snot_structural_test.ldr` (Phase B, new) look flush in
-   Studio — neither has a confirmation back yet as of this handoff.
-2. Decide whether to commit Phase B's changes before starting Phase C (all
-   tests pass, but per this project's practice, only commit when asked —
-   confirm with the founder first if that hasn't happened already).
-3. Start Phase C using the scope below.
+Phase A (`fff54a3`) and Phase B (`c743acb`) are committed and pushed to
+`master` on GitHub (`Doshi143/BrickForgerAI`). **Phase C.1, including
+region-growing, is committed this session** (check `git log` for the
+commit hash — this handoff was written just before that commit). Studio
+confirmations so far: Phase A's `snot_alignment_test.ldr` ✓, Phase B's
+`snot_structural_test.ldr` ✓, Phase C.1's `snot_region_growing_test.ldr` ✓
+(after 2 rounds of real bugs found and fixed in Studio review). **Not
+separately re-confirmed**: the final (bug-#2-fixed) `turret_refined.ldr`/
+`mushroom_refined.ldr` — the founder's next reply was about the
+region-growing scene, not an explicit re-check of these two specific
+files; the geometry is verified computationally (see CLAUDE.md) but a
+belt-and-suspenders Studio look wouldn't hurt if picking this up fresh.
+**First thing to do in the next session:** start Phase C.2 using the scope
+above (closing slopes, real depth, denser candidate detection).

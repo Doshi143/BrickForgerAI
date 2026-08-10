@@ -248,14 +248,47 @@ def snot_frame_for_brick(
         (parent.part.height_plates * PLATE_HEIGHT_LDU) // 2 if from_top is None else from_top
     )
 
+    # Real bug, found only by testing an ASYMMETRIC child (30414's own
+    # full-width plate) across all 4 parent yaws, not just the native
+    # YAW_0 case every earlier test used -- a symmetric 1x1 child (Phase
+    # A's only child so far) can't expose this, since a mirrored span
+    # looks identical either way. Confirmed by direct computation on the
+    # real turret model, not hypothetical: 2 of 6 SNOT panels landed
+    # mirrored to completely the wrong side of their parent, which is
+    # exactly the "pieces are off" the founder flagged in Studio.
+    #
+    # The in-plane origin below used to be an UNCONDITIONAL corner (x0 or
+    # z0, whichever axis is in-plane for this face) -- correct only when
+    # the child's local X axis maps to that world axis with coefficient
+    # +1. For a `local_face` of "-z" (the only value ever used in this
+    # codebase -- every SNOT part's `side_stud_face`) composed with a
+    # parent at YAW_90 or YAW_180, that coefficient is actually -1 (the
+    # composition puts local X on the "wrong end" of the axis), and an
+    # unconditional MIN corner then puts a wide child's span entirely on
+    # the opposite side of where it should be. `matrix[0]`/`matrix[6]`
+    # (the ALREADY-COMPOSED frame matrix's own coefficients for "local X's
+    # contribution to world X / world Z") tell us this directly and
+    # generally -- reusing the exact same real transform already computed
+    # above, not a re-derived proxy that could disagree with it. When
+    # local X is actually the VERTICAL axis for this face instead (the
+    # direct-face-parameter Phase A test cases, e.g. face="+x" at YAW_0),
+    # both coefficients are 0, and `>= 0` safely falls back to the
+    # original MIN-corner behavior those cases were already verified
+    # against -- confirmed by direct computation across all 4 native
+    # tilts, not just argued. See tests/test_snot.py for the parametrized
+    # regression pinning all 4 parent yaws for an asymmetric child.
     if (world_fx, world_fz) == (1, 0):
-        origin = (x0 + ew * STUD_LDU, y_center, z0)
+        origin_z = z0 if matrix[6] >= 0 else z0 + ed * STUD_LDU
+        origin = (x0 + ew * STUD_LDU, y_center, origin_z)
     elif (world_fx, world_fz) == (-1, 0):
-        origin = (x0, y_center, z0)
+        origin_z = z0 if matrix[6] >= 0 else z0 + ed * STUD_LDU
+        origin = (x0, y_center, origin_z)
     elif (world_fx, world_fz) == (0, 1):
-        origin = (x0, y_center, z0 + ed * STUD_LDU)
+        origin_x = x0 if matrix[0] >= 0 else x0 + ew * STUD_LDU
+        origin = (origin_x, y_center, z0 + ed * STUD_LDU)
     else:  # (0, -1)
-        origin = (x0, y_center, z0)
+        origin_x = x0 if matrix[0] >= 0 else x0 + ew * STUD_LDU
+        origin = (origin_x, y_center, z0)
 
     origin = (origin[0] + world_along_x, origin[1], origin[2] + world_along_z)
     return SnotFrame(origin_ldu=origin, matrix=matrix)
@@ -373,9 +406,57 @@ class SnotChild:
     the default `face_offset=(0, ...)`. Verified computationally against
     30414's own real, independently-fetched stud positions in
     tests/test_snot.py -- not just asserted to generalize from the
-    single-stud 87087 case Phase A shipped with."""
+    single-stud 87087 case Phase A shipped with.
+
+    `parent_overlaps` (Phase C.1's region-growing): `parent_index` is
+    always the frame used for this child's OWN geometry (`place_in_frame`
+    needs exactly one frame, so this can't change), but a region-grown
+    panel spanning several merged parents can rest on studs belonging to
+    OTHER parents too, not just the one whose frame anchors it -- a plain
+    `_in_plane_span`-vs-`side_stud_count` check against `parent_index`
+    alone would miss those entirely (confirmed as a real bug, not
+    hypothetical: a merged panel's trailing tile landed with ZERO graph
+    edge at all, not even an undercounted one, since it didn't overlap the
+    anchor's own single stud). When set (a tuple of `(parent_index,
+    overlap_stud_count)` pairs, pre-computed by whichever pipeline stage
+    built this child -- see `pipeline/snot_placement.py::_tile_run`),
+    `structure/graph.py` trusts it directly instead of recomputing overlap
+    against `parent_index` alone, the same "measured once at the emitting
+    stage, trusted by the graph" pattern already used for ordinary
+    top/bottom stud edges. `None` (default) preserves the exact
+    single-parent behavior every pre-region-growing caller already relies
+    on."""
 
     parent_index: int
     part: Part
     local_pos: GridPos
     local_rotation: Rotation = Rotation.YAW_0
+    parent_overlaps: tuple[tuple[int, int], ...] | None = None
+
+
+def rotation_for_outward_face(part: Part, target_face: Face, world_footprint: tuple[int, int]) -> Rotation | None:
+    """Phase C: which `Rotation`, if any, makes `part` -- placed at this
+    rotation -- occupy exactly `world_footprint` (so it collides with
+    nothing else the original brick it's replacing didn't already touch)
+    AND point `part`'s own native `side_stud_face` toward `target_face` in
+    world space. Returns `None` if no rotation satisfies both, which is a
+    real, correct outcome for some (part, face) pairs, not a bug: exactly 2
+    of the 4 rotations preserve a given ASYMMETRIC footprint (e.g. 30414's
+    `[4, 1]`), and those 2 map its native face to the two faces
+    PERPENDICULAR to the long axis -- so a 4-long part's short ends
+    correctly never resolve, with no special-casing needed, because the
+    footprint-preservation filter alone already rules them out. Verified
+    computationally, not just argued, in tests/test_snot.py.
+
+    Raises if `part` has no `side_stud_face` at all -- a caller bug (only a
+    SNOT-category part can be pointed at a face), not a case to silently
+    skip."""
+    if part.side_stud_face is None:
+        raise ValueError(f"Part {part.id!r} has no side_stud_face")
+    for rotation in Rotation:
+        if rotation.rotate_footprint(*part.footprint) != world_footprint:
+            continue
+        world_face = rotation.rotate_offset(*_FACE_UNIT_OFFSET[part.side_stud_face])
+        if world_face == _FACE_UNIT_OFFSET[target_face]:
+            return rotation
+    return None

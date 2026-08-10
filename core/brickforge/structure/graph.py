@@ -85,9 +85,21 @@ def _add_snot_edges(graph: nx.Graph, model: Model, snot_children: list[SnotChild
         stud_count = parent.part.side_stud_count
 
         for ci in child_indices:
-            if snot_children[ci].local_pos.y != 0:
+            child = snot_children[ci]
+            if child.local_pos.y != 0:
                 continue
-            lo, hi = _in_plane_span(snot_children[ci], axis)
+            if child.parent_overlaps is not None:
+                # Pre-computed by whoever built this child (region-growing
+                # -- see SnotChild's own docstring): a merged panel can
+                # rest on several different real parents' studs, not just
+                # the one anchoring its own frame, so trust the emitting
+                # stage's own measurement instead of recomputing overlap
+                # against this single `parent_index` alone.
+                for real_parent_index, overlap in child.parent_overlaps:
+                    if overlap > 0:
+                        graph.add_edge(real_parent_index, ("snot", ci), studs=overlap)
+                continue
+            lo, hi = _in_plane_span(child, axis)
             overlap = max(0, min(hi, stud_count) - max(lo, 0))
             if overlap > 0:
                 graph.add_edge(parent_index, ("snot", ci), studs=overlap)
