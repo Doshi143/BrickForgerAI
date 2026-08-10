@@ -503,10 +503,9 @@ here since nothing in this area changed this session.
 
 ## Repo state
 
-Phase A (`fff54a3`) and Phase B (`c743acb`) are committed and pushed to
-`master` on GitHub (`Doshi143/BrickForgerAI`). **Phase C.1, including
-region-growing, is committed this session** (check `git log` for the
-commit hash — this handoff was written just before that commit). Studio
+Phase A (`fff54a3`), Phase B (`c743acb`), and Phase C.1 with region-growing
+(`ab862e0`) are all committed and pushed to `master` on GitHub
+(`Doshi143/BrickForgerAI`). Studio
 confirmations so far: Phase A's `snot_alignment_test.ldr` ✓, Phase B's
 `snot_structural_test.ldr` ✓, Phase C.1's `snot_region_growing_test.ldr` ✓
 (after 2 rounds of real bugs found and fixed in Studio review). **Not
