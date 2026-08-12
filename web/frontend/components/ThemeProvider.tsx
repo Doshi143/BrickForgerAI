@@ -20,9 +20,9 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
   // Lazy initializer runs once, synchronously, before first paint -- avoids
   // a flash of the wrong theme that a useEffect-based read would cause.
   const [dark, setDark] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
+    if (typeof window === "undefined") return false;
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored === null ? true : stored === "true";
+    return stored === null ? false : stored === "true";
   });
 
   useEffect(() => {
