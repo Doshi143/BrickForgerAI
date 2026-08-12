@@ -459,7 +459,12 @@ def publish_to_gallery(job_id: str, user: auth.User = Depends(auth.get_current_u
         raise HTTPException(403, "not your job")
     if data.get("status") != JobStatus.DONE.value:
         raise HTTPException(400, "only a completed build can be published")
-    if not set_job_published(job_id, user.id, True):
+    # Backfills job_index.prompt from the meta we already loaded above --
+    # fixes gallery search silently missing builds whose prompt was never
+    # written to the index (jobs created before that column existed, or
+    # any other reason it went missing) -- see set_job_published's own
+    # docstring.
+    if not set_job_published(job_id, user.id, True, prompt=data.get("prompt")):
         raise HTTPException(404, "job not found")
     return {"published": True}
 

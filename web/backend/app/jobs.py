@@ -160,20 +160,46 @@ def list_job_ids_for_user(user_id: str) -> list[str]:
     return [row["job_id"] for row in rows]
 
 
-def set_job_published(job_id: str, user_id: str, published: bool) -> bool:
+def set_job_published(job_id: str, user_id: str, published: bool, prompt: str | None = None) -> bool:
     """Returns False if job_id doesn't exist in the index or doesn't
     belong to user_id -- the caller (main.py) turns that into a 403/404.
-    Only touches is_published/published_at; a job's own status/prompt
-    tracking is untouched by publishing or unpublishing it."""
+
+    `prompt`, when publishing, is backfilled into job_index alongside
+    is_published/published_at -- a real bug found by tracing why gallery
+    search was silently missing builds whose title displayed correctly
+    everywhere else: a job created before the `prompt` column existed (or
+    whose job_index row otherwise never got a prompt written to it, e.g.
+    a partial index write) keeps prompt=NULL forever, since the ordinary
+    save_job_meta -> _record_job_index path only ever runs on the job's
+    OWN status changes, not on a later publish action. `LOWER(prompt)
+    LIKE LOWER(?)` against a NULL column matches nothing in either SQLite
+    or Postgres, so the build silently never appears in search, even
+    though `meta.json` (and thus its title everywhere else) has the
+    correct prompt the whole time. Publishing is the one moment a job's
+    prompt is guaranteed to be freshly available (the caller already
+    loaded it from meta.json to check the job is DONE), so backfilling
+    here fixes both old and any-other-reason-missing rows without a
+    separate migration. Passing `prompt=None` here is a no-op on the
+    `is_published=False` (unpublish) path, and simply skips the backfill
+    if omitted -- existing callers that don't pass it keep today's
+    behavior."""
     with auth._connect() as conn:
         row = conn.execute(auth._ph("SELECT user_id FROM job_index WHERE job_id = ?"), (job_id,)).fetchone()
         if row is None or row["user_id"] != user_id:
             return False
         if published:
-            conn.execute(
-                auth._ph("UPDATE job_index SET is_published = TRUE, published_at = ? WHERE job_id = ?"),
-                (datetime.now(timezone.utc).isoformat(), job_id),
-            )
+            if prompt is not None:
+                conn.execute(
+                    auth._ph(
+                        "UPDATE job_index SET is_published = TRUE, published_at = ?, prompt = ? WHERE job_id = ?"
+                    ),
+                    (datetime.now(timezone.utc).isoformat(), prompt, job_id),
+                )
+            else:
+                conn.execute(
+                    auth._ph("UPDATE job_index SET is_published = TRUE, published_at = ? WHERE job_id = ?"),
+                    (datetime.now(timezone.utc).isoformat(), job_id),
+                )
         else:
             conn.execute(auth._ph("UPDATE job_index SET is_published = FALSE WHERE job_id = ?"), (job_id,))
     return True
@@ -391,6 +417,43 @@ def load_job_meta(job_id: str) -> dict | None:
     # gallery would keep re-rendering a job that already has a thumbnail.
     data["has_render"] = STORAGE.exists(job_id, "render.png")
     return data
+
+
+def _backfill_missing_prompts() -> None:
+    """One-time, idempotent data fix, same self-healing spirit as the
+    schema migrations in _init_job_index -- run once per process start
+    (both API and worker import this module), so any published job
+    stuck with prompt=NULL from before set_job_published started
+    backfilling it on publish (see that function's own docstring) gets
+    fixed automatically the first time this code is deployed, with no
+    separate manual migration step. Scoped to published rows only (the
+    only ones that actually need to be searchable) and re-reads real
+    data from meta.json rather than guessing -- a job this can't find
+    data for is skipped, not retried forever, so this doesn't get slower
+    as unrelated bad rows accumulate."""
+    with auth._connect() as conn:
+        rows = conn.execute(
+            auth._ph("SELECT job_id FROM job_index WHERE is_published = TRUE AND prompt IS NULL")
+        ).fetchall()
+    fixed = 0
+    for row in rows:
+        job_id = row["job_id"]
+        try:
+            meta = load_job_meta(job_id)
+        except Exception:
+            logger.warning("prompt backfill: could not load meta for %s", job_id, exc_info=True)
+            continue
+        prompt = meta.get("prompt") if meta else None
+        if not prompt:
+            continue
+        with auth._connect() as conn:
+            conn.execute(auth._ph("UPDATE job_index SET prompt = ? WHERE job_id = ?"), (prompt, job_id))
+        fixed += 1
+    if rows:
+        logger.info("prompt backfill: fixed %d/%d published job(s) with a missing prompt", fixed, len(rows))
+
+
+_backfill_missing_prompts()
 
 
 def _set_status(job: Job, status: JobStatus) -> None:

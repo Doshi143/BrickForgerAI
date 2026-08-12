@@ -194,6 +194,13 @@ export default function GalleryPage() {
   );
 }
 
+// Shown once, the first time anyone on this browser successfully
+// publishes a build -- see handleToggle below. Not gating (the publish
+// already happened by the time this shows), just making sure a user
+// isn't surprised later that a build they published is publicly visible
+// and purchasable.
+const SEEN_DISCOVER_EXPLAINER_KEY = "brickforgerai-seen-discover-explainer";
+
 function GalleryCard({
   colors,
   job,
@@ -209,6 +216,7 @@ function GalleryCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showFirstPublishNotice, setShowFirstPublishNotice] = useState(false);
 
   const date = job.created_at
     ? new Date(job.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
@@ -231,6 +239,10 @@ function GalleryCard({
       } else {
         await publishToGallery(job.job_id, token);
         onTogglePublish(job.job_id, true);
+        if (!window.localStorage.getItem(SEEN_DISCOVER_EXPLAINER_KEY)) {
+          window.localStorage.setItem(SEEN_DISCOVER_EXPLAINER_KEY, "1");
+          setShowFirstPublishNotice(true);
+        }
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong");
@@ -240,6 +252,7 @@ function GalleryCard({
   }
 
   return (
+    <>
     <div
       style={{
         background: colors.cardBg,
@@ -293,10 +306,64 @@ function GalleryCard({
             opacity: busy ? 0.6 : 1,
           }}
         >
-          {busy ? "…" : job.is_published ? "Published — remove from Gallery" : "Publish to Gallery"}
+          {busy ? "…" : job.is_published ? "Published — remove from Discover" : "Publish to Discover"}
         </button>
         {error && <span style={{ color: "#ff8f6b", fontSize: 12 }}>{error}</span>}
       </div>
     </div>
+    {showFirstPublishNotice && (
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1000,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+        }}
+        onClick={() => setShowFirstPublishNotice(false)}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: colors.cardBg,
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: 16,
+            padding: 28,
+            maxWidth: 380,
+            width: "100%",
+          }}
+        >
+          <h2 style={{ margin: "0 0 10px", fontSize: 19, fontWeight: 800, color: colors.textPrimary }}>
+            Your build is now public
+          </h2>
+          <p style={{ margin: "0 0 20px", fontSize: 14, lineHeight: 1.5, color: colors.textSecondary }}>
+            Anyone can find this build on the Discover page — including people you don&apos;t know — and buy its
+            instructions there. You can remove it from Discover any time from this page.
+          </p>
+          <button
+            onClick={() => setShowFirstPublishNotice(false)}
+            style={{
+              background: colors.accent,
+              border: "none",
+              color: "#fff",
+              padding: "10px 20px",
+              borderRadius: 10,
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
