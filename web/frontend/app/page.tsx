@@ -118,22 +118,6 @@ export default function Home() {
         <Nav colors={colors} dark={dark} onToggleDark={toggleDark} />
 
         <div style={{ textAlign: "center", padding: "110px 24px 180px", maxWidth: 920, margin: "0 auto" }}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              background: colors.badgeBg,
-              color: colors.accent,
-              padding: "10px 22px",
-              borderRadius: 24,
-              fontWeight: 600,
-              fontSize: 15,
-              marginBottom: 36,
-            }}
-          >
-            ✦ Your imagination, physically buildable
-          </div>
           <h1
             className="hero-title"
             style={{
