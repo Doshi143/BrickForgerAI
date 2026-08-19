@@ -325,13 +325,13 @@ def _serve_job_file(
     """Shared by preview/download/thumbnail below. Raises 404 itself so
     callers can just return its result.
 
-    download_filename unset (preview/thumbnail) streams the bytes through
-    this backend rather than redirecting to R2, even though R2 can
-    produce a signed URL. A 307 redirect there is a confirmed dead end:
-    R2's own CORS response is independently correct (verified directly
-    with curl -- both the preflight and the final GET, from multiple
-    angles, with the right Access-Control-Allow-Origin every time), yet
-    real browsers still fail the *redirected* fetch with "No
+    Always streams the bytes through this backend when running on R2,
+    rather than redirecting to a presigned URL, regardless of whether
+    download_filename is set. A 307 redirect there is a confirmed dead
+    end: R2's own CORS response is independently correct (verified
+    directly with curl -- both the preflight and the final GET, from
+    multiple angles, with the right Access-Control-Allow-Origin every
+    time), yet real browsers still fail the *redirected* fetch with "No
     Access-Control-Allow-Origin header is present" -- cross-origin
     redirect + CORS-mode fetch is a known-fragile combination across
     browser implementations, not something fixable by correcting either
@@ -339,19 +339,37 @@ def _serve_job_file(
     it entirely: the browser only ever talks to api.brickforgerai.com,
     already proven to work correctly for every other endpoint.
 
-    download_filename set (an actual "save this file" click) keeps
-    redirecting: a plain <a download> click is a top-level navigation,
-    not a JS fetch -- browsers handle that redirect with no CORS
-    involved at all -- and letting R2 serve it directly saves this
-    backend's own bandwidth for files users are actually saving."""
+    This used to only apply when download_filename was unset (the
+    preview/thumbnail case), on the theory that an actual "save this
+    file" download was always a plain <a download> click -- a top-level
+    navigation, which handles a redirect with no CORS involved at all,
+    letting R2 serve it directly instead of costing this backend the
+    bandwidth. That stopped being true the moment download_ldr started
+    requiring auth (see its own docstring): a bare link can't carry an
+    Authorization header, so the frontend's downloadLdr() does a real
+    authenticated `fetch()` instead and saves the result via a blob URL
+    it constructs itself. A JS fetch() is exactly the "CORS-mode fetch"
+    case above, not a top-level navigation -- so the redirect path was
+    silently broken for every real download (reported as a generic
+    "download failed" with no HTTP status, since a redirect-following
+    fetch that fails CORS throws before a response ever exists to read a
+    status from) from the moment auth was added, until this fix. The
+    frontend already sets its own `download` filename on the blob it
+    builds, so R2's Content-Disposition header -- still passed through
+    signed_url below for the local-storage/no-R2 fallback path -- is set
+    explicitly here too, but only cosmetic for the browsers that reach
+    this branch."""
     _validate_job_id_or_404(job_id)
     if not STORAGE.exists(job_id, filename):
         raise HTTPException(404, "file not ready")
 
-    if download_filename is None and isinstance(STORAGE, R2Storage):
+    if isinstance(STORAGE, R2Storage):
         data = STORAGE.get_bytes(job_id, filename)
         if data is not None:
-            return Response(content=data, media_type=media_type, headers={"Cache-Control": "no-store"})
+            headers = {"Cache-Control": "no-store"}
+            if download_filename:
+                headers["Content-Disposition"] = f'attachment; filename="{download_filename}"'
+            return Response(content=data, media_type=media_type, headers=headers)
 
     url = STORAGE.signed_url(job_id, filename, download_filename=download_filename)
     if url:
