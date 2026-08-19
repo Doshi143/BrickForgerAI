@@ -38,14 +38,35 @@ including the one it finally lands on at y=0, is checked against it. If
 interior check is skipped and this behaves like the plain "any pillar
 that connects" version.
 
-One pillar per island, not one per brick: everything in an "island" (a
-connected component consisting entirely of ungrounded bricks) is already
-internally connected to everything else in it -- that's the definition of
-a connected component -- so grounding any single point in the island
-grounds the whole thing. Every (x, z) column the island itself occupies is
-tried as a candidate anchor, and the shortest interior-only pillar among
-the ones that work is kept -- more material stays, but only where it's
-genuinely invisible.
+One (occasionally two) pillars per island, not one per brick: everything in
+an "island" (a connected component consisting entirely of ungrounded
+bricks) is already internally connected to everything else in it -- that's
+the definition of a connected component -- so grounding any single point in
+the island grounds the whole thing. Every (x, z) column the island itself
+occupies is tried as a candidate anchor, and the shortest interior-only
+pillar among the ones that work is kept -- more material stays, but only
+where it's genuinely invisible.
+
+A single pillar is graph-theoretically sufficient the moment it lands, but
+when the only anchor available is the single-stud-wide fallback (no 2x2
+column exists anywhere in the island's own footprint -- always true for a
+thin, isolated feature like a carved detail or a small interior prop), that
+one stud is a real single point of failure for however much material sits
+on the far end of it: connected by this module's own definition, but not
+necessarily by a real one, since a lone stud's clutch power doesn't scale
+with what's resting on it. Measured on a real production job (a carved
+pumpkin with a lantern inside, part_count 6509) before this was added:
+`analyze()` reported it as one fully connected piece with zero critical
+bricks, and it was still reported as having detached-looking sections --
+because every successful bridge repair on that job used the thin pillar
+exclusively, an isolated interior feature never having a wide-enough
+footprint to anchor the stiffer 2x2 kind. So whenever only the thin pillar
+is available, a second, fully independent thin pillar through a different
+column of the same island is added too, if the island's footprint offers
+one -- giving the reconnected section two attachment points instead of
+one wherever the geometry allows it. A genuinely single-column sliver has
+nowhere else to attach and is left with just the one pillar, same as
+before.
 
 Whatever has no interior-only pillar at all gets pruned
 (repair.py::prune_unstable) as a last resort -- same reasoning as before:
@@ -174,12 +195,20 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
                 for dz in range(d):
                     columns.add((brick.pos.x + dx, brick.pos.z + dz))
 
-        best_wide_path: list[tuple[int, int, int]] | None = None
-        best_path: list[tuple[int, int, int]] | None = None
-        for x0, z0 in columns:
+        def y_start_for(x0: int, z0: int) -> int:
             # start one layer below whichever of this island's bricks
             # bottoms out at this (x, z) column
-            y_start = min(b.pos.y for b in island_bricks if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]) - 1
+            return min(
+                b.pos.y
+                for b in island_bricks
+                if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]
+            ) - 1
+
+        best_wide_path: list[tuple[int, int, int]] | None = None
+        best_path: list[tuple[int, int, int]] | None = None
+        best_path_col: tuple[int, int] | None = None
+        for x0, z0 in columns:
+            y_start = y_start_for(x0, z0)
 
             for ox, oz in _WIDE_ANCHOR_OFFSETS:
                 wide_candidate = _find_wide_pillar(x0 + ox, z0 + oz, y_start, occupied_cells, is_interior)
@@ -189,6 +218,7 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
             candidate = _find_pillar(x0, z0, y_start, occupied_cells, is_interior)
             if candidate is not None and (best_path is None or len(candidate) < len(best_path)):
                 best_path = candidate
+                best_path_col = (x0, z0)
 
         if best_wide_path is not None:
             for x, y, z in best_wide_path:
@@ -204,6 +234,53 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
             new_brick = working.place(BRIDGE_PART_ID, color, x, y, z)
             added.append(new_brick)
             occupied_cells.add((x, y, z))
+
+        # A single 1-stud-wide pillar is the ONLY option _find_wide_pillar
+        # couldn't beat -- which only happens when nowhere in this island's
+        # own footprint is a full 2x2 available to anchor a stiffer
+        # connection, i.e. the island itself is thin (a carved detail, a
+        # slim interior feature -- see this function's own module
+        # docstring on why a 2x2 column is preferred at all). That means
+        # the ENTIRE island now hangs off a single stud at each end of a
+        # single pillar -- graph-connected (satisfies analyze()'s own
+        # definition, matching Studio's stability check per this project's
+        # established history), but a lone stud is a real, physical single
+        # point of failure for however much material sits on the other end
+        # of it, not just a theoretical one. Measured directly on a real
+        # production job (a carved pumpkin with a lantern inside, part_count
+        # 6509): every successful bridge repair used this thin pillar
+        # exclusively -- zero used the wide one -- because an isolated
+        # interior feature like a lantern is exactly the "no 2x2 available"
+        # shape this branch exists for. Reported as "detached sections"
+        # even though analyze() correctly saw the model as one connected
+        # piece: a single stud is not fragile in the graph sense, but it is
+        # fragile in the physical one.
+        #
+        # Mitigation, not a redesign: try once more for a SECOND, fully
+        # independent thin pillar through a different column in the same
+        # island's own footprint, so the reconnected section has two
+        # separate attachment points instead of one wherever the geometry
+        # allows it. Deliberately still bounded to "this island's own
+        # columns" (never searches a neighboring island's footprint) and
+        # deliberately silent if none exists (a genuinely 1-column-wide
+        # sliver has nowhere else to attach and is left exactly as before)
+        # -- this can only ever ADD hidden, interior-only material on top
+        # of an already-accepted connection, never change or remove the
+        # primary pillar, so it carries the same safety argument as the
+        # rest of this function.
+        second_best_path: list[tuple[int, int, int]] | None = None
+        for x0, z0 in columns:
+            if (x0, z0) == best_path_col:
+                continue
+            candidate = _find_pillar(x0, z0, y_start_for(x0, z0), occupied_cells, is_interior)
+            if candidate is not None and (second_best_path is None or len(candidate) < len(second_best_path)):
+                second_best_path = candidate
+
+        if second_best_path is not None:
+            for x, y, z in second_best_path:
+                new_brick = working.place(BRIDGE_PART_ID, color, x, y, z)
+                added.append(new_brick)
+                occupied_cells.add((x, y, z))
 
     prune_result = prune_unstable(working)
     return BridgeResult(model=prune_result.model, added=added, removed=prune_result.removed)

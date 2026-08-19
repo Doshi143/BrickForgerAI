@@ -110,3 +110,52 @@ def test_bridge_is_a_no_op_on_a_sound_model(catalog):
     assert result.added == []
     assert result.removed == []
     assert len(result.model) == len(model)
+
+
+def test_thin_island_gets_a_second_independent_pillar_when_a_second_column_exists(catalog):
+    # Same shape as test_shortest_interior_column_is_preferred (a 1x2 plate,
+    # footprint spanning z=5 and z=6 at x=5), but this time BOTH columns are
+    # part of the solid silhouette, not just one -- neither is wide enough
+    # for a 2x2 anchor (the solid region is only 1 cell wide in x), so both
+    # can only ever offer the thin single-stud pillar. A single connection
+    # here would be exactly the "detached-looking despite analyze() calling
+    # it sound" case measured on a real job (see bridge_unstable's own
+    # docstring) -- with a second valid column available, this island
+    # should get reinforced at both, not just the shorter/first one found.
+    from brickforge import Rotation
+
+    model = Model(catalog=catalog)
+    model.place("3005", RED, 0, 0, 0)  # unrelated grounded brick
+    model.place("3023", RED, 5, 4, 5, rotation=Rotation.YAW_90)  # island: footprint (1,2) -> z:5-6
+
+    solid_grid = _solid_column(10, 10, 10, {(0, 0), (5, 5), (5, 6)})
+
+    result = bridge_unstable(model, solid_grid=solid_grid)
+
+    assert len(result.removed) == 0
+    assert len(result.added) == 8  # two independent pillars, y=3..0, at z=5 AND z=6
+    added_columns = {(b.pos.x, b.pos.z) for b in result.added}
+    assert added_columns == {(5, 5), (5, 6)}
+    for z in (5, 6):
+        ys = sorted(b.pos.y for b in result.added if b.pos.z == z)
+        assert ys == [0, 1, 2, 3]
+    report = analyze(result.model)
+    assert report.ungrounded_bricks == set()
+
+
+def test_single_column_island_still_gets_only_one_pillar(catalog):
+    # The mitigation must not fire when there's genuinely nowhere else to
+    # attach -- a lone 1x1 island only ever has one column, so it should
+    # come back byte-for-byte the same as before this change
+    # (test_bridge_connects_a_one_layer_gap_to_ground_without_solid_grid,
+    # repeated here specifically to pin that the new second-pillar search
+    # doesn't add anything when it has nothing else to find).
+    model = Model(catalog=catalog)
+    model.place("3005", RED, 0, 0, 0)
+    model.place("3005", RED, 5, 1, 5)
+    result = bridge_unstable(model)
+
+    assert len(result.removed) == 0
+    assert len(result.added) == 1
+    report = analyze(result.model)
+    assert report.ungrounded_bricks == set()
