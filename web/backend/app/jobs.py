@@ -103,6 +103,11 @@ def _init_job_index() -> None:
 
 _init_job_index()
 
+# Short, not the pool's own 30s default -- see _record_job_index's own
+# docstring for why a write this module already treats as safe to drop
+# should fail fast rather than block a job on the pool's full patience.
+_INDEX_WRITE_TIMEOUT = 5.0
+
 
 def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, prompt: str | None = None) -> None:
     """Upsert, not insert -- called on every save_job_meta, so a job's
@@ -122,10 +127,19 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, p
     One retry after a short pause rides out a genuinely transient blip;
     if it still fails, this logs and moves on rather than taking the job
     down with it -- same fail-open-for-a-non-critical-path reasoning as
-    rate_limit.py's Redis handling."""
+    rate_limit.py's Redis handling.
+
+    `_INDEX_WRITE_TIMEOUT` (not the pool's own 30s default) on both
+    attempts -- confirmed in production logs that this path was eating
+    up to ~63s per job (two 30s waits plus the retry sleep) whenever the
+    pool was under real, sustained pressure, not just the brief redeploy
+    blip this retry loop was originally written for. A write this module
+    already treats as safe to simply drop should fail fast, not hold up
+    a job's actual, real-API-cost work for a minute over a "My Builds"
+    visibility update."""
     for attempt in range(2):
         try:
-            with auth._connect() as conn:
+            with auth._connect(timeout=_INDEX_WRITE_TIMEOUT) as conn:
                 conn.execute(
                     auth._ph(
                         """

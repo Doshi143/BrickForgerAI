@@ -89,12 +89,26 @@ def _ph(query: str) -> str:
 
 
 @contextmanager
-def _connect():
+def _connect(timeout: float | None = None):
     """Same call-site shape either way (`with _connect() as conn:`), so
     every function below is unchanged regardless of which database is
-    active -- only this function and _ph() know the difference."""
+    active -- only this function and _ph() know the difference.
+
+    `timeout` overrides the pool's own default connection-acquisition
+    wait (30s) for this one call; None (every existing caller) keeps that
+    default. Added for jobs.py::_record_job_index specifically -- a
+    write explicitly documented as non-essential and already designed to
+    fail open, but which was still borrowing the full 30s default on each
+    of its two attempts (up to ~63s blocked, counting the retry's own
+    sleep) whenever the pool was under real, sustained pressure rather
+    than the "momentary redeploy blip" it was originally written to ride
+    out. Confirmed in production logs: the same PoolTimeout recurring
+    across many different jobs in quick succession, not an isolated
+    event -- a fail-open write should fail fast, not eat the pool's full
+    patience before giving up on something it was never going to block
+    the job for anyway."""
     if _USE_POSTGRES:
-        with _pool.connection() as conn:
+        with _pool.connection(timeout=timeout) as conn:
             yield conn
     else:
         conn = sqlite3.connect(DB_PATH)
