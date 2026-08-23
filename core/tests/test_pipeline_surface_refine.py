@@ -55,6 +55,54 @@ def test_bricks_are_never_substituted(catalog):
     assert refined.bricks[0].part.id == "3003"
 
 
+def test_plate_facing_a_sealed_interior_cavity_is_not_substituted(catalog):
+    # A fully sealed hollow 3x3x3 shell -- floor, a wall ring (leaving the
+    # center cell empty at y=1, the cavity), and a roof that seals it from
+    # above. The floor plate directly under the cavity has nothing resting
+    # on its own top (the old occupancy-only check would have tiled it),
+    # but that empty cell is enclosed, not open air -- exactly the "looks
+    # identical to the occupancy check, but nobody will ever see it" case
+    # this function's docstring describes. A separate, genuinely exposed
+    # plate far away is the control: it must still tile normally, proving
+    # the new check narrows *this* case specifically, not tiling in general.
+    model = Model(catalog=catalog)
+    for x in range(3):
+        for z in range(3):
+            model.place("3024", RED, x, 0, z)  # floor, full 3x3
+    for x in range(3):
+        for z in range(3):
+            if (x, z) == (1, 1):
+                continue  # leave the center empty -- the cavity
+            model.place("3024", RED, x, 1, z)  # wall ring
+    for z in range(3):
+        # Plate 1x3 (footprint 3x1), not three separate 1x1s: the roof's
+        # own center cell would otherwise have nothing below it (the
+        # cavity) and nothing beside it either (same-layer plates never
+        # share a stud connection in this catalog), leaving it a genuinely
+        # disconnected node -- a real artifact of this test's own
+        # construction, not something the code under test should have to
+        # tolerate. One piece per row gives every roof row 2 real stud
+        # connections to the wall ring below (the row's two end cells),
+        # keeping the whole shell a single connected piece.
+        model.place("3623", RED, 0, 2, z)  # roof row, full 3x3 -- seals the cavity
+
+    control = model.place("3024", RED, 10, 0, 10)  # far away, genuinely open air
+
+    report_before = analyze(model)
+    refined = substitute_tiles(model)
+    report_after = analyze(refined)
+
+    cavity_floor = next(b for b in refined if b.pos.x == 1 and b.pos.y == 0 and b.pos.z == 1)
+    assert cavity_floor.part.id == "3024"  # left as a plate -- faces a sealed cavity, not open air
+
+    control_after = next(b for b in refined if b.pos == control.pos)
+    assert control_after.part.id == "3070b"  # Tile 1x1 -- genuinely open air, still substituted
+
+    assert report_before.critical_bricks == set()
+    assert report_after.critical_bricks == set()
+    assert report_before.is_single_piece == report_after.is_single_piece
+
+
 def test_tile_substitution_does_not_introduce_new_structural_issues(catalog):
     # Build a small multi-layer structure with a top-exposed "roof" plate,
     # substitute tiles, and confirm the structural report is identical
