@@ -87,16 +87,22 @@ def test_end_to_end_legalize_now_allows_a_repeated_full_width_run(catalog):
     # happens: groups 1 and 2 are correctly EMPTY after their plates are
     # folded into the single brick recorded at y=0 -- that emptiness is the
     # evidence consolidation worked, not a bug.)
-    grid = VoxelGrid.empty(8, 3, 1)
+    #
+    # 4 layers tall, not 3: a bare 3-tall grid's own top-of-stack is
+    # genuinely exposed by construction (nothing above it at all), which
+    # legalize.py's Stage B now deliberately leaves as plates rather than
+    # consolidating (see its own Stage B comment) -- material this exact
+    # test isn't trying to exercise. A 4th occupied layer on top makes the
+    # bottom 3 genuinely buried, which is what triggers consolidation now.
+    grid = VoxelGrid.empty(8, 4, 1)
     grid.occupied[:, :, :] = True
-    color_codes = np.full((8, 3, 1), RED, dtype=np.int32)
+    color_codes = np.full((8, 4, 1), RED, dtype=np.int32)
 
     model = legalize(grid, color_codes, catalog)
 
-    assert len(model) == 1, "3 identical full-width plate layers should consolidate into a single brick"
-    brick = model.bricks[0]
+    assert len(model) == 2, "3 identical full-width plate layers should consolidate into a single brick"
+    brick = next(b for b in model.bricks if b.pos.y == 0)
     assert brick.part.category == "brick"
-    assert brick.pos.y == 0
 
 
 def test_restarts_never_score_worse_than_deterministic_baseline(catalog):

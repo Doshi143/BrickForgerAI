@@ -4,9 +4,9 @@ the 4 cardinal directions and replaces them in place with the
 correspondingly-sized, correspondingly-rotated upright slope -- at whatever
 height tiers the catalog provides.
 
-Two tiers exist:
+Three tiers exist:
 
-- **3-plate (brick height)**: a **1-to-1 swap** of a single already-placed
+- **3-plate (brick height), swap**: a **1-to-1 swap** of a single already-placed
   `brick`-category part for the matching slope. Originally measured to fire
   on zero real models (see CLAUDE.md Phase 3): the legalizer's output used
   to be almost entirely individual plates, so brick-height blocks were
@@ -17,25 +17,44 @@ Two tiers exist:
   tier (45-degree, run=2 studs, and 33-degree, run=3 studs -- see below);
   "prefer whichever fits" falls out of the generalized lookup key, not an
   explicit tie-break.
-- **2-plate ("2/3 brick") -- the real "detail" tier**: no standard
+- **3-plate (brick height), stack**: the same riser and the same
+  `_find_step_edge_rotation` geometry as the swap tier above, but applied
+  to three vertically-stacked, identically-footprinted PLATES that
+  legalize.py's Stage B deliberately left unconsolidated because their
+  own top was genuinely exposed (see that module's own Stage B comment).
+  Added because the swap tier alone was starved by construction: Stage B
+  used to consolidate every eligible run into a brick unconditionally,
+  which is exactly the material a *tile* substitution can never use (no
+  tile exists for brick-height parts) -- so a top-exposed run that wasn't
+  a genuine step-down edge was permanently locked out of ever becoming a
+  smooth tiled surface either. This tier is what lets a genuinely
+  step-down-shaped run become a slope even though the legalizer never
+  independently decided to consolidate it into a brick on its own.
+- **2-plate ("2/3 brick"), merge -- the real "detail" tier**: no standard
   rectangular slope is exactly 1 plate tall (searched, came up empty, did
   not invent a part -- see catalog/parts_v1.yaml's header on this family).
   2 plates is the shallowest real size, and this project's plate-heavy
   legalizer output is full of *pairs* of vertically-stacked, identically
   footprinted plates that never got consolidated into a brick (Stage B
-  only merges stacks of exactly 3). So this tier is a **merge of two
-  placed parts into one**, not a swap -- see the module-level safety note
-  below, since that's a materially different operation from tile
-  substitution and the 3-plate tier.
+  only merges stacks of exactly 3, and even a genuine 3-stack now goes to
+  the tier above first if it qualifies -- see the ordering note below).
+  So this tier is a **merge of two placed parts into one**, not a swap --
+  see the module-level safety note below, since that's a materially
+  different operation from tile substitution and the swap tier.
 
-Because a catalog `Part`'s `height_plates` is always exactly 3 for
-`category: brick` and exactly 1 for `category: plate` in this catalog, the
-two tiers can never compete for the same source brick: a brick-category
-object is never also a candidate plate-pair member, and vice versa. So
-"prefer a larger slope where one is possible" falls out for free from
-running both passes independently -- there is no location where both tiers
-could apply to the same source material, so no explicit tie-break is
-needed between them.
+The swap tier can never collide with either plate-based tier (a
+brick-category object is never also a candidate plate stack/pair, and
+vice versa, since a catalog `Part`'s `height_plates` is always exactly 3
+for `category: brick` and exactly 1 for `category: plate`), so it's
+always tried independently. The two PLATE-based tiers, unlike the old
+two-tier design, genuinely can compete for the same three stacked
+plates -- a bottom pair of a real 3-stack is also a valid 2-plate
+candidate on its own. `substitute_staircase_slopes` resolves this with an
+explicit ordering, not a lookup-key trick: the 3-stack tier runs first
+and marks every plate it consumes, and the 2-plate tier then skips
+anything already claimed -- so "prefer a larger slope where one is
+possible" still holds, it just needs an actual tie-break now that two
+tiers share the same kind of source material.
 
 Orientation was verified empirically, not derived from the naming
 convention alone (same discipline as the footprint-axis and origin-anchor
@@ -88,21 +107,23 @@ bottom: full, same as every slope, so a substitution never changes
 downward connectivity; it only ever removes TOP connectivity, and only
 where a candidate's top is already fully exposed (nothing resting on it).
 
-Safety, 2-plate (merge) tier: a merge deletes TWO placed parts (a lower
-and an upper plate, identical footprint, one directly on the other) and
-replaces both with ONE slope at the lower plate's position. This still
-reduces to the same "only ever removes unused TOP connectivity" argument,
-just restated for a pair: the lower plate's own downward connectivity
-(position, footprint, bottom: full) is unchanged, so whatever supported it
-still does; the upper plate's top must be fully exposed (identical
-precondition to the swap case) before a merge is attempted; and the
-internal stud edge between the two plates being merged is not left
-dangling -- both of its endpoints are deleted together, so nothing
-external ever depended on it surviving. Net effect on the connectivity
-graph has the same shape as the swap case: one node's downward
-connectivity preserved, its upward connectivity removed only where
-nothing used it. Confirmed with a before/after analyze() test for both
-tiers, not just argued (see tests/test_pipeline_slopes.py).
+Safety, 2-plate (merge) tier and 3-plate (stack) tier: a merge/stack
+deletes TWO or THREE placed parts (a lower plate plus one or two more
+directly above it, all sharing the identical footprint) and replaces all
+of them with ONE slope at the lowest plate's position. Both reduce to the
+same "only ever removes unused TOP connectivity" argument the swap tier
+uses, just restated for a chain: the lowest plate's own downward
+connectivity (position, footprint, bottom: full) is unchanged, so
+whatever supported it still does; the topmost plate's top must be fully
+exposed (identical precondition to the swap case) before a merge/stack is
+attempted; and every internal stud edge between the chained plates is not
+left dangling -- both endpoints of each one are deleted together, so
+nothing external ever depended on any of them surviving. Net effect on
+the connectivity graph has the same shape as the swap case regardless of
+chain length: one node's downward connectivity preserved, its upward
+connectivity removed only where nothing used it. Confirmed with a
+before/after analyze() test for all three tiers, not just argued (see
+tests/test_pipeline_slopes.py).
 
 A candidate is only converted if the surface genuinely steps down: the
 column(s) immediately beyond its downhill face must be strictly lower (or
@@ -245,6 +266,70 @@ def _find_single_part_slope(
     return _find_step_edge_rotation(x0, z0, w, d, top_y, riser, column_top, slope_by_tier)
 
 
+def _find_3plate_stack_slope(
+    lower: Brick,
+    bricks: list[Brick],
+    column_top: dict[tuple[int, int], int],
+    occupied_at_y: dict[tuple[int, int, int], int],
+    slope_by_tier: dict[tuple[int, int, int], tuple[str, bool]],
+) -> tuple[str, Rotation, int, int] | None:
+    """3-plate STACK tier: three vertically-stacked, identically-footprinted
+    plates that legalize.py's Stage B deliberately left unconsolidated
+    (see its own Stage B comment) because the stack's own top was
+    genuinely exposed -- exactly the material this tier needs, and
+    exactly why that change was made there rather than here. Tried BEFORE
+    the 2-plate merge tier below, so "prefer a larger slope where
+    possible" holds for real instead of only for footprints that happened
+    to already exist as a consolidated brick.
+
+    Reuses `_find_step_edge_rotation` unchanged, at riser=3 -- the exact
+    same geometry and orientation logic the brick-swap tier already uses,
+    just fed a stack of plates instead of an already-formed brick. No new
+    coordinate math, which is deliberate: every real bug this module has
+    shipped came from new geometric transforms, not from swapping which
+    source material feeds an already-verified one.
+
+    Returns (slope_id, rotation, middle_index, upper_index) so the caller
+    can delete all three source plates and place one slope at the lower
+    plate's position."""
+    w, d = lower.footprint
+    x0, y0, z0 = lower.pos.x, lower.pos.y, lower.pos.z
+    riser = 3
+
+    middle_y = y0 + 1
+    middle_cells = [(x0 + dx, middle_y, z0 + dz) for dx in range(w) for dz in range(d)]
+    middle_indices = {occupied_at_y.get(c) for c in middle_cells}
+    if len(middle_indices) != 1 or None in middle_indices:
+        return None
+    middle_index = middle_indices.pop()
+    middle = bricks[middle_index]
+    if middle.part.category != "plate" or middle.footprint != (w, d):
+        return None
+
+    upper_y = y0 + 2
+    upper_cells = [(x0 + dx, upper_y, z0 + dz) for dx in range(w) for dz in range(d)]
+    upper_indices = {occupied_at_y.get(c) for c in upper_cells}
+    if len(upper_indices) != 1 or None in upper_indices:
+        return None
+    upper_index = upper_indices.pop()
+    upper = bricks[upper_index]
+    if upper.part.category != "plate" or upper.footprint != (w, d):
+        return None
+
+    top_y = y0 + riser
+    top_exposed = all(
+        (x0 + dx, top_y, z0 + dz) not in occupied_at_y for dx in range(w) for dz in range(d)
+    )
+    if not top_exposed:
+        return None
+
+    result = _find_step_edge_rotation(x0, z0, w, d, top_y, riser, column_top, slope_by_tier)
+    if result is None:
+        return None
+    slope_id, rotation = result
+    return slope_id, rotation, middle_index, upper_index
+
+
 def _find_2plate_merge(
     lower_index: int,
     lower: Brick,
@@ -316,10 +401,28 @@ def substitute_staircase_slopes(model: Model) -> Model:
         if placement is not None:
             swap_choice[i] = placement
 
+    # 3-plate STACK tier: three unconsolidated identical plates -> one
+    # slope (see _find_3plate_stack_slope's own docstring for why this
+    # material exists at all). Tried before the 2-plate merge tier below
+    # so a genuine 3-tall match always wins over a shorter one at the
+    # same anchor, the same "prefer larger" principle the module docstring
+    # already states for the swap/merge tiers.
+    stack_choice: dict[int, tuple[str, Rotation]] = {}
+    stacked_away: set[int] = set()  # middle+upper plate indices consumed by a 3-stack
+    for i, brick in enumerate(model.bricks):
+        if brick.part.category != "plate" or i in stacked_away:
+            continue
+        result = _find_3plate_stack_slope(brick, model.bricks, column_top, occupied_at_y, slope_by_tier)
+        if result is not None:
+            slope_id, rotation, middle_index, upper_index = result
+            stack_choice[i] = (slope_id, rotation)
+            stacked_away.add(middle_index)
+            stacked_away.add(upper_index)
+
     merge_choice: dict[int, tuple[str, Rotation]] = {}  # anchor (lower) index -> (slope_id, rotation)
     merged_away: set[int] = set()  # upper-plate indices consumed by a merge
     for i, brick in enumerate(model.bricks):
-        if brick.part.category != "plate" or i in merged_away:
+        if brick.part.category != "plate" or i in merged_away or i in stack_choice or i in stacked_away:
             continue
         result = _find_2plate_merge(i, brick, model.bricks, column_top, occupied_at_y, slope_by_tier)
         if result is not None:
@@ -329,9 +432,11 @@ def substitute_staircase_slopes(model: Model) -> Model:
 
     refined = Model(catalog=model.catalog)
     for i, brick in enumerate(model.bricks):
-        if i in merged_away:
+        if i in merged_away or i in stacked_away:
             continue
-        if i in merge_choice:
+        if i in stack_choice:
+            slope_id, rotation = stack_choice[i]
+        elif i in merge_choice:
             slope_id, rotation = merge_choice[i]
         elif i in swap_choice:
             slope_id, rotation = swap_choice[i]

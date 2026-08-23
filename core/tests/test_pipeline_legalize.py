@@ -32,13 +32,20 @@ def test_single_layer_prefers_largest_fitting_plate(catalog):
 
 
 def test_three_identical_stacked_layers_consolidate_to_a_brick(catalog):
-    grid, codes = _grid_and_colors(1, 3, 1)
+    # 4 layers tall, not 3: a bare 3-tall grid's own top-of-stack is
+    # ALWAYS genuinely exposed (nothing above it in the grid at all), so
+    # it no longer consolidates on its own (see legalize.py's Stage B
+    # comment) -- that's the new, deliberate behavior this exact case
+    # would otherwise collide with, not something this test should
+    # re-assert against. A 4th occupied layer above the bottom 3 makes
+    # them genuinely buried, which is what "consolidates into a brick"
+    # actually means now.
+    grid, codes = _grid_and_colors(1, 4, 1)
     model = legalize(grid, codes, catalog)
-    assert len(model) == 1
-    brick = model.bricks[0]
+    assert len(model) == 2  # the consolidated brick + one leftover top plate
+    brick = next(b for b in model.bricks if b.pos.y == 0)
     assert brick.part.id == "3005"  # Brick 1x1, not three 3024 plates
     assert brick.part.category == "brick"
-    assert brick.pos.y == 0
 
 
 def test_four_identical_stacked_layers_yield_one_brick_and_one_plate(catalog):
@@ -47,6 +54,22 @@ def test_four_identical_stacked_layers_yield_one_brick_and_one_plate(catalog):
     assert len(model) == 2
     parts = sorted(b.part.id for b in model.bricks)
     assert parts == ["3005", "3024"]  # one consolidated brick + one leftover plate
+
+
+def test_top_exposed_three_run_is_left_as_plates_not_consolidated(catalog):
+    # A bare 3-tall grid's own top-of-stack is genuinely exposed by
+    # construction (nothing above it at all) -- Stage B now deliberately
+    # skips consolidating it into a brick so surface refinement (slopes.py's
+    # stacked-plate tier, then tile substitution) has real plates to work
+    # with instead of a brick top neither pass can touch. This is the
+    # direct, single-purpose regression test for that behavior; see
+    # test_three_identical_stacked_layers_consolidate_to_a_brick just above
+    # for the companion "genuinely buried, still consolidates" case.
+    grid, codes = _grid_and_colors(1, 3, 1)
+    model = legalize(grid, codes, catalog)
+    assert len(model) == 3
+    assert all(b.part.id == "3024" for b in model.bricks)  # three separate 1x1 plates
+    assert sorted(b.pos.y for b in model.bricks) == [0, 1, 2]
 
 
 def test_different_colors_are_not_merged_across_a_layer(catalog):

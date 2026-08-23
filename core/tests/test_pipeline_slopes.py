@@ -230,6 +230,95 @@ def test_both_tiers_fire_independently_in_the_same_model(catalog):
     assert two_plate_result.rotation == Rotation.YAW_180
 
 
+# --- 3-plate STACK tier (unconsolidated plates, not yet a brick) ---
+# Same riser (3) and the same _find_step_edge_rotation geometry as the
+# swap tier above, but the candidate arrives as three separate identically-
+# footprinted PLATES stacked at the same position -- exactly the material
+# legalize.py's Stage B now deliberately leaves behind for a genuinely
+# top-exposed run (see that module's own Stage B comment). Added so a
+# real step-down edge can become a slope even when the legalizer's own
+# tiling never independently decided to consolidate that run into a brick.
+
+
+def test_3plate_stack_step_down_edge_is_merged_into_matching_slope(catalog):
+    # Identical geometry to test_step_down_edge_is_substituted_with_
+    # matching_upright_slope, except the candidate is three unconsolidated
+    # 2x2 plates (3022) instead of one pre-formed 2x2 brick (3003) -- must
+    # resolve to the exact same slope part and rotation.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)  # 2x2 brick, uphill
+    model.place("3003", RED, x=0, y=3, z=-2)  # second brick on top, tall enough
+    model.place("3022", RED, x=0, y=0, z=0)  # Plate 2x2, lowest of the stack
+    model.place("3022", RED, x=0, y=1, z=0)  # Plate 2x2, middle
+    model.place("3022", RED, x=0, y=2, z=0)  # Plate 2x2, uppermost
+
+    refined = substitute_staircase_slopes(model)
+
+    assert len(refined) == len(model) - 2  # three plates merged into one slope
+    candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
+    assert candidate.part.id == "3039"  # Slope Brick 45 2 x 2 -- same part the swap tier uses
+    assert candidate.rotation == Rotation.YAW_0
+
+
+def test_3plate_stack_with_something_on_top_is_not_merged(catalog):
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)
+    model.place("3003", RED, x=0, y=3, z=-2)
+    model.place("3022", RED, x=0, y=0, z=0)  # would otherwise qualify
+    model.place("3022", RED, x=0, y=1, z=0)
+    model.place("3022", RED, x=0, y=2, z=0)
+    model.place("3069b", RED, x=0, y=3, z=0)  # tile resting on top -- blocks top_exposed
+
+    refined = substitute_staircase_slopes(model)
+
+    assert len(refined) == len(model)  # nothing merged
+    lowest = next(b for b in refined if b.pos == model.bricks[2].pos)
+    assert lowest.part.id == "3022"
+
+
+def test_3plate_stack_mismatched_footprint_above_is_not_merged(catalog):
+    # The layer directly above the two-plate candidate is tiled with two
+    # smaller plates instead of one matching the full footprint -- there
+    # is no single third part to stack with, so the pair must be left for
+    # a different tier (here, correctly, the 2-plate merge tier) rather
+    # than forcing a 3-stack that doesn't exist.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)
+    model.place("3003", RED, x=0, y=3, z=-2)
+    model.place("3022", RED, x=0, y=0, z=0)  # Plate 2x2, lowest
+    model.place("3022", RED, x=0, y=1, z=0)  # Plate 2x2, middle
+    model.place("3024", RED, x=0, y=2, z=0)  # Plate 1x1 -- only covers a quarter
+    model.place("3024", RED, x=1, y=2, z=0)
+    model.place("3024", RED, x=0, y=2, z=1)
+    model.place("3024", RED, x=1, y=2, z=1)
+
+    refined = substitute_staircase_slopes(model)
+
+    # No 3-stack (mismatched top layer), and no 2-plate merge either --
+    # this family's real parts are all a 1-stud run, and this candidate's
+    # 2-stud run doesn't match any 2-plate catalog entry. Left as plates.
+    lowest = next(b for b in refined if b.pos == model.bricks[2].pos)
+    assert lowest.part.id == "3022"
+
+
+def test_3plate_stack_substitution_does_not_introduce_new_structural_issues(catalog):
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)
+    model.place("3003", RED, x=0, y=3, z=-2)
+    model.place("3022", RED, x=0, y=0, z=0)
+    model.place("3022", RED, x=0, y=1, z=0)
+    model.place("3022", RED, x=0, y=2, z=0)
+
+    report_before = analyze(model)
+    refined = substitute_staircase_slopes(model)
+    report_after = analyze(refined)
+
+    assert report_before.critical_bricks == set()
+    assert report_after.critical_bricks == set()
+    assert report_before.is_single_piece == report_after.is_single_piece
+    assert len(refined) == len(model) - 2
+
+
 # --- 33-degree family (run=3 studs) ---
 # Shares height_plates=3 and perpendicular widths 1-4 studs with the
 # 45-degree family (run=2 studs) above -- exactly the scenario the

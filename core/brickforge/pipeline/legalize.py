@@ -36,7 +36,17 @@ implementation does a scoped-down version of three of those terms:
   soundness outweighs part-count efficiency here, the same trade already
   accepted in structure/bridge.py.
 
-  Stage B -- vertical consolidation: unchanged from v1 (see below).
+  Stage B -- vertical consolidation: consolidates a run of 3 identical
+  placements into a brick, UNLESS the resulting brick's own top would be
+  genuinely exposed (nothing occupies the grid cell directly above its
+  full footprint) -- added specifically to stop Stage B from starving
+  surface refinement of material. A consolidated brick's top is a dead
+  end for both downstream passes: no tile exists for brick-height parts,
+  and slopes.py's stacked-plate tier needs the 3 plates to still be
+  separate. Leaving an exposed run as plates costs nothing (the exact
+  same footprint was already legalized 3 times over) and gives slopes
+  first pick, then tiles whatever's left -- see legalize()'s own Stage B
+  comment and slopes.py's module docstring for the other half of this.
 
   NOT implemented: price/rarity terms, true incremental region-level
   shatter-and-remerge (this only randomizes whole-layer scan order), and
@@ -333,6 +343,46 @@ def legalize(
             brick_id = plate_to_brick.get(plate_id)
             if brick_id is None:
                 continue
+
+            # Don't consolidate into a brick if the resulting brick's own
+            # top would be genuinely exposed (nothing occupies the cell
+            # directly above it, across the whole footprint, in the
+            # source grid) -- a consolidated brick's top has real molded
+            # studs and no tile exists for brick-height material, so
+            # locking this run into a brick here silently forecloses BOTH
+            # downstream surface-refinement passes: slopes.py's stacked-
+            # plate tier needs the 3 plates to still be separate, and
+            # surface_refine.py's tile substitution only ever touches
+            # plates, never bricks. Leaving it as 3 unconsolidated plates
+            # costs nothing structurally (Stage A already legalized this
+            # exact footprint 3 times over; nothing here removes stud
+            # coverage) and gives both passes real material to work with
+            # wherever this run turns out to actually be a genuine outer
+            # surface, not buried mid-structure.
+            top_y = y + 3
+            w, d = catalog.get(plate_id).footprint_at(rot)
+            top_exposed = top_y >= ny or not any(
+                grid.occupied[x + dx, top_y, z + dz] for dx in range(w) for dz in range(d)
+            )
+            if top_exposed:
+                continue
+
+            # NOTE, measured not assumed: this check is against the
+            # pre-repair grid, since that's the only occupancy known at
+            # legalize() time -- structural repair (bridge/refill) and
+            # close_enclosed_voids run AFTER this, and can legitimately
+            # place real material directly on top of a run this function
+            # correctly saw as exposed, before slopes/tiles ever get to
+            # it. Confirmed on a real model (mushroom, target_studs=48):
+            # 10 runs were freed here, but only some of them were still
+            # actually tileable/slopeable by the time surface refinement
+            # ran -- the rest legitimately needed the repair material
+            # sitting on top of them. That's correct, not a bug: a cell
+            # repair had to reinforce wasn't genuinely free surface to
+            # begin with, and tile/slope substitution both independently
+            # re-check exposure against the real final model regardless
+            # of what this function guessed.
+
             model.place(brick_id, color, x, y, z, rotation=rot)
             consumed[y].add(i)
             consumed[y + 1].add(j1)
