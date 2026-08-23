@@ -26,6 +26,22 @@ though it looks touching. The only thing that ever creates a new graph
 edge is a part landing in the exact same (x, z) column as the layer above
 or below it.
 
+Every candidate column is searched in BOTH directions, not just down to
+ground: an island's nearest real material is often directly above it, not
+several plates below. A thin protruding limb (a leg, a tail, an ear) is
+frequently disconnected from the very thing it visually belongs to by a
+single missing cell -- a voxelization/legalization seam, not a genuine
+gap -- and a downward-only search would walk straight past that one-cell
+fix, either finding a much longer route to bare ground or finding nothing
+at all and losing the piece to prune_unstable entirely. `_find_pillar` /
+`_find_wide_pillar` (down, with y=0 as an always-valid landing) and
+`_find_pillar_upward` / `_find_wide_pillar_upward` (up, which must land on
+real existing material -- there's no equivalent "always valid" ceiling)
+are tried at every candidate column, and the shorter of the two wins.
+Purely additive relative to the downward-only version: everything it used
+to find, it still finds identically; this only adds routes it used to
+miss.
+
 `solid_grid`, if supplied (mesh_to_model.py::mesh_to_model_full exposes
 it), is the pre-shell, pre-legalize solid occupancy in the same index
 space as the final Model -- the only way to tell "this empty cell is
@@ -140,6 +156,33 @@ def _find_pillar(x0: int, z0: int, y_start: int, occupied_cells: set, is_interio
     return path
 
 
+def _find_pillar_upward(
+    x0: int, z0: int, y_start: int, y_max: int, occupied_cells: set, is_interior
+) -> list[tuple[int, int, int]] | None:
+    """The upward mirror of `_find_pillar`: cells a straight-up pillar from
+    (x0, y_start, z0) would need to add to reach EXISTING material above --
+    an island's nearest reconnection point is often the thing directly
+    above it (a foot a single cell short of the leg it belongs to), not
+    the ground several plates below, and a shorter pillar is both cheaper
+    and more reliably interior-only than a longer detour down to y=0.
+    Unlike the downward search, there is no "always valid" landing
+    equivalent to y=0 -- reaching `y_max` (the model's own current highest
+    occupied cell) without finding real material means this direction
+    genuinely has nothing to connect to, and returns None rather than
+    treating open sky as a valid landing."""
+    path: list[tuple[int, int, int]] = []
+    y = y_start
+    while y <= y_max:
+        if not is_interior(x0, y, z0):
+            return None
+        cell = (x0, y, z0)
+        if cell in occupied_cells:
+            return path
+        path.append(cell)
+        y += 1
+    return None
+
+
 def _find_wide_pillar(
     x0: int, z0: int, y_start: int, occupied_cells: set, is_interior
 ) -> list[tuple[int, int, int]] | None:
@@ -164,6 +207,25 @@ def _find_wide_pillar(
         layers.append((x0, y, z0))
         y -= 1
     return layers
+
+
+def _find_wide_pillar_upward(
+    x0: int, z0: int, y_start: int, y_max: int, occupied_cells: set, is_interior
+) -> list[tuple[int, int, int]] | None:
+    """Upward mirror of `_find_wide_pillar`, same "no always-valid landing"
+    difference `_find_pillar_upward` has relative to `_find_pillar`."""
+    cells = [(x0, z0), (x0 + 1, z0), (x0, z0 + 1), (x0 + 1, z0 + 1)]
+    layers: list[tuple[int, int, int]] = []
+    y = y_start
+    while y <= y_max:
+        if not all(is_interior(cx, y, cz) for cx, cz in cells):
+            return None
+        occupied_here = [(cx, y, cz) in occupied_cells for cx, cz in cells]
+        if any(occupied_here):
+            return layers if all(occupied_here) else None
+        layers.append((x0, y, z0))
+        y += 1
+    return None
 
 
 def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
@@ -204,18 +266,56 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
                 if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]
             ) - 1
 
+        def y_start_for_upward(x0: int, z0: int) -> int:
+            # the mirror of y_start_for: one layer ABOVE whichever of this
+            # island's bricks tops out at this column -- pos.y +
+            # height_plates is already the first cell above that brick, so
+            # no +1/-1 adjustment is needed the way the downward version has.
+            return max(
+                b.pos.y + b.part.height_plates
+                for b in island_bricks
+                if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]
+            )
+
+        # An island's nearest reconnection point is just as often directly
+        # above it (a foot a single cell short of its own leg) as it is
+        # straight down to the ground -- see _find_pillar_upward's own
+        # docstring. y_max bounds that search at the model's own current
+        # ceiling: nothing exists to land on above it anyway.
+        y_max = max(y for _, y, _ in occupied_cells)
+
+        def best_wide_candidate(x0: int, z0: int, y_start_down: int, y_start_up: int) -> list[tuple[int, int, int]] | None:
+            best: list[tuple[int, int, int]] | None = None
+            for ox, oz in _WIDE_ANCHOR_OFFSETS:
+                down = _find_wide_pillar(x0 + ox, z0 + oz, y_start_down, occupied_cells, is_interior)
+                if down is not None and (best is None or len(down) < len(best)):
+                    best = down
+                up = _find_wide_pillar_upward(x0 + ox, z0 + oz, y_start_up, y_max, occupied_cells, is_interior)
+                if up is not None and (best is None or len(up) < len(best)):
+                    best = up
+            return best
+
+        def best_thin_candidate(x0: int, z0: int, y_start_down: int, y_start_up: int) -> list[tuple[int, int, int]] | None:
+            down = _find_pillar(x0, z0, y_start_down, occupied_cells, is_interior)
+            up = _find_pillar_upward(x0, z0, y_start_up, y_max, occupied_cells, is_interior)
+            if down is None:
+                return up
+            if up is None:
+                return down
+            return down if len(down) <= len(up) else up
+
         best_wide_path: list[tuple[int, int, int]] | None = None
         best_path: list[tuple[int, int, int]] | None = None
         best_path_col: tuple[int, int] | None = None
         for x0, z0 in columns:
-            y_start = y_start_for(x0, z0)
+            y_start_down = y_start_for(x0, z0)
+            y_start_up = y_start_for_upward(x0, z0)
 
-            for ox, oz in _WIDE_ANCHOR_OFFSETS:
-                wide_candidate = _find_wide_pillar(x0 + ox, z0 + oz, y_start, occupied_cells, is_interior)
-                if wide_candidate is not None and (best_wide_path is None or len(wide_candidate) < len(best_wide_path)):
-                    best_wide_path = wide_candidate
+            wide_candidate = best_wide_candidate(x0, z0, y_start_down, y_start_up)
+            if wide_candidate is not None and (best_wide_path is None or len(wide_candidate) < len(best_wide_path)):
+                best_wide_path = wide_candidate
 
-            candidate = _find_pillar(x0, z0, y_start, occupied_cells, is_interior)
+            candidate = best_thin_candidate(x0, z0, y_start_down, y_start_up)
             if candidate is not None and (best_path is None or len(candidate) < len(best_path)):
                 best_path = candidate
                 best_path_col = (x0, z0)
@@ -272,7 +372,7 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
         for x0, z0 in columns:
             if (x0, z0) == best_path_col:
                 continue
-            candidate = _find_pillar(x0, z0, y_start_for(x0, z0), occupied_cells, is_interior)
+            candidate = best_thin_candidate(x0, z0, y_start_for(x0, z0), y_start_for_upward(x0, z0))
             if candidate is not None and (second_best_path is None or len(candidate) < len(second_best_path)):
                 second_best_path = candidate
 

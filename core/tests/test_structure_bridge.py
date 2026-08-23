@@ -143,6 +143,46 @@ def test_thin_island_gets_a_second_independent_pillar_when_a_second_column_exist
     assert report.ungrounded_bricks == set()
 
 
+def test_upward_reconnection_is_preferred_when_shorter_than_downward(catalog):
+    # A tower + a shelf plate grounds column (2, *, 0) at y=12 (the
+    # shelf's own bottom). A foot island sits at y=8-10 in that same
+    # column, one empty cell short of the shelf above it (y=11) --
+    # but there is nothing at all below it until bare ground at y=0,
+    # 8 empty cells away. Only column (2, 0) is marked solid, so no 2x2
+    # wide candidate exists anywhere (this isolates the comparison to the
+    # thin tier specifically -- a wide candidate always wins over a thin
+    # one regardless of length, which would otherwise mask this test).
+    # The real-world case this mirrors: a foot a single cell short of the
+    # leg it belongs to, where a downward-only search would either travel
+    # a much longer, more visible route to the ground or find nothing at
+    # all under a stricter solid_grid.
+    from brickforge import Rotation
+
+    model = Model(catalog=catalog)
+    for y in (0, 3, 6, 9):
+        model.place("3005", RED, 0, y, 0)  # tower, grounded, reaches top_y=12
+    model.place("3623", RED, 0, 12, 0, rotation=Rotation.YAW_0)  # shelf, footprint (3,1): x=0,1,2 at z=0
+    model.place("3005", RED, 2, 8, 0)  # foot island: y=8-10, top_y=11 -- 1 cell short of the shelf
+
+    solid_grid = _solid_column(10, 20, 10, {(2, 0)})
+
+    result = bridge_unstable(model, solid_grid=solid_grid)
+
+    assert len(result.removed) == 0
+    assert len(result.added) == 1  # the short upward fix, not a long downward one
+    fix = result.added[0]
+    assert (fix.pos.x, fix.pos.y, fix.pos.z) == (2, 11, 0)
+    report = analyze(result.model)
+    # Not report.ungrounded_bricks: the foot is now held up by the shelf
+    # ABOVE it, not resting on anything below -- exactly the keystone
+    # shape that check can't see by design (see weakpoints.py's own
+    # docstring), same reason it's informational-only and not what
+    # drives repair. critical_bricks/is_single_piece (undirected) is the
+    # real, correct measure, same as everywhere else in this project.
+    assert report.critical_bricks == set()
+    assert report.is_single_piece
+
+
 def test_single_column_island_still_gets_only_one_pillar(catalog):
     # The mitigation must not fire when there's genuinely nowhere else to
     # attach -- a lone 1x1 island only ever has one column, so it should
