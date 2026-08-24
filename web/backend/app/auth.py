@@ -223,6 +223,22 @@ def init_db() -> None:
             "ALTER TABLE users ADD COLUMN topup_credits_remaining INTEGER NOT NULL DEFAULT 0",
             "topup_credits_remaining",
         )
+        # A THIRD pool, deliberately separate from both of the above --
+        # granted directly (a raw SQL UPDATE against this column, not
+        # through any purchase flow; nothing in this codebase writes to it)
+        # for internal/dev use, e.g. testing generation without spending
+        # down a real plan allowance. Never expires like topup credits, but
+        # unlike topup credits it DOES unlock the free instructions
+        # download regardless of plan -- see consume_credit's own
+        # docstring for why that distinction matters: a real customer's
+        # purchased top-up credit must never accidentally grant a free
+        # download it wasn't paid for, but a dev-granted credit isn't real
+        # revenue to protect in the first place.
+        _add_column_if_missing(
+            conn,
+            "ALTER TABLE users ADD COLUMN dev_credits_remaining INTEGER NOT NULL DEFAULT 0",
+            "dev_credits_remaining",
+        )
         # Webhook idempotency: Stripe retries delivery on anything short of
         # a 200, so the same event can arrive more than once. Recording
         # every event ID we've already handled -- checked before any
@@ -267,6 +283,7 @@ def _row_to_user(row: sqlite3.Row) -> "User":
         credits_reset_month=row["credits_reset_month"],
         stripe_customer_id=row["stripe_customer_id"],
         topup_credits_remaining=row["topup_credits_remaining"],
+        dev_credits_remaining=row["dev_credits_remaining"],
     )
     # Monthly reset: if the stored reset-month doesn't match the real
     # current month, this user's credits haven't been topped up yet.
@@ -294,6 +311,7 @@ class User:
     credits_reset_month: str
     stripe_customer_id: str | None = None
     topup_credits_remaining: int = 0
+    dev_credits_remaining: int = 0
 
 
 def create_user(email: str, password: str, source: str | None = None) -> User:
@@ -349,39 +367,55 @@ def get_user_by_id(user_id: str) -> User | None:
     return None if row is None else _row_to_user(row)
 
 
-def consume_credit(user_id: str) -> tuple[User, bool]:
-    """Decrements one credit and returns (user, was_topup_credit) -- the
-    caller (POST /generate) uses the second value to decide whether this
-    generation's instructions download is free, regardless of plan: a
-    top-up credit (bought separately, £6 for +5) always requires paying
-    for instructions on top, even for a Builder/Master Builder user whose
-    *plan* credits normally include it free. Plan credits are drawn down
-    first (they're the ones that expire at the monthly reset, so spending
-    them before non-expiring top-up credits wastes less); only once
-    credits_remaining hits zero does a generation start drawing from
-    topup_credits_remaining instead. Raises ValueError if both pools are
-    empty (caller turns that into an HTTP 402)."""
+def consume_credit(user_id: str) -> tuple[User, str]:
+    """Decrements one credit and returns (user, credit_source), where
+    credit_source is one of "monthly" | "dev" | "topup" -- the caller
+    (POST /generate) uses this, not just plan, to decide whether this
+    generation's instructions download is free:
+
+    - "monthly": the plan's own included credits. Free download on
+      Builder/Master Builder, same as always; still gated on Free.
+    - "dev": internal/test credits, granted directly against the DB (see
+      dev_credits_remaining's own column comment in _init_db) -- always
+      unlocks the download, regardless of plan. These were never sold to
+      anyone, so there's no real revenue to protect by gating them.
+    - "topup": bought separately (£6 for +5). ALWAYS requires paying for
+      instructions on top, even for a Builder/Master Builder user whose
+      plan credits normally include it free -- this is the one pool that
+      must never accidentally grant a free download it wasn't paid for.
+
+    Spend order: monthly first (expires at the monthly reset, so spending
+    it before either non-expiring pool wastes less), then dev, then topup
+    last -- topup is real, tracked revenue, so it's the last resort, not
+    the first. Raises ValueError if all three pools are empty (caller
+    turns that into an HTTP 402)."""
     user = get_user_by_id(user_id)
     if user is None:
         raise ValueError("User not found")
-    if user.credits_remaining <= 0 and user.topup_credits_remaining <= 0:
+    if user.credits_remaining <= 0 and user.dev_credits_remaining <= 0 and user.topup_credits_remaining <= 0:
         raise ValueError("No credits remaining this month")
 
-    was_topup_credit = user.credits_remaining <= 0
     with _connect() as conn:
-        if was_topup_credit:
-            conn.execute(
-                _ph("UPDATE users SET topup_credits_remaining = ? WHERE id = ?"),
-                (user.topup_credits_remaining - 1, user.id),
-            )
-            user.topup_credits_remaining -= 1
-        else:
+        if user.credits_remaining > 0:
             conn.execute(
                 _ph("UPDATE users SET credits_remaining = ? WHERE id = ?"),
                 (user.credits_remaining - 1, user.id),
             )
             user.credits_remaining -= 1
-    return user, was_topup_credit
+            return user, "monthly"
+        if user.dev_credits_remaining > 0:
+            conn.execute(
+                _ph("UPDATE users SET dev_credits_remaining = ? WHERE id = ?"),
+                (user.dev_credits_remaining - 1, user.id),
+            )
+            user.dev_credits_remaining -= 1
+            return user, "dev"
+        conn.execute(
+            _ph("UPDATE users SET topup_credits_remaining = ? WHERE id = ?"),
+            (user.topup_credits_remaining - 1, user.id),
+        )
+        user.topup_credits_remaining -= 1
+        return user, "topup"
 
 
 def get_user_by_stripe_customer_id(customer_id: str) -> User | None:
@@ -541,12 +575,12 @@ def _user_to_dict(user: User) -> dict:
         "id": user.id,
         "email": user.email,
         "plan": user.plan,
-        # Total across both pools -- the frontend just shows one number
-        # ("N credits left this month"); which pool a given generation
-        # actually draws from (and whether that means paid instructions)
-        # is decided in consume_credit, not something the summary display
-        # needs to distinguish.
-        "credits_remaining": user.credits_remaining + user.topup_credits_remaining,
+        # Total across all three pools -- the frontend just shows one
+        # number ("N credits left this month"); which pool a given
+        # generation actually draws from (and whether that means paid
+        # instructions) is decided in consume_credit, not something the
+        # summary display needs to distinguish.
+        "credits_remaining": user.credits_remaining + user.dev_credits_remaining + user.topup_credits_remaining,
         "monthly_credit_allowance": PLAN_CREDITS[user.plan],
         "instructions_included": user.plan in ("builder", "pro"),
         # Not the raw Stripe customer ID (that stays server-side) -- just
