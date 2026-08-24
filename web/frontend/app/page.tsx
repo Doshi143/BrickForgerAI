@@ -30,7 +30,7 @@ const STEPS = [
     icon: "↓",
     num: "03",
     title: "Build It For Real",
-    desc: "Download the .ldr file and full parts list, then open it in BrickLink Studio (free) to generate step-by-step build instructions and order the bricks.",
+    desc: "Download the .ldr file and a full step-by-step PDF build guide, included with your purchase — then order the bricks and start building.",
   },
 ];
 

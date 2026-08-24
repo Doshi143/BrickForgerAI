@@ -16,13 +16,13 @@ export default function HelpCenterPage() {
         <p>
           Every generation gives you a full 3D preview (with real colors) for free — you can
           rotate and inspect the model, and see its part count and color breakdown, without
-          paying anything. &ldquo;Instructions&rdquo; is the downloadable <code>.ldr</code> file
-          and full parts list — included automatically on the Builder and Master Builder plans,
-          or available as a one-time purchase (£5–£15, based on model size) on the Free plan.
-          We don&apos;t generate a picture-based step-by-step build guide ourselves — once
-          you&apos;ve downloaded the <code>.ldr</code> file, open it in BrickLink Studio (free,
-          search &ldquo;BrickLink Studio download&rdquo;) to generate one, and to check the
-          parts list against real BrickLink inventory.
+          paying anything. &ldquo;Instructions&rdquo; is the downloadable <code>.ldr</code> file,
+          full parts list, and a step-by-step PDF build guide — walking through the model
+          bottom-up, layer by layer, with the new pieces for each step called out — included
+          automatically on the Builder and Master Builder plans, or available as a one-time
+          purchase (£5–£15, based on model size) on the Free plan. You can also open the{" "}
+          <code>.ldr</code> file in BrickLink Studio (free, search &ldquo;BrickLink Studio
+          download&rdquo;) to check the parts list against real BrickLink inventory.
         </p>
       </Section>
       <Section title="Why do the colors sometimes look a little off?">
@@ -36,8 +36,9 @@ export default function HelpCenterPage() {
       <Section title="Can I build what I generate with real bricks?">
         <p>
           Yes — every part in a generated model is a real, standard brick/plate/tile/slope
-          shape. Open the downloaded <code>.ldr</code> file in BrickLink Studio to get a parts
-          list you can buy from BrickLink.
+          shape. Unlocking a model gets you the <code>.ldr</code> file, a full parts list, and
+          a PDF build guide; from there you can buy the parts from BrickLink or open the{" "}
+          <code>.ldr</code> file in BrickLink Studio for its own inventory check.
         </p>
       </Section>
       <Section title="Will my model actually be physically stable?">

@@ -24,7 +24,10 @@ export default function HowItWorksPage() {
           <li>A live 3D preview you can rotate and zoom, in real part colors</li>
           <li>A part count and color breakdown</li>
         </ul>
-        <p>To actually build it, you need the downloadable .ldr file and parts list:</p>
+        <p>
+          To actually build it, you need the downloadable .ldr file, parts list, and PDF build
+          guide:
+        </p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
           <li>
             <strong>Free plan</strong> — unlock the download for an individual model for
@@ -36,9 +39,10 @@ export default function HowItWorksPage() {
           </li>
         </ul>
         <p>
-          Open the downloaded .ldr file in BrickLink Studio (free) to generate step-by-step
-          build instructions and check the parts list against real BrickLink inventory — we
-          don&apos;t generate a picture-based instruction guide ourselves. See{" "}
+          Unlocking a model gets you the .ldr file, a full parts list, and a step-by-step PDF
+          build guide — walking through the model bottom-up, layer by layer, with the new
+          pieces highlighted at each step. You can also open the .ldr file in BrickLink Studio
+          (free) to check the parts list against real BrickLink inventory. See{" "}
           <Link href="/pricing">Pricing</Link> for full plan details.
         </p>
       </Section>

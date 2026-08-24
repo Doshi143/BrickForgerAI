@@ -31,7 +31,7 @@ const PLANS: Plan[] = [
     features: [
       "5 model generations a month",
       "Full 3D preview with real colors",
-      ".ldr file + parts list: pay per model, £5–£15 (based on size)",
+      ".ldr file + parts list + PDF build guide: pay per model, £5–£15 (based on size)",
     ],
   },
   {
@@ -43,7 +43,7 @@ const PLANS: Plan[] = [
     features: [
       "12 model generations a month",
       "Full 3D preview with real colors",
-      ".ldr file + parts list included free on every generation",
+      ".ldr file + parts list + PDF build guide included free on every generation",
     ],
   },
   {
@@ -55,7 +55,7 @@ const PLANS: Plan[] = [
     features: [
       "30 model generations a month",
       "Full 3D preview with real colors",
-      ".ldr file + parts list included free on every generation",
+      ".ldr file + parts list + PDF build guide included free on every generation",
     ],
     badge: "Best value",
   },
@@ -131,9 +131,9 @@ function PricingContent() {
             Simple, credit-based pricing
           </h1>
           <p style={{ color: colors.textSecondary, fontSize: 17, maxWidth: 560, margin: "0 auto 24px" }}>
-            Every plan includes full 3D previews with real colors. The downloadable .ldr file
-            and complete parts list are what turn a preview into something buildable — open the
-            .ldr in BrickLink Studio (free) to generate step-by-step build instructions.
+            Every plan includes full 3D previews with real colors. Unlocking a build gets you
+            the downloadable .ldr file, a complete parts list, and a step-by-step PDF build
+            guide — everything you need to actually put it together.
           </p>
 
           {checkoutStatus === "success" && (
