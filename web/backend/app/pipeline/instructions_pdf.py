@@ -114,52 +114,235 @@ def _swatch_style(color_code: int) -> str:
     return f"background: rgb({r},{g},{b});"
 
 
-def _parts_rows_html(rows: list[PartTally]) -> str:
-    return "\n".join(
-        f'<tr><td><span class="swatch" style="{_swatch_style(r.color_code)}"></span></td>'
-        f"<td>{html.escape(r.part_name)}</td>"
-        f"<td>{html.escape(r.color_name.replace('_', ' '))}</td>"
-        f"<td>{html.escape(r.part_id)}</td>"
-        f'<td class="qty">{r.count}</td></tr>'
-        for r in rows
+# --- Compact multi-column parts display -------------------------------
+#
+# The original single-column <table> (one ~30px-tall row per part/colour
+# combo) genuinely overflowed a page for any step with more than ~15
+# distinct combos -- confirmed on a real 67-step production job, not a
+# guess: one busy step's table ran onto a second, mostly-empty page,
+# which is exactly the "not fitting on one page" complaint this replaces.
+# A CSS multi-column flow (below) packs many short chip rows across 2-4
+# columns instead of one, using the full page width rather than just the
+# ~38% a side-by-side table+render layout left for it -- the real fix,
+# not a font-size hack.
+
+
+def _parts_chip_html(row: PartTally) -> str:
+    return (
+        '<div class="chip">'
+        f'<span class="swatch" style="{_swatch_style(row.color_code)}"></span>'
+        f'<span class="chip-name">{html.escape(row.part_name)} '
+        f'<span class="chip-color">{html.escape(row.color_name.replace("_", " "))}</span></span>'
+        f'<span class="chip-qty">&times;{row.count}</span>'
+        "</div>"
     )
+
+
+def _parts_grid_html(rows: list[PartTally], *, columns: int) -> str:
+    return f'<div class="parts-grid cols-{columns}">' + "\n".join(_parts_chip_html(r) for r in rows) + "</div>"
+
+
+def _columns_for_row_count(n: int) -> int:
+    """More columns for a busier parts list -- keeps any single step or
+    the full BOM within one page's height regardless of how many distinct
+    (part, colour) combinations it has, rather than a fixed column count
+    that only happens to work for typical cases."""
+    if n > 45:
+        return 4
+    if n > 18:
+        return 3
+    return 2
 
 
 def _step_page_html(step_number: int, total_steps: int, screenshot_png: bytes, rows: list[PartTally]) -> str:
     b64 = base64.b64encode(screenshot_png).decode("ascii")
+    columns = _columns_for_row_count(len(rows))
     return f"""
     <section class="page step-page">
-      <div class="step-header">Step {step_number} of {total_steps}</div>
-      <div class="step-body">
-        <img class="step-render" src="data:image/png;base64,{b64}" />
-        <div class="callout">
+      {_scene_svg(prominent=False)}
+      <div class="content">
+        <div class="content-card">
+          <div class="step-header">Step {step_number} of {total_steps}</div>
+          <div class="step-render-frame">
+            <img class="step-render" src="data:image/png;base64,{b64}" />
+          </div>
           <div class="callout-title">Add these parts</div>
-          <table class="parts-table">{_parts_rows_html(rows)}</table>
+          {_parts_grid_html(rows, columns=columns)}
         </div>
       </div>
     </section>
     """
 
 
-_BOOKLET_CSS = """
-  @page { size: A4; margin: 18mm 16mm; }
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1b1d21; }
-  .page { page-break-after: always; }
-  .page:last-child { page-break-after: auto; }
-  .cover { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 240mm; text-align: center; }
-  .cover h1 { font-size: 28px; margin-bottom: 8px; }
-  .cover .meta { color: #666; font-size: 14px; margin-top: 12px; }
-  .bom h2, .step-header { font-size: 20px; margin-bottom: 16px; }
-  .parts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .parts-table td { padding: 6px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; }
-  .parts-table td.qty { text-align: right; font-weight: 700; width: 48px; }
-  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); }
-  .step-body { display: flex; gap: 20px; align-items: flex-start; }
-  .step-render { width: 62%; border-radius: 10px; background: #1b1d21; }
-  .callout { flex: 1; background: #f7f7f8; border-radius: 10px; padding: 14px; }
-  .callout-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
-  .footer-note { color: #999; font-size: 10px; margin-top: 24px; }
+# --- Static, print-friendly scene backdrop -----------------------------
+#
+# A plain-SVG, non-animated version of the landing page's voxel-art sky /
+# sun / mountains / hills / birds backdrop (see
+# web/frontend/components/Scenery.tsx and app/theme.ts's lightColors --
+# same palette, reused directly, not eyeballed) -- a print PDF has no use
+# for Scenery.tsx's div-grid animations, but the founder asked for the
+# same visual identity instead of a plain white page. Rendered as real
+# SVG shapes (not a CSS background-image) so it stays crisp at print
+# resolution and needs no external asset.
+
+_SKY_TOP = "#eaf4fb"
+_SKY_BOTTOM = "#cfe9f7"
+_SUN_FILL = "#f5a35c"
+_SUN_GLOW = "rgba(245,163,92,0.35)"
+_MOUNTAIN_COLOR = "#b8c9d9"
+_HILL_FAR = "#a8c98a"
+_HILL_NEAR = "#8fb96e"
+_BIRD_COLOR = "#1e2233"
+
+# (width, height) pairs, same shape as app/theme.ts's own `mountains`
+# array -- reused as a repeating pattern rather than copied verbatim,
+# since this SVG's coordinate space (0-1000 wide) doesn't match that
+# array's original px tuning for a live browser viewport.
+_MOUNTAIN_PATTERN = [
+    (70, 100), (95, 150), (60, 85), (105, 175), (75, 115), (90, 140),
+    (65, 95), (100, 160), (70, 105), (85, 130), (60, 90),
+]
+
+_SVG_W = 1000
+_SVG_H = 1414  # A4 aspect (210:297), scaled to a round width
+
+
+def _mountain_polygon(baseline: float, scale: float) -> str:
+    points: list[tuple[float, float]] = [(-40.0, _SVG_H)]
+    x = -40.0
+    i = 0
+    while x < _SVG_W + 40:
+        w, h = _MOUNTAIN_PATTERN[i % len(_MOUNTAIN_PATTERN)]
+        w, h = w * scale, h * scale
+        points.append((x, baseline))
+        points.append((x + w, baseline - h))
+        x += 2 * w
+        i += 1
+    points.append((x, baseline))
+    points.append((x, _SVG_H))
+    return " ".join(f"{px:.1f},{py:.1f}" for px, py in points)
+
+
+_BIRD_POSITIONS = [(150, 190), (330, 260), (560, 160), (230, 340), (420, 380)]
+
+
+def _bird_svg(x: float, y: float) -> str:
+    return (
+        f'<path d="M{x-16},{y} q16,-18 16,0 q0,-18 16,0" '
+        f'fill="none" stroke="{_BIRD_COLOR}" stroke-width="4" stroke-linecap="round" opacity="0.55" />'
+    )
+
+
+def _scene_svg(*, prominent: bool) -> str:
+    """The cover page gets the full scene (sun, birds, hills, mountains);
+    every other page gets only the sky gradient plus a single, quiet
+    mountain silhouette along the very bottom -- enough to feel like the
+    same product, without competing with the parts grids and renders
+    that actually need to stay legible on those pages."""
+    parts = [
+        f'<svg class="scene" viewBox="0 0 {_SVG_W} {_SVG_H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">',
+        "<defs>",
+        '<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">',
+        f'<stop offset="0%" stop-color="{_SKY_TOP}" />',
+        f'<stop offset="70%" stop-color="{_SKY_BOTTOM}" />',
+        "</linearGradient>",
+        '<radialGradient id="glow" cx="50%" cy="50%" r="50%">',
+        f'<stop offset="0%" stop-color="{_SUN_GLOW}" />',
+        '<stop offset="100%" stop-color="rgba(245,163,92,0)" />',
+        "</radialGradient>",
+        "</defs>",
+        f'<rect width="{_SVG_W}" height="{_SVG_H}" fill="url(#sky)" />',
+    ]
+
+    if prominent:
+        parts.append('<circle cx="780" cy="230" r="160" fill="url(#glow)" />')
+        parts.append(f'<circle cx="780" cy="230" r="60" fill="{_SUN_FILL}" />')
+        for x, y in _BIRD_POSITIONS:
+            parts.append(_bird_svg(x, y))
+        # Mountains painted first (background), hills painted over their
+        # base afterwards (foreground) -- a real layering bug, caught
+        # from actual rendered output, lived here the other way around:
+        # with hills drawn *before* the mountain polygon, the polygon's
+        # own valley points (which dip back down to its baseline) painted
+        # over the hills there, leaving odd green wedges poking up through
+        # gaps in the mountain silhouette instead of a clean foreground
+        # band covering the mountains' base the way a real parallax
+        # landscape reads.
+        parts.append(f'<polygon points="{_mountain_polygon(_SVG_H - 260, 1.6)}" fill="{_MOUNTAIN_COLOR}" opacity="0.9" />')
+        parts.append(f'<ellipse cx="500" cy="{_SVG_H - 40}" rx="900" ry="240" fill="{_HILL_FAR}" opacity="0.95" />')
+        parts.append(f'<ellipse cx="500" cy="{_SVG_H + 10}" rx="900" ry="200" fill="{_HILL_NEAR}" opacity="0.95" />')
+    else:
+        parts.append(f'<polygon points="{_mountain_polygon(_SVG_H - 55, 0.9)}" fill="{_MOUNTAIN_COLOR}" opacity="0.35" />')
+
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+_BOOKLET_CSS = f"""
+  @page {{ size: A4; margin: 0; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1b1d21; }}
+  .page {{
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    overflow: hidden;
+    page-break-after: always;
+  }}
+  .page:last-child {{ page-break-after: auto; }}
+  .scene {{ position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }}
+  .content {{ position: relative; z-index: 1; height: 100%; padding: 18mm 16mm; }}
+
+  .cover .content {{ display: flex; align-items: center; justify-content: center; }}
+  .cover-card {{
+    background: rgba(255,255,255,0.9);
+    border-radius: 20px;
+    padding: 36px 48px;
+    text-align: center;
+    max-width: 130mm;
+  }}
+  .cover-card h1 {{ font-size: 28px; margin: 0 0 10px; }}
+  .cover-card .meta {{ color: #555; font-size: 14px; margin: 0 0 18px; }}
+  .footer-note {{ color: #888; font-size: 10px; line-height: 1.5; }}
+
+  .content-card {{
+    background: rgba(255,255,255,0.94);
+    border-radius: 20px;
+    padding: 22px 26px;
+    min-height: 100%;
+  }}
+  .bom h2, .step-header {{ font-size: 20px; margin: 0 0 16px; }}
+
+  .step-render-frame {{
+    width: 100%;
+    height: 100mm;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #1b1d21;
+    margin-bottom: 16px;
+  }}
+  .step-render {{ width: 100%; height: 100%; object-fit: contain; }}
+  .callout-title {{ font-weight: 700; font-size: 14px; margin-bottom: 10px; }}
+
+  .parts-grid {{ column-gap: 18px; }}
+  .parts-grid.cols-2 {{ column-count: 2; }}
+  .parts-grid.cols-3 {{ column-count: 3; }}
+  .parts-grid.cols-4 {{ column-count: 4; }}
+  .chip {{
+    break-inside: avoid;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    font-size: 11px;
+    line-height: 1.3;
+  }}
+  .chip-name {{ flex: 1; }}
+  .chip-color {{ color: #777; }}
+  .chip-qty {{ font-weight: 700; padding-left: 6px; white-space: nowrap; }}
+  .swatch {{ flex: 0 0 auto; display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); }}
 """
 
 
@@ -169,20 +352,31 @@ def _assemble_booklet_html(
     steps_html: str,
     bom_rows: list[PartTally],
 ) -> str:
+    bom_columns = _columns_for_row_count(len(bom_rows))
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>{_BOOKLET_CSS}</style></head>
 <body>
   <section class="page cover">
-    <h1>{html.escape(model_name)}</h1>
-    <div class="meta">{part_count:,} parts &middot; Build instructions generated by BrickForgerAI</div>
-    <div class="footer-note">
-      Built with real LDraw parts (CCAL 2.0, The LDraw Parts Library). Not affiliated with,
-      endorsed, or sponsored by the LEGO Group; LEGO&reg; is a trademark of the LEGO Group.
+    {_scene_svg(prominent=True)}
+    <div class="content">
+      <div class="cover-card">
+        <h1>{html.escape(model_name)}</h1>
+        <div class="meta">{part_count:,} parts &middot; Build instructions generated by BrickForgerAI</div>
+        <div class="footer-note">
+          Built with real LDraw parts (CCAL 2.0, The LDraw Parts Library). Not affiliated with,
+          endorsed, or sponsored by the LEGO Group; LEGO&reg; is a trademark of the LEGO Group.
+        </div>
+      </div>
     </div>
   </section>
   <section class="page bom">
-    <h2>Full parts list</h2>
-    <table class="parts-table">{_parts_rows_html(bom_rows)}</table>
+    {_scene_svg(prominent=False)}
+    <div class="content">
+      <div class="content-card">
+        <h2>Full parts list</h2>
+        {_parts_grid_html(bom_rows, columns=bom_columns)}
+      </div>
+    </div>
   </section>
   {steps_html}
 </body></html>"""
