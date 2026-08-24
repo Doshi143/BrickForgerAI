@@ -28,6 +28,17 @@ RUN pip install --no-cache-dir -e /app/core
 COPY web/backend/requirements.txt /app/web/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/web/backend/requirements.txt
 
+# Chromium for the worker's build-instructions PDF renderer
+# (app/pipeline/instructions_pdf.py) -- --with-deps pulls the system
+# libraries headless Chromium needs (libnss3, libatk, etc.) that a
+# python:3.11-slim base doesn't ship. Only the worker process actually
+# launches it (see instructions_pdf.py's own docstring), but this
+# Dockerfile builds one shared image for both API and worker services
+# (see the CMD comment below) rather than maintaining two, so the API
+# image carries this too -- a real, deliberate size/build-time tradeoff,
+# not an oversight.
+RUN python -m playwright install --with-deps chromium
+
 COPY web/backend/ /app/web/backend/
 WORKDIR /app/web/backend
 

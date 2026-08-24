@@ -48,10 +48,24 @@ def to_ldr(
     name: str,
     author: str = "BrickForgerAI",
     raw_placements: list[RawPlacement] | None = None,
+    step_boundaries: tuple[int, ...] | None = None,
 ) -> str:
     """Render a Model as LDR text. `name` becomes the file title (line 1).
     `raw_placements` (optional) are appended after the model's own
-    bricks -- see RawPlacement's own docstring."""
+    bricks -- see RawPlacement's own docstring.
+
+    `step_boundaries` (optional): 0-indexed positions into `model`'s own
+    brick order at which a real LDraw `0 STEP` meta-command is inserted
+    right before that brick's line -- e.g. (3, 7) starts step 1 at brick
+    index 3 and step 2 at brick index 7 (step 0 needs no marker; nothing
+    before the first brick). This is a real, standard LDraw command (not
+    a BrickForgerAI invention) that any STEP-aware tool -- three.js's
+    LDrawLoader (see its own `computeBuildingSteps`), Studio, LeoCAD --
+    uses to group a model into build steps. Purely additive: omitted
+    (the default), output is byte-identical to before this parameter
+    existed. See pipeline/instructions.py::stepped_ldr_text, the only
+    caller that passes this -- it builds a *separate* LDR text for
+    rendering build-instruction steps, never the canonical model.ldr."""
     lines: list[str] = [
         f"0 {name}",
         f"0 Name: {name}.ldr",
@@ -62,7 +76,10 @@ def to_ldr(
         "",
     ]
 
-    for brick in model:
+    boundaries = set(step_boundaries or ())
+    for i, brick in enumerate(model):
+        if i in boundaries:
+            lines.append("0 STEP")
         x, y, z = placement_to_ldraw(
             brick.pos,
             *brick.part.footprint,
@@ -102,10 +119,14 @@ def save_ldr(
     name: str | None = None,
     author: str = "BrickForgerAI",
     raw_placements: list[RawPlacement] | None = None,
+    step_boundaries: tuple[int, ...] | None = None,
 ) -> Path:
     """Write a Model to `path` as an .ldr file. If `name` is omitted, the
     file's stem is used as the model title."""
     path = Path(path)
     title = name if name is not None else path.stem
-    path.write_text(to_ldr(model, title, author=author, raw_placements=raw_placements), encoding="utf-8")
+    path.write_text(
+        to_ldr(model, title, author=author, raw_placements=raw_placements, step_boundaries=step_boundaries),
+        encoding="utf-8",
+    )
     return path

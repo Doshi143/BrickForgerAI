@@ -318,6 +318,7 @@ class Job:
     image_path: str | None = None
     mesh_path: str | None = None
     ldr_path: str | None = None
+    pdf_path: str | None = None  # instructions.pdf -- see brickforge_bridge.mesh_to_ldr's pdf_out_path
     part_count: int | None = None
     slope_count: int | None = None
     tile_count: int | None = None
@@ -370,6 +371,12 @@ def _job_to_dict(job: Job) -> dict:
         "still_critical_count": job.still_critical_count,
         "is_single_piece": job.is_single_piece,
         "ldr_download_url": f"/generate/{job.id}/download" if job.ldr_path else None,
+        # None (not just missing/false) when generation succeeded but the
+        # PDF render itself failed -- see mesh_to_ldr's own docstring for
+        # why that's best-effort rather than job-fatal. The frontend just
+        # hides the instructions-PDF button in that case, same as before
+        # this feature existed.
+        "instructions_pdf_url": f"/generate/{job.id}/instructions.pdf" if job.pdf_path else None,
         "thumbnail_url": f"/generate/{job.id}/thumbnail" if job.image_path else None,
         "has_render": STORAGE.exists(job.id, "render.png"),
     }
@@ -519,15 +526,20 @@ def process_job(
 
         _set_status(job, JobStatus.BUILDING_BRICKS)
         ldr_path = os.path.join(jdir, "model.ldr")
+        pdf_path = os.path.join(jdir, "instructions.pdf")
         stats = mesh_to_ldr(
             mesh_path,
             ldr_path,
             target_studs=target_size_studs,
             model_name=job.prompt[:40],
             reference_image_path=image_path,
+            pdf_out_path=pdf_path,
         )
         job.ldr_path = ldr_path
         STORAGE.put(job.id, "model.ldr", ldr_path)
+        if stats.get("pdf_generated"):
+            job.pdf_path = pdf_path
+            STORAGE.put(job.id, "instructions.pdf", pdf_path)
         job.part_count = stats["part_count"]
         job.slope_count = stats["slope_count"]
         job.tile_count = stats["tile_count"]

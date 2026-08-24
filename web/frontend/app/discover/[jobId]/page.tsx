@@ -13,6 +13,7 @@ import { ThemeColors, darkColors, lightColors } from "@/app/theme";
 import {
   ApiError,
   GalleryDetail,
+  downloadInstructionsPdf,
   downloadLdr,
   fetchGalleryAccess,
   fetchGalleryItem,
@@ -56,6 +57,8 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
   const [buyError, setBuyError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadPdfError, setDownloadPdfError] = useState<string | null>(null);
 
   const colors = dark ? darkColors : lightColors;
 
@@ -123,6 +126,19 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
       setDownloadError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    if (!token || downloadingPdf) return;
+    setDownloadingPdf(true);
+    setDownloadPdfError(null);
+    try {
+      await downloadInstructionsPdf(jobId, token);
+    } catch (err) {
+      setDownloadPdfError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -208,9 +224,20 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                     </Link>
                   </div>
                 ) : hasAccess ? (
-                  <button onClick={handleDownload} disabled={downloading} style={primaryButtonStyle(colors, downloading)}>
-                    {downloading ? "Downloading…" : "Download .ldr ↓"}
-                  </button>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                    <button onClick={handleDownload} disabled={downloading} style={primaryButtonStyle(colors, downloading)}>
+                      {downloading ? "Downloading…" : "Download .ldr ↓"}
+                    </button>
+                    {item.instructions_pdf_url && (
+                      <button
+                        onClick={handleDownloadPdf}
+                        disabled={downloadingPdf}
+                        style={secondaryButtonStyle(colors, downloadingPdf)}
+                      >
+                        {downloadingPdf ? "Downloading…" : "Download instructions (PDF) ↓"}
+                      </button>
+                    )}
+                  </div>
                 ) : !user ? (
                   <Link
                     href={`/signin?next=${encodeURIComponent(`/discover/${jobId}`)}`}
@@ -227,6 +254,9 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                 {downloadError && (
                   <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadError}</p>
                 )}
+                {downloadPdfError && (
+                  <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadPdfError}</p>
+                )}
                 {checkoutStatus === "success" && !hasAccess && (
                   <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
                     Payment received — confirming now, this usually takes just a few seconds.
@@ -235,8 +265,8 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
               </div>
 
               <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 18, lineHeight: 1.6 }}>
-                Buying unlocks the downloadable .ldr file and full parts list for this specific build — open it
-                in BrickLink Studio (free) for step-by-step instructions.
+                Buying unlocks the downloadable .ldr file{item.instructions_pdf_url ? " and a step-by-step build-instruction PDF" : ""} for
+                this specific build.
               </p>
             </>
           )}
@@ -255,6 +285,21 @@ function primaryButtonStyle(colors: ThemeColors, disabled: boolean): React.CSSPr
     fontWeight: 700,
     fontSize: 16,
     border: "none",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    opacity: disabled ? 0.6 : 1,
+  };
+}
+
+function secondaryButtonStyle(colors: ThemeColors, disabled: boolean): React.CSSProperties {
+  return {
+    background: "none",
+    border: `2px solid ${colors.accent}`,
+    color: colors.accent,
+    padding: "14px 26px",
+    borderRadius: 14,
+    fontWeight: 700,
+    fontSize: 16,
     cursor: "pointer",
     fontFamily: "inherit",
     opacity: disabled ? 0.6 : 1,

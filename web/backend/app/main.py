@@ -430,6 +430,30 @@ def download_ldr(job_id: str, user: auth.User = Depends(auth.get_current_user)) 
     return _serve_job_file(job_id, "model.ldr", media_type="text/plain", download_filename=f"{job_id}.ldr")
 
 
+@app.get("/generate/{job_id}/instructions.pdf")
+def download_instructions_pdf(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> Response:
+    """Same gating as download_ldr above -- bundled with the .ldr at the
+    exact same price, not a separate paid tier: whoever is entitled to
+    download the model gets its build-instruction PDF too. 404s (rather
+    than a silent empty response) if generation succeeded but the PDF
+    render itself failed -- see brickforge_bridge.mesh_to_ldr's own
+    docstring for why that's a best-effort step that doesn't fail the
+    whole job."""
+    data = _get_job_dict_or_404(job_id)
+    is_owner = data.get("user_id") == user.id
+    if is_owner:
+        if not data.get("instructions_unlocked"):
+            raise HTTPException(402, "Unlock instructions to download this model's build guide")
+    elif not has_gallery_access(job_id, user.id):
+        raise HTTPException(402, "Purchase this gallery build to download its build guide")
+    if not data.get("instructions_pdf_url"):
+        raise HTTPException(404, "instructions PDF not available for this build")
+
+    return _serve_job_file(
+        job_id, "instructions.pdf", media_type="application/pdf", download_filename=f"{job_id}-instructions.pdf"
+    )
+
+
 @app.post("/generate/{job_id}/unlock-instructions")
 def unlock_instructions(job_id: str, user: auth.User = Depends(auth.get_current_user)) -> dict:
     """Real charge, via Stripe Checkout -- returns a checkout_url to
@@ -548,6 +572,7 @@ def gallery_detail(job_id: str) -> dict:
         "color_count": meta.get("color_count"),
         "thumbnail_url": meta.get("thumbnail_url"),
         "instructions_price_gbp": meta.get("instructions_price_gbp", 5),
+        "instructions_pdf_url": meta.get("instructions_pdf_url"),
     }
 
 

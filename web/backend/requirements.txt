@@ -7,6 +7,7 @@ matplotlib==3.10.8
 networkx==3.6.1
 numpy==2.4.4
 pillow==11.3.0
+playwright==1.49.1
 psycopg[binary,pool]==3.2.3
 python-dotenv==1.1.1
 pydantic==2.13.4

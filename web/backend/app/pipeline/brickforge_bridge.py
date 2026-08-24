@@ -14,6 +14,7 @@ that logic isn't re-derived here, just reused via the public brickforge API.
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -25,8 +26,11 @@ from brickforge.pipeline.slopes import substitute_staircase_slopes
 from brickforge.pipeline.surface_refine import substitute_tiles
 from brickforge.structure import analyze, bridge_unstable, close_enclosed_voids, refill_enclosed_holes
 
+from .instructions_pdf import render_instructions_pdf
 from .mesh_conditioning import strip_base_slab
 from .reference_color import has_color_variation, paint_from_reference_image
+
+logger = logging.getLogger(__name__)
 
 # shell.py::WIREFRAME_RGB is set to the catalog's exact Black RGB, so
 # quantize_grid_colors always resolves it to LDraw code 0 with zero
@@ -148,10 +152,20 @@ def mesh_to_ldr(
     target_studs: int,
     model_name: str,
     reference_image_path: str | None = None,
+    pdf_out_path: str | None = None,
 ) -> dict:
     """Run mesh -> voxelize -> shell -> quantize -> legalize -> repair ->
     surface refinement -> LDR, via core/brickforge. Returns stats for the
-    job API to report back to the frontend."""
+    job API to report back to the frontend.
+
+    `pdf_out_path`, when given, also renders a build-instruction PDF (see
+    instructions_pdf.py) from the exact same repaired/refined `refined`
+    Model that gets written to the .ldr -- never a re-derived or
+    re-repaired copy. This is deliberately best-effort: a Playwright/
+    Chromium failure here must not fail the whole job and lose the real,
+    already-paid-for .ldr deliverable, so it's caught and logged rather
+    than re-raised. `stats["pdf_generated"]` tells the caller (jobs.py)
+    whether it actually happened."""
     prepared_path, color_source = _prepare_colored_mesh(mesh_path, reference_image_path)
 
     result = mesh_to_model_full(
@@ -204,6 +218,16 @@ def mesh_to_ldr(
 
     save_ldr(refined, ldr_out_path, name=model_name)
 
+    pdf_generated = False
+    if pdf_out_path:
+        try:
+            render_instructions_pdf(refined, pdf_out_path, model_name, thumbnail_png_path=reference_image_path)
+            pdf_generated = True
+        except Exception:
+            logger.exception(
+                "Instructions PDF generation failed for %r -- job still succeeds with .ldr only", model_name
+            )
+
     return {
         "part_count": len(refined),
         "slope_count": sum(1 for b in refined if b.part.category == "slope"),
@@ -213,4 +237,5 @@ def mesh_to_ldr(
         "was_repaired": was_repaired,
         "still_critical_count": len(final_report.critical_bricks),
         "is_single_piece": final_report.is_single_piece,
+        "pdf_generated": pdf_generated,
     }

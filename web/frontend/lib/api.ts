@@ -27,6 +27,7 @@ export type Job = {
   still_critical_count: number | null;
   is_single_piece: boolean | null;
   ldr_download_url: string | null;
+  instructions_pdf_url: string | null;
   thumbnail_url: string | null;
   has_render: boolean | null;
   is_published: boolean;
@@ -261,6 +262,29 @@ export async function downloadLdr(jobId: string, token: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/** Downloads the build-instruction PDF via an authenticated fetch, same
+ * shape as downloadLdr above and gated identically server-side (see
+ * main.py::download_instructions_pdf) -- bundled at the same unlock, not
+ * a separate charge. */
+export async function downloadInstructionsPdf(jobId: string, token: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/generate/${jobId}/instructions.pdf`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to download instructions");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${jobId}-instructions.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Unrestricted -- used by the 3D viewer to fetch/render the model. The
  * preview itself is free on every plan; downloadUrl (above) is the gated
  * "save the file" action. */
@@ -304,6 +328,7 @@ export type GalleryCard = {
 export type GalleryDetail = GalleryCard & {
   slope_count: number | null;
   tile_count: number | null;
+  instructions_pdf_url: string | null;
 };
 
 /** No auth -- the gallery is browsable while logged out. q is an
