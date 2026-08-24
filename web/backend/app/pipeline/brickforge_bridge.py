@@ -221,7 +221,7 @@ def mesh_to_ldr(
     pdf_generated = False
     if pdf_out_path:
         try:
-            render_instructions_pdf(refined, pdf_out_path, model_name, thumbnail_png_path=reference_image_path)
+            render_instructions_pdf(refined, pdf_out_path, model_name)
             pdf_generated = True
         except Exception:
             logger.exception(

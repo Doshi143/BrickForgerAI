@@ -59,32 +59,26 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [downloadPdfError, setDownloadPdfError] = useState<string | null>(null);
 
+  // One click, one unlock, both files -- the .ldr and (when it rendered
+  // successfully for this job) its PDF build guide download together,
+  // since they're never charged or gated separately (see main.py's
+  // download_instructions_pdf: identical gating to download_ldr). Two
+  // separate buttons here would just be presenting one already-bundled
+  // purchase as if it were two, which is what prompted this change.
   async function handleDownload() {
-    if (!token || downloading) return;
+    if (!token || downloading || !job) return;
     setDownloading(true);
     setDownloadError(null);
     try {
       await downloadLdr(jobId, token);
+      if (job.instructions_pdf_url) {
+        await downloadInstructionsPdf(jobId, token);
+      }
     } catch (err) {
       setDownloadError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
     } finally {
       setDownloading(false);
-    }
-  }
-
-  async function handleDownloadPdf() {
-    if (!token || downloadingPdf) return;
-    setDownloadingPdf(true);
-    setDownloadPdfError(null);
-    try {
-      await downloadInstructionsPdf(jobId, token);
-    } catch (err) {
-      setDownloadPdfError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
-    } finally {
-      setDownloadingPdf(false);
     }
   }
 
@@ -232,46 +226,28 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
 
               <div style={{ display: "flex", gap: 14, marginTop: 28, flexWrap: "wrap" }}>
                 {job.instructions_unlocked ? (
-                  <>
-                    <button
-                      onClick={handleDownload}
-                      disabled={downloading}
-                      style={{
-                        background: colors.accent,
-                        color: "#fff",
-                        padding: "16px 28px",
-                        borderRadius: 14,
-                        fontWeight: 700,
-                        fontSize: 16,
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        opacity: downloading ? 0.6 : 1,
-                      }}
-                    >
-                      {downloading ? "Downloading…" : "Download .ldr ↓"}
-                    </button>
-                    {job.instructions_pdf_url && (
-                      <button
-                        onClick={handleDownloadPdf}
-                        disabled={downloadingPdf}
-                        style={{
-                          background: "none",
-                          border: `2px solid ${colors.accent}`,
-                          color: colors.accent,
-                          padding: "14px 26px",
-                          borderRadius: 14,
-                          fontWeight: 700,
-                          fontSize: 16,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                          opacity: downloadingPdf ? 0.6 : 1,
-                        }}
-                      >
-                        {downloadingPdf ? "Downloading…" : "Download instructions (PDF) ↓"}
-                      </button>
-                    )}
-                  </>
+                  <button
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    style={{
+                      background: colors.accent,
+                      color: "#fff",
+                      padding: "16px 28px",
+                      borderRadius: 14,
+                      fontWeight: 700,
+                      fontSize: 16,
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      opacity: downloading ? 0.6 : 1,
+                    }}
+                  >
+                    {downloading
+                      ? "Downloading…"
+                      : job.instructions_pdf_url
+                        ? "Download .ldr + instructions (PDF) ↓"
+                        : "Download .ldr ↓"}
+                  </button>
                 ) : (
                   <button
                     onClick={handleUnlock}
@@ -299,9 +275,6 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
               )}
               {downloadError && (
                 <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadError}</p>
-              )}
-              {downloadPdfError && (
-                <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadPdfError}</p>
               )}
               {!job.instructions_unlocked && checkoutStatus === "success" && (
                 <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>

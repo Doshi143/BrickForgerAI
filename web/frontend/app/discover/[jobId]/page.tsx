@@ -57,8 +57,6 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
   const [buyError, setBuyError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [downloadPdfError, setDownloadPdfError] = useState<string | null>(null);
 
   const colors = dark ? darkColors : lightColors;
 
@@ -116,29 +114,24 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
     }
   }
 
+  // One click, one purchase, both files -- see the equivalent
+  // app/generate/[jobId]/page.tsx::handleDownload for why this isn't two
+  // separate buttons/downloads: the PDF is never charged or gated
+  // separately from the .ldr (main.py's download_instructions_pdf uses
+  // the identical has_gallery_access check).
   async function handleDownload() {
-    if (!token || downloading) return;
+    if (!token || downloading || !item) return;
     setDownloading(true);
     setDownloadError(null);
     try {
       await downloadLdr(jobId, token);
+      if (item.instructions_pdf_url) {
+        await downloadInstructionsPdf(jobId, token);
+      }
     } catch (err) {
       setDownloadError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
     } finally {
       setDownloading(false);
-    }
-  }
-
-  async function handleDownloadPdf() {
-    if (!token || downloadingPdf) return;
-    setDownloadingPdf(true);
-    setDownloadPdfError(null);
-    try {
-      await downloadInstructionsPdf(jobId, token);
-    } catch (err) {
-      setDownloadPdfError(err instanceof ApiError ? err.message : "Couldn't download. Try again.");
-    } finally {
-      setDownloadingPdf(false);
     }
   }
 
@@ -224,20 +217,13 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                     </Link>
                   </div>
                 ) : hasAccess ? (
-                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                    <button onClick={handleDownload} disabled={downloading} style={primaryButtonStyle(colors, downloading)}>
-                      {downloading ? "Downloading…" : "Download .ldr ↓"}
-                    </button>
-                    {item.instructions_pdf_url && (
-                      <button
-                        onClick={handleDownloadPdf}
-                        disabled={downloadingPdf}
-                        style={secondaryButtonStyle(colors, downloadingPdf)}
-                      >
-                        {downloadingPdf ? "Downloading…" : "Download instructions (PDF) ↓"}
-                      </button>
-                    )}
-                  </div>
+                  <button onClick={handleDownload} disabled={downloading} style={primaryButtonStyle(colors, downloading)}>
+                    {downloading
+                      ? "Downloading…"
+                      : item.instructions_pdf_url
+                        ? "Download .ldr + instructions (PDF) ↓"
+                        : "Download .ldr ↓"}
+                  </button>
                 ) : !user ? (
                   <Link
                     href={`/signin?next=${encodeURIComponent(`/discover/${jobId}`)}`}
@@ -253,9 +239,6 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                 {buyError && <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{buyError}</p>}
                 {downloadError && (
                   <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadError}</p>
-                )}
-                {downloadPdfError && (
-                  <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{downloadPdfError}</p>
                 )}
                 {checkoutStatus === "success" && !hasAccess && (
                   <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
@@ -285,21 +268,6 @@ function primaryButtonStyle(colors: ThemeColors, disabled: boolean): React.CSSPr
     fontWeight: 700,
     fontSize: 16,
     border: "none",
-    cursor: "pointer",
-    fontFamily: "inherit",
-    opacity: disabled ? 0.6 : 1,
-  };
-}
-
-function secondaryButtonStyle(colors: ThemeColors, disabled: boolean): React.CSSProperties {
-  return {
-    background: "none",
-    border: `2px solid ${colors.accent}`,
-    color: colors.accent,
-    padding: "14px 26px",
-    borderRadius: 14,
-    fontWeight: 700,
-    fontSize: 16,
     cursor: "pointer",
     fontFamily: "inherit",
     opacity: disabled ? 0.6 : 1,
