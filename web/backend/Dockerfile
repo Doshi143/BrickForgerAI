@@ -6,7 +6,18 @@
 # not "web/backend" -- pointing it at web/backend directly would make
 # core/ invisible to this build entirely, and the editable install below
 # would fail.
-FROM python:3.11-slim
+#
+# Pinned to -bookworm (Debian 12) explicitly, not the bare `python:3.11-
+# slim` tag -- that tag now resolves to a newer Debian release (trixie)
+# that Playwright 1.49's `install --with-deps` (below) has no curated
+# system-package list for. It silently falls back to a stale list
+# containing the long-renamed `ttf-unifont` (now `fonts-unifont`), which
+# doesn't exist on the newer release and fails the whole build with
+# "Package ttf-unifont is not available" -- a real, confirmed Railway
+# deploy failure, not a hypothetical. Debian 12 is within Playwright's
+# officially supported matrix, so this is the actual fix, not a
+# workaround: pin to an OS release the tool actually knows about.
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
