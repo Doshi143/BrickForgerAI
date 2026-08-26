@@ -24,11 +24,13 @@ from brickforge import Model, save_ldr
 from brickforge.pipeline.mesh_to_model import mesh_to_model_full
 from brickforge.pipeline.slopes import substitute_staircase_slopes
 from brickforge.pipeline.surface_refine import substitute_tiles
+from brickforge.pipeline.symmetry import detect_mirror_plane, enforce_symmetry
 from brickforge.structure import analyze, bridge_unstable, close_enclosed_voids, refill_enclosed_holes
 
 from .instructions_pdf import render_instructions_pdf
 from .mesh_conditioning import strip_base_slab
 from .reference_color import has_color_variation, paint_from_reference_image
+from .symmetry_classifier import classify_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +155,7 @@ def mesh_to_ldr(
     model_name: str,
     reference_image_path: str | None = None,
     pdf_out_path: str | None = None,
+    prompt: str | None = None,
 ) -> dict:
     """Run mesh -> voxelize -> shell -> quantize -> legalize -> repair ->
     surface refinement -> LDR, via core/brickforge. Returns stats for the
@@ -165,7 +168,13 @@ def mesh_to_ldr(
     Chromium failure here must not fail the whole job and lose the real,
     already-paid-for .ldr deliverable, so it's caught and logged rather
     than re-raised. `stats["pdf_generated"]` tells the caller (jobs.py)
-    whether it actually happened."""
+    whether it actually happened.
+
+    `prompt`, when given, decides whether symmetry gets enforced (see
+    symmetry_classifier.py and brickforge.pipeline.symmetry) -- falls
+    back to `model_name` if omitted, so existing callers (the standalone
+    end-to-end test script) keep working unchanged, just classifying off
+    a possibly-truncated string instead of the real prompt."""
     prepared_path, color_source = _prepare_colored_mesh(mesh_path, reference_image_path)
 
     result = mesh_to_model_full(
@@ -216,6 +225,35 @@ def mesh_to_ldr(
         refined = refilled.model
         final_report = analyze(refined)
 
+    # Symmetry enforcement runs LAST, after slopes/tiles, not before --
+    # mirroring the fully-refined model (surface details included) copies
+    # each already-chosen slope/tile onto its mirror counterpart exactly,
+    # rather than letting the slope/tile substitution passes run
+    # independently on each half afterward and potentially pick different
+    # candidates on each side, which would reintroduce the very asymmetry
+    # this stage exists to remove. Gated on classify_prompt -- "organic"
+    # subjects (animals, food, landscapes) keep their natural asymmetry;
+    # only "ordered" ones (vehicles, buildings, furniture) are candidates
+    # at all, and even then only if detect_mirror_plane finds the model is
+    # ALREADY close to symmetric (see that function's own conservative
+    # threshold) -- this never forces symmetry onto a shape that wasn't
+    # already close to it.
+    symmetrized = False
+    if classify_prompt(prompt if prompt is not None else model_name) == "ordered":
+        plane = detect_mirror_plane(refined)
+        if plane is not None:
+            candidate = enforce_symmetry(refined, plane)
+            candidate_report = analyze(candidate)
+            if not candidate_report.is_single_piece or candidate_report.critical_bricks:
+                was_repaired = True
+                bridged = bridge_unstable(candidate, solid_grid=result.solid_grid)
+                refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
+                candidate = refilled.model
+                candidate_report = analyze(candidate)
+            refined = candidate
+            final_report = candidate_report
+            symmetrized = True
+
     save_ldr(refined, ldr_out_path, name=model_name)
 
     pdf_generated = False
@@ -237,5 +275,6 @@ def mesh_to_ldr(
         "was_repaired": was_repaired,
         "still_critical_count": len(final_report.critical_bricks),
         "is_single_piece": final_report.is_single_piece,
+        "symmetrized": symmetrized,
         "pdf_generated": pdf_generated,
     }

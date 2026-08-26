@@ -255,7 +255,10 @@ export default function Home() {
               : "Free plan: 5 credits a month • Pay only to download the .ldr file"}
           </p>
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
-            Built from a 48-part real, purchasable brick library — growing all the time. We&apos;re
+            Built from a 53-part real, purchasable brick library — including a wide range of slope
+            angles and curves for smoother surfaces — growing all the time. Vehicles, buildings,
+            and other symmetric subjects get their left and right sides automatically matched up;
+            organic subjects (animals, food, landscapes) keep their natural shape. We&apos;re
             constantly improving stability, connectivity, and adding new building techniques
             (including sideways building, aka SNOT). Most generated models come out with 100%
             connectivity and few flagged issues on BrickLink Studio&apos;s stability checker.

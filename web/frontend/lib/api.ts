@@ -26,6 +26,7 @@ export type Job = {
   was_repaired: boolean | null;
   still_critical_count: number | null;
   is_single_piece: boolean | null;
+  symmetrized: boolean | null;
   ldr_download_url: string | null;
   instructions_pdf_url: string | null;
   thumbnail_url: string | null;
@@ -329,6 +330,7 @@ export type GalleryDetail = GalleryCard & {
   slope_count: number | null;
   tile_count: number | null;
   instructions_pdf_url: string | null;
+  symmetrized: boolean | null;
 };
 
 /** No auth -- the gallery is browsable while logged out. q is an

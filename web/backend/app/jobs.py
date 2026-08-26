@@ -327,6 +327,7 @@ class Job:
     was_repaired: bool | None = None
     still_critical_count: int | None = None
     is_single_piece: bool | None = None
+    symmetrized: bool | None = None
 
 
 def _job_dir(job_id: str) -> str:
@@ -370,6 +371,7 @@ def _job_to_dict(job: Job) -> dict:
         "was_repaired": job.was_repaired,
         "still_critical_count": job.still_critical_count,
         "is_single_piece": job.is_single_piece,
+        "symmetrized": job.symmetrized,
         "ldr_download_url": f"/generate/{job.id}/download" if job.ldr_path else None,
         # None (not just missing/false) when generation succeeded but the
         # PDF render itself failed -- see mesh_to_ldr's own docstring for
@@ -534,6 +536,7 @@ def process_job(
             model_name=job.prompt[:40],
             reference_image_path=image_path,
             pdf_out_path=pdf_path,
+            prompt=job.prompt,
         )
         job.ldr_path = ldr_path
         STORAGE.put(job.id, "model.ldr", ldr_path)
@@ -548,6 +551,7 @@ def process_job(
         job.was_repaired = stats["was_repaired"]
         job.still_critical_count = stats["still_critical_count"]
         job.is_single_piece = stats["is_single_piece"]
+        job.symmetrized = stats.get("symmetrized", False)
         _set_status(job, JobStatus.DONE)
 
     except Exception as exc:  # noqa: BLE001

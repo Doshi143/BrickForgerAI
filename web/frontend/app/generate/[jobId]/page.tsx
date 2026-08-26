@@ -222,6 +222,7 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                   label="Structure"
                   value={job.is_single_piece ? "One piece" : "Split"}
                 />
+                {job.symmetrized && <Stat colors={colors} label="Symmetry" value="Matched" />}
               </div>
 
               <div style={{ display: "flex", gap: 14, marginTop: 28, flexWrap: "wrap" }}>

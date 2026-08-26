@@ -9,10 +9,9 @@ def catalog():
 
 
 def test_loads_expected_part_count(catalog):
-    # 44 + the 33-degree slope family (4286/3298/4161/3297) + 87087 (the
-    # first SNOT part, Phase A -- see catalog/parts_v1.yaml's own SNOT
-    # section comment).
-    assert len(catalog) == 50
+    # 50, plus 3 more inverted/curved slopes (2310, 3676, 24201 -- see
+    # catalog/parts_v1.yaml's own comment on that addition).
+    assert len(catalog) == 53
 
 
 def test_slope_footprints_verified_from_raw_geometry(catalog):

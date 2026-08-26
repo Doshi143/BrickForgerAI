@@ -204,6 +204,7 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                 <Stat colors={colors} label="Colors" value={item.color_count?.toString() ?? "—"} />
                 <Stat colors={colors} label="Slopes" value={item.slope_count?.toString() ?? "—"} />
                 <Stat colors={colors} label="Tiles" value={item.tile_count?.toString() ?? "—"} />
+                {item.symmetrized && <Stat colors={colors} label="Symmetry" value="Matched" />}
               </div>
 
               <div style={{ marginTop: 28 }}>

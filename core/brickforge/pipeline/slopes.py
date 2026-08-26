@@ -97,9 +97,55 @@ direction is which rotation" (the base table), with per-part flips layered
 on top rather than guessed from any shared property (height tier, run
 length, etc.) of the parts involved.
 
-Only upright slopes (top: none) are handled -- inverted slopes (the
-underside/overhang case) are a different detection pattern and are not
-attempted here.
+**Inverted slopes (the underside/overhang case) are now handled too --
+one tier only, mirroring the upright 3-plate swap tier exactly.** A
+brick-category candidate whose own BOTTOM is exposed to open air (the
+overhang case: nothing directly beneath it) gets checked for a genuine
+step-up edge underneath, using `column_bottom` (the shallowest/lowest y
+any brick reaches in a column -- the mirror image of `column_top`) and
+comparing with `<=`/`>` instead of `>=`/`<`, the same shape of test just
+flipped top-for-bottom and max-for-min. Reuses the exact same
+`_DOWNHILL_ROTATION` table and per-part `_FLIPPED_PART_IDS` mechanism --
+"downhill"/"uphill" mean the same cardinal-direction relationship
+whether the tested face is a top or a bottom, so no second rotation
+table was needed, only a mirrored geometric test
+(`_find_step_edge_rotation_underside`).
+
+Verified from raw geometry, not assumed to share the upright family's
+own orientation: 3665/3660's real sloped-face quads put their
+TALL/thick end at the LESS-negative-Z side of their own footprint and
+their THIN end at the MORE-negative-Z side -- the mirror image of the
+upright 45-degree family's own -Z-tall/+Z-thin convention (see the
+existing docstring section above). So 3665, 3660, and their two new
+cutout/double-convex variants (2310, 3676 -- same shape family, same
+measured Z split) are all listed in `_FLIPPED_PART_IDS` alongside the
+already-flipped upright families, rather than assumed to follow the
+un-flipped 45-degree base convention just because they're "the same 45
+degrees".
+
+**Only the 3-plate (brick-height) inverted swap tier is implemented.**
+Deliberately not attempted this pass, to avoid shipping unverified
+geometry: `24201` (the 2-plate curved inverted slope) is in the catalog
+but not wired into detection here -- its footprint/height/local_offset
+were confirmed from raw geometry, but which cardinal direction is its
+own "thick" vs "thin" end was not independently verified the way
+3665/3660 were, and this catalog has been burned before by assuming
+orientation carries across families without checking (see the existing
+docstring section above on the 2-plate and 33-degree families). Also
+not attempted: plate-stack/plate-merge tiers for the inverted case
+(the analogues of `_find_3plate_stack_slope`/`_find_2plate_merge`) --
+real future scope, not silently dropped, just genuinely more surface
+area than this pass covers.
+
+Safety, inverted tier: actually a STRICTLY safer substitution than any
+upright tier. A plain brick candidate always has `top: full` in this
+catalog, and every inverted slope here also has `top: full` -- so the
+substitution changes NOTHING about top connectivity, ever. The only
+thing that changes is bottom connectivity (full -> none), and that's
+only attempted where the candidate's bottom is already exposed to open
+air (nothing there to disconnect from in the first place) -- the exact
+same "only removes connectivity nothing was using" argument the upright
+tiers rely on, just for the one face that changes instead of two.
 
 Safety, 3-plate (swap) tier: exactly the same precondition as tile
 substitution (surface_refine.py) -- every brick part in this catalog has
@@ -171,8 +217,15 @@ _FLIPPED_PART_IDS: frozenset[str] = frozenset(
     {
         "54200", "85984", "7825", "7835",  # 2-plate ("cheese") family
         "4286", "3298", "4161", "3297",  # 33-degree 3-plate family
+        "3665", "3660", "2310", "3676",  # inverted 45-degree 3-plate family
     }
 )
+
+# Cosmetic variants that share an exact (height, perp, run) key with a
+# plain part -- see _build_inverted_slope_map's own docstring for why
+# these must never win an automatic substitution over the plain part
+# they're a decorated version of.
+_DECORATIVE_INVERTED_VARIANTS: frozenset[str] = frozenset({"2310", "3676"})
 
 
 def _build_slope_map(catalog: PartCatalog) -> dict[tuple[int, int, int], tuple[str, bool]]:
@@ -264,6 +317,124 @@ def _find_single_part_slope(
         return None
 
     return _find_step_edge_rotation(x0, z0, w, d, top_y, riser, column_top, slope_by_tier)
+
+
+def _build_inverted_slope_map(catalog: PartCatalog) -> dict[tuple[int, int, int], tuple[str, bool]]:
+    """Mirror of _build_slope_map for the underside/overhang case:
+    top == "full" and bottom == "none" (an inverted slope) instead of
+    top == "none" (an upright one). Keyed identically, and reuses the
+    same _FLIPPED_PART_IDS registry -- see module docstring.
+
+    Unlike the upright map, this one has a real (height, perp, run)
+    collision: 3660 and its two cosmetic variants (2310's footprint is
+    actually [1,2], distinct, but 3676 shares 3660's exact [2,2]
+    footprint and height) can share a key. A plain dict comprehension
+    would let whichever part iterates last silently shadow the other --
+    exactly the failure shape _build_slope_map's own 3-key design was
+    built to prevent for the 45/33-degree families, just one level down
+    (same key, different part, rather than a colliding key at all). Since
+    there's no principled reason to prefer a decorative cutout/convex
+    variant over the plain part for an *automatic* substitution, this
+    explicitly prefers whichever candidate is NOT in
+    `_DECORATIVE_INVERTED_VARIANTS`, rather than leaving the choice to
+    incidental catalog ordering."""
+    result: dict[tuple[int, int, int], tuple[str, bool]] = {}
+    for p in catalog:
+        if not (p.category == "slope" and p.top == "full" and p.bottom == "none"):
+            continue
+        key = (p.height_plates, p.footprint[0], p.footprint[1])
+        if key in result and p.id in _DECORATIVE_INVERTED_VARIANTS:
+            continue  # a plain part already claimed this key -- keep it
+        result[key] = (p.id, p.id in _FLIPPED_PART_IDS)
+    return result
+
+
+def _find_step_edge_rotation_underside(
+    x0: int,
+    z0: int,
+    w: int,
+    d: int,
+    bottom_y: int,
+    riser: int,
+    column_bottom: dict[tuple[int, int], int],
+    slope_by_tier: dict[tuple[int, int, int], tuple[str, bool]],
+) -> tuple[str, Rotation] | None:
+    """Mirror of _find_step_edge_rotation for a candidate's BOTTOM face:
+    does this (x0, z0, w, d) candidate, whose own base sits at
+    internal-grid height `bottom_y`, have a genuine step-up edge
+    underneath it in one of the 4 cardinal directions? `column_bottom`
+    tracks the shallowest (lowest-reaching) y any brick occupies per
+    column -- the mirror image of `column_top` -- and the comparisons
+    are flipped accordingly: "downhill" (open/unsupported) means nothing
+    there reaches as deep as this candidate's own base; "uphill"
+    (support) means material there reaches at least as deep. Same
+    `_DOWNHILL_ROTATION`/`_FLIPPED_PART_IDS` mechanism as the upright
+    case -- "downhill"/"uphill" describe the same cardinal relationship
+    regardless of which face is being tested."""
+    for (dxd, dzd), rotation in _DOWNHILL_ROTATION.items():
+        along_d = w if dxd != 0 else d
+        perp = d if dxd != 0 else w
+        entry = slope_by_tier.get((riser, perp, along_d))
+        if entry is None:
+            continue
+        slope_id, is_flipped = entry
+
+        if dxd != 0:
+            downhill_x = x0 + along_d if dxd > 0 else x0 - 1
+            uphill_x = x0 - 1 if dxd > 0 else x0 + along_d
+            downhill_cols = [(downhill_x, z0 + dz) for dz in range(perp)]
+            uphill_cols = [(uphill_x, z0 + dz) for dz in range(perp)]
+        else:
+            downhill_z = z0 + along_d if dzd > 0 else z0 - 1
+            uphill_z = z0 - 1 if dzd > 0 else z0 + along_d
+            downhill_cols = [(x0 + dx, downhill_z) for dx in range(perp)]
+            uphill_cols = [(x0 + dx, uphill_z) for dx in range(perp)]
+
+        is_downhill = all(column_bottom.get(c, float("inf")) > bottom_y for c in downhill_cols)
+        is_uphill = all(column_bottom.get(c, float("inf")) <= bottom_y for c in uphill_cols)
+        if is_downhill and is_uphill:
+            return slope_id, (_OPPOSITE_ROTATION[rotation] if is_flipped else rotation)
+
+    return None
+
+
+def _find_single_part_slope_inverted(
+    brick: Brick,
+    column_bottom: dict[tuple[int, int], int],
+    occupied_at_y: dict[tuple[int, int, int], int],
+    inverted_slope_by_tier: dict[tuple[int, int, int], tuple[str, bool]],
+) -> tuple[str, Rotation] | None:
+    """Underside tier: mirror of _find_single_part_slope, checking the
+    candidate's own bottom face (nothing directly beneath it) instead of
+    its top.
+
+    y0 <= 0 is excluded up front -- a real bug, caught by this module's
+    own existing test suite, not just reasoned about in the abstract: the
+    upright case's "nothing above" is unambiguous (there's no ceiling,
+    so open air above is always real), but "nothing below" at y0 == 0 is
+    just the model's own ground/baseplate boundary, not an overhang --
+    every model in this pipeline is built bottom-up from y=0 (see
+    DESIGN.md's own build-order note), so a ground-level brick sitting
+    directly next to another ground-level brick always has an
+    'exposed' bottom by this test's own logic, even though that's
+    completely normal flat terrain, not a step-up edge underneath
+    anything. Confirmed by a real test failure: a brick at y=0 next to
+    another y=0 brick of the same height was wrongly swapped for an
+    inverted slope before this guard existed."""
+    if brick.part.category != "brick" or brick.pos.y <= 0:
+        return None
+
+    w, d = brick.footprint
+    x0, y0, z0 = brick.pos.x, brick.pos.y, brick.pos.z
+    riser = brick.part.height_plates
+
+    bottom_exposed = all(
+        (x0 + dx, y0 - 1, z0 + dz) not in occupied_at_y for dx in range(w) for dz in range(d)
+    )
+    if not bottom_exposed:
+        return None
+
+    return _find_step_edge_rotation_underside(x0, z0, w, d, y0, riser, column_bottom, inverted_slope_by_tier)
 
 
 def _find_3plate_stack_slope(
@@ -378,20 +549,26 @@ def _find_2plate_merge(
 def substitute_staircase_slopes(model: Model) -> Model:
     """Return a copy of `model` with blocks at a genuine step-down edge
     replaced by the matching upright slope, at both the 3-plate (swap) and
-    2-plate (merge) tiers the catalog provides."""
+    2-plate (merge) tiers the catalog provides, plus blocks at a genuine
+    step-up edge UNDERNEATH them replaced by the matching inverted slope
+    (see module docstring's own section on that tier)."""
     slope_by_tier = _build_slope_map(model.catalog)
-    if not slope_by_tier:
+    inverted_slope_by_tier = _build_inverted_slope_map(model.catalog)
+    if not slope_by_tier and not inverted_slope_by_tier:
         return model
 
     column_top: dict[tuple[int, int], int] = {}
+    column_bottom: dict[tuple[int, int], int] = {}
     occupied_at_y: dict[tuple[int, int, int], int] = {}
     for i, brick in enumerate(model.bricks):
-        top = brick.pos.y + brick.part.height_plates
+        base = brick.pos.y
+        top = base + brick.part.height_plates
         w, d = brick.footprint
         for dx in range(w):
             for dz in range(d):
                 col = (brick.pos.x + dx, brick.pos.z + dz)
                 column_top[col] = max(column_top.get(col, top), top)
+                column_bottom[col] = min(column_bottom.get(col, base), base)
         for cell in brick.occupied_cells():
             occupied_at_y[cell] = i
 
@@ -400,6 +577,21 @@ def substitute_staircase_slopes(model: Model) -> Model:
         placement = _find_single_part_slope(brick, column_top, occupied_at_y, slope_by_tier)
         if placement is not None:
             swap_choice[i] = placement
+
+    # Underside (inverted) tier: only tried for a brick that didn't
+    # already match the upright swap tier above -- a candidate whose top
+    # AND bottom are both exposed with matching step patterns is rare,
+    # and preferring the (older, more-tested) upright match is an
+    # arbitrary but harmless tie-break, not a case this project has ever
+    # actually observed.
+    inverted_choice: dict[int, tuple[str, Rotation]] = {}
+    if inverted_slope_by_tier:
+        for i, brick in enumerate(model.bricks):
+            if i in swap_choice:
+                continue
+            placement = _find_single_part_slope_inverted(brick, column_bottom, occupied_at_y, inverted_slope_by_tier)
+            if placement is not None:
+                inverted_choice[i] = placement
 
     # 3-plate STACK tier: three unconsolidated identical plates -> one
     # slope (see _find_3plate_stack_slope's own docstring for why this
@@ -440,6 +632,8 @@ def substitute_staircase_slopes(model: Model) -> Model:
             slope_id, rotation = merge_choice[i]
         elif i in swap_choice:
             slope_id, rotation = swap_choice[i]
+        elif i in inverted_choice:
+            slope_id, rotation = inverted_choice[i]
         else:
             refined.place(brick.part.id, brick.color, brick.pos.x, brick.pos.y, brick.pos.z, rotation=brick.rotation)
             continue

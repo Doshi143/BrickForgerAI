@@ -386,6 +386,65 @@ parts:
     bottom: none
     local_offset: [0, 10]
 
+  # --- Two more members of the SAME inverted 45-degree family above,
+  # added for founder-requested visual variety (a cutout detail, a
+  # rounded "double convex" side profile). Verified independently from
+  # raw geometry, not assumed to share 3665/3660's numbers just because
+  # they're the same nominal shape -- confirmed both come out identical:
+  # 2310's top-face quads span X in [-10,10] and its solid/sloped-region
+  # split lands at the same Z=-10 midpoint as 3665; 3676's stud
+  # reference points (`stud2a.dat` at X=+-20) confirm the same 2-stud
+  # footprint as 3660, with the extra geometry out to X=30 being a purely
+  # decorative rounded bulge past the nominal footprint -- this catalog
+  # already treats footprint as the rectangular placement/collision
+  # envelope for every part, never the exact rendered silhouette, so a
+  # cosmetic overhang past the nominal edge doesn't change footprint,
+  # collision, or connectivity math here (Studio/three.js still render
+  # the real bulge from the part's own real geometry regardless of what
+  # this catalog tracks). Both match 3665/3660's own local_offset [0,10]
+  # and default top-anchored y_anchor exactly -- a measured match, not
+  # copied blind.
+  - id: "2310"
+    name: "Slope Brick 45 2 x 1 Inverted with 0.667 Cutout"
+    category: slope
+    footprint: [1, 2]
+    height_plates: 3
+    top: full
+    bottom: none
+    local_offset: [0, 10]
+  - id: "3676"
+    name: "Slope Brick 45 2 x 2 Inverted Double Convex"
+    category: slope
+    footprint: [2, 2]
+    height_plates: 3
+    top: full
+    bottom: none
+    local_offset: [0, 10]
+
+  # --- Curved inverted slope, a genuinely different height tier and
+  # local_offset SIGN from the flat inverted family above -- confirmed by
+  # fetching 24201.dat's raw geometry directly, not inferred from being
+  # "another inverted slope". Z spans [-10, 30] (not [-30, 10] like
+  # 3665/3660), centered at +10 -> local_offset [0, -10], the opposite
+  # sign from the flat family. Y spans [0, ~16] (not [0, 24]) -- this is
+  # BrickLink's own "2 x 1 x 2/3" naming for the height fraction, i.e. 2
+  # plates tall, not the standard 3-plate brick height every other slope
+  # in this section uses. y_anchor is still "top" here (all raw Y >= 0,
+  # confirmed directly -- NOT assumed to inherit "bottom" from the flat
+  # upright 2-plate family (54200 etc.) just because both happen to be
+  # 2-plate-tall; "inverted" (top:full/bottom:none) tracks with
+  # top-anchored for every slope measured in this catalog so far,
+  # upright or inverted, only the flat/non-inverted 2-plate family is
+  # bottom-anchored).
+  - id: "24201"
+    name: "Slope Brick Curved 2 x 1 Inverted"
+    category: slope
+    footprint: [1, 2]
+    height_plates: 2
+    top: full
+    bottom: none
+    local_offset: [0, -10]
+
   # --- 2-plate-height ("2/3 brick") slopes -- the real "detail" tier for
   # surface refinement. No standard rectangular slope exists at exactly 1
   # plate tall (searched brickarchitect.com/BrickLink's slope category,

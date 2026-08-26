@@ -388,4 +388,117 @@ def test_33_degree_slope_substitution_does_not_introduce_new_structural_issues(c
     assert report_before.critical_bricks == set()
     assert report_after.critical_bricks == set()
     assert report_before.is_single_piece == report_after.is_single_piece
+
+
+# --- Inverted (underside/overhang) tier ---
+# Mirror of the 3-plate upright swap tier: a brick-category candidate
+# whose own BOTTOM is exposed, with a genuine step-up edge underneath it
+# (support on one side reaching at least as deep, open air on the
+# other), gets swapped for the matching inverted slope.
+
+
+def test_overhang_step_up_edge_is_substituted_with_matching_inverted_slope(catalog):
+    # A single ground-level brick at z=-2 (top at y=3), and a candidate
+    # floating one floor up at z=0 (y=[3,6)) with nothing at all below
+    # it -- open air at z=[2,4), genuine support reaching down to the
+    # ground at z=[-2,0). The tower is deliberately only 1 brick tall
+    # (not 2): a taller tower would ALSO satisfy the *upright* swap
+    # tier's own top-exposure test (a real thing this test caught on its
+    # first version -- the candidate's own top was exposed too, and the
+    # upright tier's match won the tie-break before this was fixed),
+    # since the tower's own top would then be flush with the candidate's
+    # top. A 1-brick tower's top (y=3) sits well below the candidate's
+    # own top (y=6), which fails the upright tier's "uphill must be at
+    # least as tall" test on its own, isolating this to the inverted
+    # tier only.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)  # 2x2 brick, the support -- reaches the ground
+    model.place("3003", RED, x=0, y=3, z=0)  # floating candidate, bottom exposed
+
+    refined = substitute_staircase_slopes(model)
+
+    candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
+    assert candidate.part.id == "3660"  # Slope Inverted 45 2 x 2
+    # 3660 is a FLIPPED part (see _FLIPPED_PART_IDS) -- downhill +Z maps
+    # to the opposite of the upright family's own YAW_0.
+    assert candidate.rotation == Rotation.YAW_180
+
+
+def test_ground_level_brick_with_exposed_bottom_is_not_substituted(catalog):
+    # Flat roof at ground level: same height on both sides, no genuine
+    # step in either direction, so neither tier should fire -- but every
+    # one of these ground-level bricks has "nothing below" in the sense
+    # the inverted tier's bottom-exposure check looks for, since y0 == 0
+    # is the model's own floor, not an overhang. Real bug this shape
+    # pins: before the y0 <= 0 guard existed, an equivalent ground-level
+    # shape (see test_brick_with_something_resting_on_top_is_not_substituted
+    # above) was wrongly swapped for an inverted slope.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)
+    model.place("3003", RED, x=0, y=0, z=0)
+    model.place("3003", RED, x=0, y=0, z=2)
+
+    refined = substitute_staircase_slopes(model)
+
+    candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
+    assert candidate.part.id == "3003"
+
+
+def test_overhang_with_something_below_is_not_substituted(catalog):
+    # Same shape as the genuine-overhang test above, but with a plate
+    # directly beneath the candidate -- its bottom is no longer exposed,
+    # so it must be left alone regardless of the step pattern around it.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)
+    model.place("3024", RED, x=0, y=2, z=0)  # 1x1 plate directly beneath the candidate
+    model.place("3003", RED, x=0, y=3, z=0)
+
+    refined = substitute_staircase_slopes(model)
+
+    candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
+    assert candidate.part.id == "3003"
+
+
+def test_decorative_inverted_variants_do_not_shadow_the_plain_part(catalog):
+    # 2310 and 3676 share an exact (height, perp, run) key with 3665 and
+    # 3660 respectively (see _build_inverted_slope_map's own docstring).
+    # An automatic substitution must always resolve to the plain part,
+    # never the cutout/double-convex variant, regardless of catalog
+    # iteration order.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)
+    model.place("3003", RED, x=0, y=3, z=0)
+
+    refined = substitute_staircase_slopes(model)
+
+    candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
+    assert candidate.part.id == "3660"
+
+
+def test_inverted_slope_substitution_does_not_introduce_new_structural_issues(catalog):
+    # A real overhang candidate can never rest directly on anything (its
+    # own bottom must be exposed, by definition), so unlike every other
+    # tier's safety test above (which all put their candidate at y=0 and
+    # let the GROUND node carry it for free), this one needs an actual
+    # connected topology: a 2-brick tower reaching the ground, a floating
+    # candidate one column over at the same height, and a single wide
+    # plate (rotated so its footprint spans both columns) resting on top
+    # of both -- candidate -> plate -> tower -> GROUND. The plate on top
+    # also happens to be what keeps the *upright* swap tier from matching
+    # this same candidate (its top is no longer exposed either), so only
+    # the inverted tier is actually exercised here.
+    model = Model(catalog=catalog)
+    model.place("3003", RED, x=0, y=0, z=-2)  # tower, lower brick -- reaches ground
+    model.place("3003", RED, x=0, y=3, z=-2)  # tower, upper brick
+    model.place("3003", RED, x=0, y=3, z=0)  # floating candidate, bottom exposed
+    model.place("3020", RED, x=0, y=6, z=-2, rotation=Rotation.YAW_90)  # spans both columns
+
+    report_before = analyze(model)
+    refined = substitute_staircase_slopes(model)
+    report_after = analyze(refined)
+
+    assert report_before.critical_bricks == set()
+    assert report_after.critical_bricks == set()
+    assert report_before.is_single_piece == report_after.is_single_piece
+    assert len(refined) == len(model)  # 1-to-1 swap, not a merge
     assert len(refined) == len(model)  # 1-to-1 swap, not a merge

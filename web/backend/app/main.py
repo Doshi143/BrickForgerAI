@@ -573,6 +573,7 @@ def gallery_detail(job_id: str) -> dict:
         "thumbnail_url": meta.get("thumbnail_url"),
         "instructions_price_gbp": meta.get("instructions_price_gbp", 5),
         "instructions_pdf_url": meta.get("instructions_pdf_url"),
+        "symmetrized": meta.get("symmetrized"),
     }
 
 
