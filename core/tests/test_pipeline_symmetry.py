@@ -126,19 +126,38 @@ def test_enforce_symmetry_replaces_the_asymmetric_half(catalog):
 
 
 def test_symmetrized_model_can_be_repaired_to_full_connectivity(catalog):
-    # A real end-to-end shape: two separate "legs" reaching the ground,
-    # asymmetric (right leg one plate short, as if the legalizer/mesh
-    # had introduced small noise), symmetrized, then repaired -- mirrors
-    # exactly how this is meant to be used in the real pipeline (see
+    # A real end-to-end shape: a torso spanning two leg columns, a
+    # complete (grounded, torso-connected) left leg, and an asymmetric
+    # right leg missing its own y=1 plate (as if the legalizer/mesh had
+    # introduced small noise) -- so the right leg independently touches
+    # the ground but does NOT reach up to the torso, a real disconnection
+    # (not just an asymmetry) before symmetrization. Mirrors exactly how
+    # this is meant to be used in the real pipeline (see
     # brickforge_bridge.py's own wiring: detect+enforce, then re-analyze
-    # and repair, never trusted to be structurally sound on its own).
+    # and repair, never trusted to be structurally sound on its own) --
+    # note two SEPARATE legs that never connect to each other or anything
+    # above them would legitimately stay "not one piece" no matter how
+    # symmetric they are (see structure/weakpoints.py's own docstring on
+    # why an independently-grounded component is correctly left alone,
+    # not merged into "main" just for existing) -- the torso here is what
+    # makes "one piece" the correct, achievable outcome.
     model = Model(catalog=catalog)
     model.place("3024", RED, x=0, y=0, z=0)  # left leg, full height
     model.place("3024", RED, x=0, y=1, z=0)
     model.place("3024", RED, x=3, y=0, z=0)  # right leg, missing the y=1 plate (asymmetric)
+    model.place("3710", RED, x=0, y=2, z=0)  # torso: Plate 1x4, spans both leg columns
 
-    plane = detect_mirror_plane(model, min_score=0.5)
-    assert plane is not None
+    # Explicit plane, not detect_mirror_plane: every placement here sits
+    # at z=0 with zero Z-depth, so a Z-mirror is trivially "perfectly
+    # symmetric" (nothing varies along Z at all) and scores 1.0 -- higher
+    # than the genuinely-intended X-axis leg symmetry, which is real but
+    # imperfect (the right leg is missing a plate). detect_mirror_plane's
+    # own axis-selection is separately and thoroughly covered by
+    # test_detects_a_genuinely_symmetric_model and
+    # test_does_not_detect_a_plane_for_a_genuinely_asymmetric_model above;
+    # this test's own focus is the symmetrize-then-repair pipeline, so it
+    # targets the X plane directly rather than fighting that ambiguity.
+    plane = MirrorPlane(axis="x", k=4, score=1.0)  # x=0 <-> x=3
     symmetrized = enforce_symmetry(model, plane)
 
     report = analyze(symmetrized)

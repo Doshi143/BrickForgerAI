@@ -65,15 +65,21 @@ def test_floating_brick_is_detected(catalog):
 
 
 def test_isolated_piece_is_its_own_component(catalog):
+    # find_disconnected_components deliberately excludes GROUND itself
+    # (see its own docstring) -- a real bug that used to live here: GROUND
+    # connects to every y=0 brick, so brick0 and GROUND used to be
+    # (falsely) counted as one 2-node component. Both bricks are single,
+    # otherwise-unconnected 1x1s, so with GROUND excluded the honest
+    # answer is two separate 1-node components -- neither is "more
+    # connected" than the other just for one of them touching the floor.
     model = Model(catalog=catalog)
     model.place("3005", RED, 0, 0, 0)  # grounded
     model.place("3005", RED, 9, 9, 9)  # far away, floating, touching nothing
     graph = build_connectivity_graph(model)
     components = find_disconnected_components(graph)
-    # 2 components: {GROUND, brick0} and {brick1} alone
     assert len(components) == 2
     sizes = sorted(len(c) for c in components)
-    assert sizes == [1, 2]
+    assert sizes == [1, 1]
 
 
 def test_grounded_single_stack_has_no_floating_bricks(catalog):

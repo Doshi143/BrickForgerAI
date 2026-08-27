@@ -12,9 +12,32 @@ def catalog():
     return PartCatalog.load_default()
 
 
+def _place_ground_anchor(model: Model) -> None:
+    """A grounded structure at a column far from any test's real island,
+    deliberately made of 12 vertically-stacked (genuinely connected)
+    plates rather than a single brick.
+
+    Real bug this replaces, not a test quirk: find_bricks_outside_main_component
+    used to treat EVERY y=0 brick as automatically part of "main" via a
+    shared GROUND node, so a single unrelated grounded brick was always
+    safely ignored regardless of size. That was the actual reported bug
+    (see structure/weakpoints.py's own docstring) -- GROUND no longer
+    joins separate regions together, which means an "anchor" this small
+    would just be its own 1-node component, and once the real island
+    under test gets bridged (growing to more than 1 node), the anchor
+    would become the SMALLER of the two and get pruned by mistake
+    instead of the island being tested. 12 nodes safely exceeds the
+    largest bridged-island size any test in this file produces (9, in
+    test_thin_island_gets_a_second_independent_pillar_when_a_second_column_exists),
+    so this anchor always wins the "largest component" comparison
+    honestly, the same way a real sculpture's own main body would."""
+    for y in range(12):
+        model.place("3024", RED, 0, y, 0)
+
+
 def test_bridge_connects_a_one_layer_gap_to_ground_without_solid_grid(catalog):
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)  # unrelated grounded brick
+    _place_ground_anchor(model)
     model.place("3005", RED, 5, 1, 5)  # floating, 1 empty layer above bare ground
     result = bridge_unstable(model)  # no solid_grid -> interior check is a no-op
 
@@ -26,7 +49,7 @@ def test_bridge_connects_a_one_layer_gap_to_ground_without_solid_grid(catalog):
 
 def test_one_pillar_grounds_an_entire_multi_brick_island(catalog):
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)
+    _place_ground_anchor(model)
     model.place("3005", RED, 5, 4, 5)  # floating
     model.place("3005", RED, 5, 7, 5)  # rests on the floating brick -- same island
     result = bridge_unstable(model)
@@ -35,7 +58,7 @@ def test_one_pillar_grounds_an_entire_multi_brick_island(catalog):
     assert len(result.added) == 4  # one pillar, y=3 down to y=0 at (5, *, 5)
     report = analyze(result.model)
     assert report.ungrounded_bricks == set()
-    assert len(result.model) == 7
+    assert len(result.model) == len(model) + 4
 
 
 def _solid_column(nx, ny, nz, solid_xz: set[tuple[int, int]]) -> VoxelGrid:
@@ -50,9 +73,9 @@ def test_pillar_through_open_air_is_rejected_when_solid_grid_says_exterior(catal
     # silhouette anywhere -- exactly the ear-tip case: a straight-down
     # pillar there would be a pole through open air, not a hidden brace.
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)
+    _place_ground_anchor(model)
     model.place("3005", RED, 5, 4, 5)
-    solid_grid = _solid_column(10, 10, 10, {(0, 0)})  # only the grounded brick's column is "solid"
+    solid_grid = _solid_column(10, 12, 10, {(0, 0)})  # only the anchor's column is "solid"
 
     result = bridge_unstable(model, solid_grid=solid_grid)
 
@@ -67,9 +90,9 @@ def test_pillar_through_the_solid_silhouette_is_accepted(catalog):
     # all the way down -- a pillar there would be hidden inside the model,
     # not sticking out, so it should be used.
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)
+    _place_ground_anchor(model)
     model.place("3005", RED, 5, 4, 5)
-    solid_grid = _solid_column(10, 10, 10, {(0, 0), (5, 5)})
+    solid_grid = _solid_column(10, 12, 10, {(0, 0), (5, 5)})
 
     result = bridge_unstable(model, solid_grid=solid_grid)
 
@@ -87,10 +110,10 @@ def test_shortest_interior_column_is_preferred(catalog):
     from brickforge import Rotation
 
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)  # unrelated grounded brick
+    _place_ground_anchor(model)
     model.place("3023", RED, 5, 4, 5, rotation=Rotation.YAW_90)  # island: footprint (1,2) -> z:5-6
 
-    solid_grid = _solid_column(10, 10, 10, {(0, 0), (5, 6)})  # only z=6's column is solid
+    solid_grid = _solid_column(10, 12, 10, {(0, 0), (5, 6)})  # only z=6's column is solid
 
     result = bridge_unstable(model, solid_grid=solid_grid)
 
@@ -125,10 +148,10 @@ def test_thin_island_gets_a_second_independent_pillar_when_a_second_column_exist
     from brickforge import Rotation
 
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)  # unrelated grounded brick
+    _place_ground_anchor(model)
     model.place("3023", RED, 5, 4, 5, rotation=Rotation.YAW_90)  # island: footprint (1,2) -> z:5-6
 
-    solid_grid = _solid_column(10, 10, 10, {(0, 0), (5, 5), (5, 6)})
+    solid_grid = _solid_column(10, 12, 10, {(0, 0), (5, 5), (5, 6)})
 
     result = bridge_unstable(model, solid_grid=solid_grid)
 
@@ -191,7 +214,7 @@ def test_single_column_island_still_gets_only_one_pillar(catalog):
     # repeated here specifically to pin that the new second-pillar search
     # doesn't add anything when it has nothing else to find).
     model = Model(catalog=catalog)
-    model.place("3005", RED, 0, 0, 0)
+    _place_ground_anchor(model)
     model.place("3005", RED, 5, 1, 5)
     result = bridge_unstable(model)
 

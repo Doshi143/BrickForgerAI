@@ -76,7 +76,14 @@ export default function Viewer3D({
       1,
       10000
     );
-    camera.position.set(300, -260, 300);
+    // A real bug lived here until caught from actual reported behavior
+    // (previews reading as "the underside/back" of the model): after the
+    // group's own `rotation.x = Math.PI` flip below (LDraw -Y-up -> world
+    // +Y-up), a NEGATIVE Y camera offset puts the camera BELOW the model
+    // looking UP at its underside, not above it looking down. +260, not
+    // -260, is the fix -- same sign correction applied to frameObject and
+    // the key light below.
+    camera.position.set(300, 260, 300);
 
     // preserveDrawingBuffer: the onRendered screenshot capture below reads
     // the canvas via toDataURL() right after a render call -- without this
@@ -87,12 +94,12 @@ export default function Viewer3D({
     mount.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, -60, 0);
+    controls.target.set(0, 60, 0);
     controls.update();
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
-    key.position.set(200, -400, 300); // "above", in LDraw's -Y-up space
+    key.position.set(200, 400, 300); // genuinely above, post-flip (see camera comment above)
     scene.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.4);
     fill.position.set(-200, 100, -200);
@@ -104,7 +111,7 @@ export default function Viewer3D({
       const center = box.getCenter(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
       const dist = maxDim * 1.8;
-      camera.position.set(center.x + dist, center.y - dist, center.z + dist);
+      camera.position.set(center.x + dist, center.y + dist, center.z + dist);
       controls.target.copy(center);
       camera.near = dist / 100;
       camera.far = dist * 100;

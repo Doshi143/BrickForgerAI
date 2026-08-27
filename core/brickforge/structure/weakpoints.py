@@ -82,39 +82,99 @@ def find_ungrounded_bricks(graph: nx.Graph, model: Model) -> set[int]:
     return set(range(len(model.bricks))) - grounded
 
 
+def _components_excluding_ground(graph: nx.Graph) -> list[set]:
+    """The real, physical notion of "still attached to each other":
+    connected components computed with the GROUND node (and every edge
+    touching it) removed first.
+
+    **A real bug, reported directly by the founder and confirmed by
+    reading this code, not just theorized: GROUND was being counted as a
+    real connection for the purposes of "is this one piece" and "is this
+    brick part of the main mass".** GROUND connects to EVERY brick
+    sitting at y=0 (see build_connectivity_graph) -- which means, with
+    GROUND left in, two entirely separate regions that each merely touch
+    the floor (two legs of a chair that don't actually connect to each
+    other or to a body above, a disconnected fragment sitting next to the
+    real sculpture) are seen by `nx.connected_components` as ONE
+    component, transitively joined through the shared GROUND node, even
+    though nothing physically attaches them to each other. In real life,
+    picking up the sculpture would NOT bring that other region along --
+    it would just sit there on the table. That is exactly what
+    `is_single_piece` and `critical_bricks` are supposed to answer, so
+    GROUND must be excluded here, in both functions below.
+
+    GROUND is still used, correctly, by find_articulation_points/
+    find_bridges (asking a genuinely different, valid question: "if you
+    removed just this one ground-contact edge, would something come
+    loose") and by load.py's own gravity-load propagation (a real brick
+    resting on the actual floor is correctly credited with that support
+    regardless of whether it's part of the sculpture's main mass) -- this
+    fix is scoped to only the two functions that decide "is this the same
+    physical piece", not a wholesale removal of the GROUND node."""
+    nodes = [n for n in graph.nodes if n != GROUND]
+    return list(nx.connected_components(graph.subgraph(nodes)))
+
+
 def find_disconnected_components(graph: nx.Graph) -> list[set]:
-    """Every connected component of the graph. More than one component
-    (beyond the trivial case of an empty model) means the model is
-    literally in separate pieces -- the single worst structural failure,
-    since it isn't a matter of a connection being *weak*, there's no
-    connection there at all."""
-    return list(nx.connected_components(graph))
+    """Every connected component of the model's own real connectivity
+    (GROUND excluded, see _components_excluding_ground). More than one
+    component (beyond the trivial case of an empty model) means the
+    model is literally in separate pieces -- the single worst structural
+    failure, since it isn't a matter of a connection being *weak*,
+    there's no connection there at all."""
+    return _components_excluding_ground(graph)
 
 
 def find_bricks_outside_main_component(graph: nx.Graph) -> set:
     """Brick indices (int) AND SNOT child node ids (`("snot", i)` tuples,
     see structure/graph.py) not part of the largest connected component
-    (the one containing GROUND for any non-degenerate model) -- see module
-    docstring for why this, not find_ungrounded_bricks, is what should
-    drive repair decisions.
+    of the model's own real connectivity (GROUND excluded -- see
+    _components_excluding_ground's own docstring for the real bug this
+    fixes) -- see module docstring for why this, not find_ungrounded_bricks,
+    is what should drive repair decisions.
 
-    Deliberately does not filter to `isinstance(i, int)` -- an earlier
-    version did, which correctly excluded the GROUND string but would also
-    have silently EXCLUDED a genuinely-disconnected SNOT island (one with
-    no int brick in it at all, e.g. its own parent staying grounded while
-    only the SNOT edge itself is missing) from this result entirely,
-    turning a real disconnection into an empty, "all clear" set. Filtering
-    on identity against GROUND specifically is the correct, general
-    exclusion regardless of what other node id types this graph grows."""
-    components = list(nx.connected_components(graph))
+    Two refinements on top of "just pick the largest component", both
+    caught by this project's own test suite while fixing the GROUND bug
+    above, not designed in from the start:
+
+    1. "Main" prefers the largest component that ITSELF touches the real
+       ground (has an edge to GROUND) over a larger component that
+       doesn't touch ground at all. Without this, a hand-built model of
+       one small grounded tower plus one larger *floating* pair (nothing
+       under it, resting on nothing) picked the floating pair as "main"
+       purely for having more nodes -- backwards, since a component with
+       no ground contact at all isn't a plausible "main sculpture" to
+       measure everything else against. Falls back to the plain largest
+       component only if NO component touches ground at all (a fully
+       floating model -- shouldn't happen for real generated content,
+       since mesh conditioning always grounds the mesh first, but a
+       degenerate case worth not crashing on).
+    2. A component that isn't "main" but DOES independently touch the
+       real ground on its own is still excluded from this result. Two
+       genuinely separate pieces that each stand on the floor are still,
+       correctly, "not a single piece" (see find_disconnected_components,
+       used for that) -- but neither is at risk of FALLING, which is
+       what `critical_bricks` and bridge_unstable/prune_unstable's repair
+       decisions are actually about. Without this, prune_unstable would
+       delete an entire second, perfectly sound, independently-grounded
+       structure (e.g. a bridged island that successfully reached the
+       ground on its own) just for ending up smaller than whichever
+       component is "main" -- also caught by this project's own tests."""
+    components = _components_excluding_ground(graph)
     if not components:
         return set()
-    main = max(components, key=len)
+
+    grounded_nodes = set(graph.neighbors(GROUND)) if GROUND in graph else set()
+    grounded_components = [c for c in components if c & grounded_nodes]
+    main = max(grounded_components or components, key=len)
+
     outside: set = set()
     for component in components:
         if component is main:
             continue
-        outside.update(i for i in component if i != GROUND)
+        if component & grounded_nodes:
+            continue
+        outside.update(component)
     return outside
 
 

@@ -107,7 +107,16 @@ _MIRROR_Z_ROTATION: dict[Rotation, Rotation] = {
     Rotation.YAW_270: Rotation.YAW_270,
 }
 
-_MIN_SYMMETRY_SCORE = 0.85
+# Measured, not guessed: ran detect_mirror_plane (with no threshold, just
+# to see the real best score) on 3 real legalized/repaired test models
+# (a boat hull, the mushroom, the duck) and got 0.98, 0.92, and 0.91 --
+# comfortably-symmetric real sculptures cluster well above 0.8 even
+# before any deliberate "make this symmetric" prompt. 0.7 leaves a real
+# margin below all three measured scores (room for messier real-world
+# mesh-generation noise) while still refusing anything that isn't
+# genuinely close to symmetric already -- see module docstring for why
+# a low score must never be forced.
+_MIN_SYMMETRY_SCORE = 0.7
 
 
 @dataclass(frozen=True)
@@ -154,11 +163,17 @@ def detect_mirror_plane(model: Model, min_score: float = _MIN_SYMMETRY_SCORE) ->
         lo, hi = min(coords), max(coords)
         # A perfectly-centered symmetric range mirrors at k = lo+hi+1
         # (derived from "cell i mirrors to k-i-1"; setting lo<->hi gives
-        # k = lo+hi+1 exactly). Scanning a small window around that
-        # accounts for a model that's close to, but not exactly,
-        # centered on its own bounding box.
+        # k = lo+hi+1 exactly). Scanning a window around that accounts
+        # for a model that's close to, but not exactly, centered on its
+        # own bounding box -- e.g. an asymmetric appendage (a raised arm,
+        # a tail) pulling the bounding box's own center away from the
+        # body's real visual centerline. +-8 is a deliberately generous
+        # margin (cheap: this is a single extra pass over the model's own
+        # occupied cells per candidate, not a rescan of the whole
+        # pipeline), not tuned down to the smallest window that happened
+        # to work on the models measured so far.
         center_k = lo + hi + 1
-        for k in range(center_k - 3, center_k + 4):
+        for k in range(center_k - 8, center_k + 9):
             score = _symmetry_score(cells, axis, k)
             if best is None or score > best.score:
                 best = MirrorPlane(axis=axis, k=k, score=score)

@@ -7,6 +7,17 @@ subtree still attached to the ground" the right question for articulation
 points and bridges to answer, not just "is the graph still connected to
 something."
 
+**GROUND is deliberately NOT used to decide "is this the same physical
+piece" (is_single_piece / critical_bricks).** Because GROUND connects to
+every y=0 brick, leaving it in for that question would make ANY two
+separate regions that each merely touch the floor look connected to each
+other, purely by both touching the shared GROUND node -- a real, reported
+bug (see weakpoints.py's own module docstring and
+_components_excluding_ground). GROUND is still exactly right for
+find_articulation_points/find_bridges (a genuinely different question:
+"if you removed just this one ground-contact edge, would something come
+loose") and for load.py's gravity propagation.
+
 **Phase B**: optionally also takes a list of `snot.SnotChild` (sideways
 sub-assembly parts, anchored to an ordinary brick's molded side stud(s) --
 see snot.py's own module docstring for why they live outside `Model`'s

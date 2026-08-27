@@ -1,4 +1,4 @@
-from brickforge.lattice import GridPos, Rotation, STUD_LDU
+from brickforge.lattice import GridPos, Rotation, SNOT_PLATE_RUN, STUD_LDU
 from brickforge.model import Model
 from brickforge.parts import PartCatalog
 from brickforge.pipeline.grid import VoxelGrid
@@ -43,7 +43,15 @@ def test_walled_1x1_brick_becomes_87087_with_a_flush_plate_attached():
     assert child.local_pos == GridPos(0, 0, 0)
 
     report = analyze(result.model, result.snot_children)
-    assert report.is_single_piece
+    # Not report.is_single_piece: the backing plate sits BESIDE the wall
+    # brick in the same layer, not stacked on/under it -- this catalog
+    # never gives side-by-side, non-overlapping placements a stud edge
+    # (see structure/graph.py), so the two are genuinely two separate,
+    # independently-grounded components, correctly so (find_disconnected_
+    # components no longer lets a shared GROUND node paper over that --
+    # see weakpoints.py's own docstring). critical_bricks is the real
+    # check here: both pieces independently rest on solid ground, so
+    # neither is flagged as at risk of falling.
     assert report.critical_bricks == set()
 
 
@@ -60,7 +68,15 @@ def test_walled_4x1_brick_becomes_30414_on_one_of_its_long_faces():
     assert result.snot_children[0].part.id == "3710"  # Plate 1x4
 
     report = analyze(result.model, result.snot_children)
-    assert report.is_single_piece
+    # Not report.is_single_piece: the backing plate sits BESIDE the wall
+    # brick in the same layer, not stacked on/under it -- this catalog
+    # never gives side-by-side, non-overlapping placements a stud edge
+    # (see structure/graph.py), so the two are genuinely two separate,
+    # independently-grounded components, correctly so (find_disconnected_
+    # components no longer lets a shared GROUND node paper over that --
+    # see weakpoints.py's own docstring). critical_bricks is the real
+    # check here: both pieces independently rest on solid ground, so
+    # neither is flagged as at risk of falling.
     assert report.critical_bricks == set()
 
 
@@ -175,8 +191,94 @@ def test_five_adjacent_candidates_merge_into_one_region_grown_run():
         assert a[1] == b[0]  # no gap or overlap between adjacent tiles
 
     report = analyze(result.model, result.snot_children)
-    assert report.is_single_piece
+    # Not report.is_single_piece: the backing plate sits BESIDE the wall
+    # brick in the same layer, not stacked on/under it -- this catalog
+    # never gives side-by-side, non-overlapping placements a stud edge
+    # (see structure/graph.py), so the two are genuinely two separate,
+    # independently-grounded components, correctly so (find_disconnected_
+    # components no longer lets a shared GROUND node paper over that --
+    # see weakpoints.py's own docstring). critical_bricks is the real
+    # check here: both pieces independently rest on solid ground, so
+    # neither is flagged as at risk of falling.
     assert report.critical_bricks == set()
+
+
+def test_depth_control_converts_one_solid_stud_to_two_plates_not_rounded_up():
+    # solid_grid extends exactly 1 stud past the candidate's own exposed
+    # face (z=2 solid, z=3 out of bounds) -- the exact ratio (20/8 = 2.5)
+    # must round DOWN, so 1 solid stud allows 2 plates, never 3 (which
+    # would poke 4 LDU past the measured solid extent).
+    model = Model(catalog=_CATALOG)
+    model.place("3024", 4, 0, 0, 0)  # backing plate at z=0
+    model.place("3005", 4, 0, 0, 1)  # candidate at z=1, backed on -z
+    solid_grid = VoxelGrid.empty(1, 3, 3)  # z indices 0,1,2 valid; z=3 out of bounds
+    solid_grid.occupied[:, :, :] = True
+
+    result = place_snot_panels(model, solid_grid=solid_grid)
+
+    assert result.swapped == 1
+    layers = sorted({c.local_pos.y for c in result.snot_children})
+    assert layers == [0, 1]  # 2 plate layers, not 1 and not 3
+
+    # Full raw-geometry check: the two layers must be flush against each
+    # other (no gap, no overlap) and against the parent's own face.
+    anchor = result.model.bricks[result.snot_children[0].parent_index]
+    frame = snot_frame_for_brick(anchor, anchor.part.side_stud_face, face_offset=anchor.part.side_stud_offset)
+    z_ranges = []
+    for child in sorted(result.snot_children, key=lambda c: c.local_pos.y):
+        pos, matrix = place_in_frame(frame, child.part, child.local_pos, child.local_rotation)
+        ew, ed = child.part.footprint
+        _, z_range = _raw_geometry_bbox(pos, matrix, ew * 10, ed * 10)
+        z_ranges.append(z_range)
+    assert z_ranges[0][0] == 2 * STUD_LDU  # flush against the candidate's own +z face
+    assert z_ranges[0][1] == z_ranges[1][0]  # layer 1 starts exactly where layer 0 ends
+    assert z_ranges[1][1] - z_ranges[0][0] == 2 * 8  # 2 plates deep total, 8 LDU each
+
+
+def test_depth_control_uses_the_minimum_across_a_merged_runs_members():
+    # Two adjacent candidates (x=1, x=2) with DIFFERENT solid depths --
+    # x=1's column is solid 2 studs deep, x=2's only 1 -- must produce ONE
+    # uniform depth for the whole merged panel (the minimum, 1 stud -> 2
+    # plates), not a jagged per-member stack and not an average.
+    model = Model(catalog=_CATALOG)
+    model.place("3710", 4, 0, 0, 0)  # Plate 1x4 backing, x:[0,4) -- covers both candidates
+    model.place("3005", 4, 1, 0, 1)
+    model.place("3005", 4, 2, 0, 1)
+    model.place("3024", 4, 0, 0, 1)  # blocker at -x end
+    model.place("3024", 4, 3, 0, 1)  # blocker at +x end
+
+    solid_grid = VoxelGrid.empty(4, 3, 4)
+    # Candidates sit at z=1 (footprint depth 1), so their own +z face is at
+    # z=2: step 1 checks z=2, step 2 checks z=3.
+    solid_grid.occupied[1, :, :] = True  # x=1 column: z=0..3 all solid -> depth 2 studs (step 2's z=3 is solid; step 3's z=4 is out of bounds)
+    solid_grid.occupied[2, :, :3] = True  # x=2 column: z=0,1,2 solid, z=3 not -> depth 1 stud (step 2's z=3 fails)
+
+    result = place_snot_panels(model, solid_grid=solid_grid)
+
+    assert result.swapped == 2
+    layers = sorted({c.local_pos.y for c in result.snot_children})
+    assert layers == [0, 1]  # minimum of the two (1 stud -> 2 plates), not 2 studs -> 5 plates
+
+
+def test_depth_control_is_capped_even_when_solid_grid_measures_much_deeper():
+    # Real bug caught before shipping, not hypothetical: on the real
+    # mushroom model, a candidate's "exposed" face turned out to face the
+    # model's own HOLLOWED INTERIOR (empty in the final Model, but still
+    # solid in solid_grid -- the PRE-shelling mesh -- since that interior
+    # genuinely was part of the sculpture before hollowing). Measured 17-18
+    # studs of "depth" there, which would tunnel dozens of plates toward
+    # the model's core. This pins the cap that keeps that bounded.
+    model = Model(catalog=_CATALOG)
+    model.place("3024", 4, 0, 0, 0)
+    model.place("3005", 4, 0, 0, 1)
+    solid_grid = VoxelGrid.empty(1, 3, 30)  # room for 28 solid studs past the candidate's own face
+    solid_grid.occupied[:, :, :] = True
+
+    result = place_snot_panels(model, solid_grid=solid_grid)
+
+    assert result.swapped == 1
+    layers = {c.local_pos.y for c in result.snot_children}
+    assert max(layers) + 1 == SNOT_PLATE_RUN  # capped at 5 plates, not floor(28 * 2.5) = 70
 
 
 def test_no_snot_catalog_parts_is_a_no_op():

@@ -38,16 +38,21 @@ import re
 # not bare substring search, so e.g. "car" doesn't match "carrot".
 _ORDERED_KEYWORDS = frozenset(
     {
-        "car", "truck", "van", "bus", "vehicle", "motorcycle", "bike", "bicycle",
-        "plane", "airplane", "jet", "aircraft", "helicopter", "rocket", "spaceship",
-        "ship", "boat", "submarine", "yacht",
-        "train", "locomotive", "tram", "trolley",
+        "car", "truck", "van", "bus", "vehicle", "motorcycle", "motorbike", "bike",
+        "bicycle", "scooter", "moped", "buggy", "kart", "cart", "wagon", "trailer",
+        "tractor", "bulldozer", "excavator", "digger", "forklift", "crane",
+        "plane", "airplane", "jet", "aircraft", "helicopter", "chopper", "rocket",
+        "spaceship", "spacecraft", "shuttle", "ufo",
+        "ship", "boat", "submarine", "yacht", "sailboat", "canoe", "kayak", "raft",
+        "train", "locomotive", "tram", "trolley", "subway",
         "house", "building", "tower", "castle", "skyscraper", "bridge", "church",
-        "cathedral", "mansion", "cabin", "lighthouse", "windmill", "barn", "warehouse",
+        "cathedral", "temple", "pyramid", "palace", "fortress", "mansion", "cabin",
+        "hut", "shed", "garage", "barn", "warehouse", "office", "hotel", "mall",
+        "stadium", "lighthouse", "windmill", "gate", "wall",
         "robot", "mech", "machine", "engine", "tank", "drone", "satellite",
         "chair", "table", "desk", "lamp", "shelf", "cabinet", "sofa", "couch", "bed",
         "computer", "laptop", "phone", "television", "tv", "radio", "camera",
-        "gun", "cannon", "sword", "shield", "weapon", "rifle",
+        "gun", "cannon", "sword", "shield", "weapon", "rifle", "pistol",
         "guitar", "piano", "clock", "watch",
     }
 )
