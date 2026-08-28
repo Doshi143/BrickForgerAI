@@ -479,6 +479,61 @@ def _backfill_missing_prompts() -> None:
 _backfill_missing_prompts()
 
 
+def _backfill_stale_statuses() -> None:
+    """One-time, idempotent reconciliation, same self-healing spirit as
+    _backfill_missing_prompts above -- run once per process start (both API
+    and worker import this module).
+
+    Root cause this fixes: _record_job_index (called from every
+    save_job_meta) can transiently fail to reach Postgres (confirmed in
+    production logs: psycopg_pool.PoolTimeout during a redeploy overlapping
+    a running job) and, unlike most of this job's status writes, a job's
+    *final* transition (done/failed) never gets a natural retry -- nothing
+    calls save_job_meta again after the job finishes, so a dropped write for
+    that specific transition leaves job_index permanently stuck on
+    whatever status the job was in before. Confirmed directly on real
+    production data: a worker log showed a job completing successfully
+    end-to-end ("Successfully completed ... job in 0:06:30") while every one
+    of its status writes -- including the final "done" -- failed with
+    PoolTimeout, leaving job_index reporting "queued" for a job that was
+    actually done. 39 of 83 real jobs were affected this way as of the
+    session that added this fix; separately confirmed that job_index.status
+    itself isn't read by any user-facing code path today (list_jobs and
+    get_job both go straight to the authoritative meta.json), so this was
+    silently misleading anyone querying job_index directly -- e.g. for
+    production health checks -- not actual users.
+
+    Scoped to non-terminal rows only (done/failed jobs already have their
+    correct final status, whether or not the write that got them there
+    originally succeeded) and re-reads real data from meta.json rather than
+    guessing, matching _backfill_missing_prompts's own approach -- a job
+    this can't find data for is skipped, not retried forever."""
+    with auth._connect() as conn:
+        rows = conn.execute(
+            auth._ph("SELECT job_id, status FROM job_index WHERE status NOT IN (?, ?)"),
+            (JobStatus.DONE.value, JobStatus.FAILED.value),
+        ).fetchall()
+    fixed = 0
+    for row in rows:
+        job_id = row["job_id"]
+        try:
+            meta = load_job_meta(job_id)
+        except Exception:
+            logger.warning("status backfill: could not load meta for %s", job_id, exc_info=True)
+            continue
+        real_status = meta.get("status") if meta else None
+        if not real_status or real_status == row["status"]:
+            continue
+        with auth._connect() as conn:
+            conn.execute(auth._ph("UPDATE job_index SET status = ? WHERE job_id = ?"), (real_status, job_id))
+        fixed += 1
+    if rows:
+        logger.info("status backfill: reconciled %d/%d non-terminal job_index row(s) against meta.json", fixed, len(rows))
+
+
+_backfill_stale_statuses()
+
+
 def _set_status(job: Job, status: JobStatus) -> None:
     job.status = status
     save_job_meta(job)
