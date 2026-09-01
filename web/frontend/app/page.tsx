@@ -142,8 +142,9 @@ export default function Home() {
               textShadow: `0 1px 12px ${colors.heroTextShadow}`,
             }}
           >
-            Type a prompt. Get a custom model with a downloadable .ldr file and full parts
-            list. From imagination to physical kit in minutes.
+            Type a prompt. Get a custom model with a downloadable .ldr file, full parts
+            list, and step-by-step PDF build instructions. From imagination to physical kit
+            in minutes.
           </p>
 
           <div
