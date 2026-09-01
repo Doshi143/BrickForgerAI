@@ -70,12 +70,33 @@ if _USE_POSTGRES:
     # runs a trivial query before handing out a pooled connection and
     # transparently discards+reconnects if that fails, closing the gap
     # instead of just retrying after the fact.
+    # max_idle=120 (psycopg_pool's own default is 600s) -- root-caused after
+    # check_connection above (already a fix for one symptom of this same
+    # underlying problem) turned out not to be enough on its own. The worker
+    # sits idle between jobs for gaps that are usually well under 10 minutes
+    # but, per repeated production PoolTimeout failures on a job's very
+    # first status write, still long enough for Railway's own proxy to have
+    # already dropped the idle TCP connection. check_connection correctly
+    # detects that dead connection at checkout time and reconnects -- but
+    # that reconnect (fresh TCP+TLS+auth) now has to happen synchronously,
+    # inside whatever caller's timeout is in effect (as low as 5s for
+    # jobs.py's own non-critical index write), which is exactly where those
+    # PoolTimeouts came from. Lowering max_idle means the pool's own
+    # background workers proactively replace a connection well before
+    # Railway's proxy would have killed it -- shifting the reconnect cost
+    # out of the caller's timeout window entirely, rather than just giving
+    # the reactive path more time to win a race it doesn't need to run at
+    # all. 120s is a guess at a safely-under-Railway's-own-threshold value,
+    # not a confirmed number -- Railway doesn't publish its proxy's idle
+    # timeout, so if PoolTimeouts on first-write-after-idle keep recurring
+    # even after this, that threshold guess is the first thing to revisit.
     _pool = ConnectionPool(
         DATABASE_URL,
         min_size=1,
         max_size=5,
         kwargs={"row_factory": dict_row},
         check=ConnectionPool.check_connection,
+        max_idle=120.0,
     )
     _pool.wait()
 
