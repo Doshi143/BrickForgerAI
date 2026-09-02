@@ -34,7 +34,7 @@ def main() -> None:
     model.place("3005", RED, x=0, y=3, z=-1)  # uphill support, brick 2 (2 bricks tall)
     model.place("3622", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)  # candidate, 1x3 along Z
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
     print(f"substituted part: {candidate.part.id}, rotation: {candidate.rotation}")
     assert candidate.part.id == "4286"

@@ -42,13 +42,14 @@ def main() -> None:
     model.place("3023", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)  # candidate, lower plate
     model.place("3023", RED, x=0, y=1, z=0, rotation=Rotation.YAW_90)  # candidate, upper plate
 
-    refined = substitute_staircase_slopes(model)
+    result = substitute_staircase_slopes(model)
+    refined = result.model
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
     print(f"substituted part: {candidate.part.id}, rotation: {candidate.rotation}")
     assert candidate.part.id == "11477"
     assert len(refined) == len(model) - 1  # two plates merged into one slope
 
-    save_ldr(refined, "examples/output/slope11477_orientation_test.ldr")
+    save_ldr(refined, "examples/output/slope11477_orientation_test.ldr", raw_placements=result.raw_placements)
     print("wrote examples/output/slope11477_orientation_test.ldr")
 
 

@@ -21,7 +21,7 @@ def test_step_down_edge_is_substituted_with_matching_upright_slope(catalog):
     model.place("3003", RED, x=0, y=3, z=-2)  # second brick on top, 2 bricks tall
     model.place("3003", RED, x=0, y=0, z=0)  # 2x2 brick, the candidate
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos.z == 0)
     assert candidate.part.id == "3039"  # Slope Brick 45 2 x 2
@@ -36,7 +36,7 @@ def test_flat_roof_is_not_substituted(catalog):
     model.place("3003", RED, x=0, y=0, z=0)
     model.place("3003", RED, x=0, y=0, z=2)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos.z == 0)
     assert candidate.part.id == "3003"
@@ -49,7 +49,7 @@ def test_brick_with_something_resting_on_top_is_not_substituted(catalog):
     model.place("3003", RED, x=0, y=0, z=0)  # would otherwise qualify
     model.place("3024", RED, x=0, y=3, z=0)  # something resting on top of it
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
     assert candidate.part.id == "3003"
@@ -59,7 +59,7 @@ def test_plates_and_tiles_are_never_substituted(catalog):
     model = Model(catalog=catalog)
     model.place("3020", RED, x=0, y=0, z=0)  # Plate 2x4, not brick height
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     assert refined.bricks[0].part.id == "3020"
 
@@ -74,7 +74,7 @@ def test_isolated_peak_with_no_matching_direction_is_left_alone(catalog):
     model.place("3003", RED, x=-2, y=0, z=0)
     model.place("3003", RED, x=2, y=0, z=0)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     peak = next(b for b in refined if b.pos == model.bricks[0].pos)
     assert peak.part.id == "3003"
@@ -87,7 +87,7 @@ def test_slope_substitution_does_not_introduce_new_structural_issues(catalog):
     model.place("3003", RED, x=0, y=0, z=0)
 
     report_before = analyze(model)
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
     report_after = analyze(refined)
 
     assert report_before.critical_bricks == set()
@@ -117,7 +117,7 @@ def test_2plate_step_down_edge_is_merged_into_matching_slope(catalog):
     model.place("3023", RED, x=0, y=0, z=0)  # Plate 1x2, lower of the pair
     model.place("3023", RED, x=0, y=1, z=0)  # Plate 1x2, upper of the pair
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     assert len(refined) == len(model) - 1  # two plates merged into one slope
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
@@ -142,7 +142,7 @@ def test_2plate_flat_roof_is_not_merged(catalog):
     model.place("3023", RED, x=0, y=0, z=1)
     model.place("3023", RED, x=0, y=1, z=1)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     middle_lower = next(b for b in refined if b.pos == model.bricks[2].pos)
     middle_upper = next(b for b in refined if b.pos == model.bricks[3].pos)
@@ -160,7 +160,7 @@ def test_2plate_pair_with_something_on_top_is_not_merged(catalog):
     # candidate one level up.
     model.place("3069b", RED, x=0, y=2, z=0)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     assert len(refined) == len(model)  # nothing merged
     lower = next(b for b in refined if b.pos == model.bricks[1].pos)
@@ -177,7 +177,7 @@ def test_2plate_mismatched_footprint_above_is_not_merged(catalog):
     model.place("3024", RED, x=0, y=1, z=0)  # Plate 1x1 -- only covers half
     model.place("3024", RED, x=1, y=1, z=0)  # the other half
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     assert len(refined) == len(model)  # nothing merged
     lower = next(b for b in refined if b.pos == model.bricks[1].pos)
@@ -191,7 +191,7 @@ def test_2plate_merge_does_not_introduce_new_structural_issues(catalog):
     model.place("3023", RED, x=0, y=1, z=0)
 
     report_before = analyze(model)
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
     report_after = analyze(refined)
 
     assert report_before.critical_bricks == set()
@@ -215,7 +215,7 @@ def test_both_tiers_fire_independently_in_the_same_model(catalog):
     model.place("3023", RED, x=10, y=0, z=0)  # lower plate
     model.place("3023", RED, x=10, y=1, z=0)  # upper plate
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     three_plate_result = next(b for b in refined if b.pos == model.bricks[2].pos)
     two_plate_result = next(b for b in refined if b.pos == model.bricks[4].pos)
@@ -252,7 +252,7 @@ def test_3plate_stack_step_down_edge_is_merged_into_matching_slope(catalog):
     model.place("3022", RED, x=0, y=1, z=0)  # Plate 2x2, middle
     model.place("3022", RED, x=0, y=2, z=0)  # Plate 2x2, uppermost
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     assert len(refined) == len(model) - 2  # three plates merged into one slope
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
@@ -269,7 +269,7 @@ def test_3plate_stack_with_something_on_top_is_not_merged(catalog):
     model.place("3022", RED, x=0, y=2, z=0)
     model.place("3069b", RED, x=0, y=3, z=0)  # tile resting on top -- blocks top_exposed
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     assert len(refined) == len(model)  # nothing merged
     lowest = next(b for b in refined if b.pos == model.bricks[2].pos)
@@ -292,7 +292,7 @@ def test_3plate_stack_mismatched_footprint_above_is_not_merged(catalog):
     model.place("3024", RED, x=0, y=2, z=1)
     model.place("3024", RED, x=1, y=2, z=1)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     # No 3-stack (mismatched top layer), and no 2-plate merge either --
     # this family's real parts are all a 1-stud run, and this candidate's
@@ -310,7 +310,7 @@ def test_3plate_stack_substitution_does_not_introduce_new_structural_issues(cata
     model.place("3022", RED, x=0, y=2, z=0)
 
     report_before = analyze(model)
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
     report_after = analyze(refined)
 
     assert report_before.critical_bricks == set()
@@ -337,7 +337,7 @@ def test_33_degree_slope_fires_for_a_3_stud_run_step_down(catalog):
     model.place("3005", RED, x=0, y=3, z=-1)  # uphill support, brick 2 (2 bricks tall)
     model.place("3622", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)  # candidate, 1x3 along Z
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
     assert candidate.part.id == "4286"  # Slope Brick 33 3 x 1 (perp=1, run=3)
@@ -367,7 +367,7 @@ def test_33_degree_and_45_degree_families_do_not_shadow_each_other(catalog):
     model.place("3005", RED, x=5, y=3, z=-1)
     model.place("3622", RED, x=5, y=0, z=0, rotation=Rotation.YAW_90)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     slope_45 = next(b for b in refined if b.pos == model.bricks[2].pos)
     slope_33 = next(b for b in refined if b.pos == model.bricks[5].pos)
@@ -382,7 +382,7 @@ def test_33_degree_slope_substitution_does_not_introduce_new_structural_issues(c
     model.place("3622", RED, x=0, y=0, z=0, rotation=Rotation.YAW_90)
 
     report_before = analyze(model)
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
     report_after = analyze(refined)
 
     assert report_before.critical_bricks == set()
@@ -415,7 +415,7 @@ def test_overhang_step_up_edge_is_substituted_with_matching_inverted_slope(catal
     model.place("3003", RED, x=0, y=0, z=-2)  # 2x2 brick, the support -- reaches the ground
     model.place("3003", RED, x=0, y=3, z=0)  # floating candidate, bottom exposed
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
     assert candidate.part.id == "3660"  # Slope Inverted 45 2 x 2
@@ -438,7 +438,7 @@ def test_ground_level_brick_with_exposed_bottom_is_not_substituted(catalog):
     model.place("3003", RED, x=0, y=0, z=0)
     model.place("3003", RED, x=0, y=0, z=2)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
     assert candidate.part.id == "3003"
@@ -453,7 +453,7 @@ def test_overhang_with_something_below_is_not_substituted(catalog):
     model.place("3024", RED, x=0, y=2, z=0)  # 1x1 plate directly beneath the candidate
     model.place("3003", RED, x=0, y=3, z=0)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
     assert candidate.part.id == "3003"
@@ -469,7 +469,7 @@ def test_decorative_inverted_variants_do_not_shadow_the_plain_part(catalog):
     model.place("3003", RED, x=0, y=0, z=-2)
     model.place("3003", RED, x=0, y=3, z=0)
 
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
 
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
     assert candidate.part.id == "3660"
@@ -494,7 +494,7 @@ def test_inverted_slope_substitution_does_not_introduce_new_structural_issues(ca
     model.place("3020", RED, x=0, y=6, z=-2, rotation=Rotation.YAW_90)  # spans both columns
 
     report_before = analyze(model)
-    refined = substitute_staircase_slopes(model)
+    refined = substitute_staircase_slopes(model).model
     report_after = analyze(refined)
 
     assert report_before.critical_bricks == set()
@@ -502,3 +502,37 @@ def test_inverted_slope_substitution_does_not_introduce_new_structural_issues(ca
     assert report_before.is_single_piece == report_after.is_single_piece
     assert len(refined) == len(model)  # 1-to-1 swap, not a merge
     assert len(refined) == len(model)  # 1-to-1 swap, not a merge
+
+
+def test_11477_backing_plate_lands_inside_the_slopes_own_notch(catalog):
+    # 11477's real geometry has a genuine notch under its own anchor cell
+    # (see slopes.py's own _NEEDS_ANCHOR_BACKING_PLATE docstring) -- a
+    # full plate-height void INSIDE the part's own declared 2-plate range,
+    # not below it. A first (wrong) version of this fix placed a plate
+    # one layer below the slope instead, which left the box's own already-
+    # flush boundary untouched and never reached the real gap -- pinned
+    # here by asserting the plate's own real LDU position, not just that
+    # a raw_placement exists at all.
+    model = Model(catalog=catalog)
+    model.place("3005", RED, x=0, y=0, z=-1)  # ground support
+    model.place("3005", RED, x=0, y=3, z=-1)  # uphill support
+    model.place("3023", RED, x=0, y=1, z=0, rotation=Rotation.YAW_90)  # candidate, lower
+    model.place("3023", RED, x=0, y=2, z=0, rotation=Rotation.YAW_90)  # candidate, upper
+
+    result = substitute_staircase_slopes(model)
+    refined = result.model
+
+    slope = next(b for b in refined if b.part.id == "11477")
+    assert slope.pos == model.bricks[2].pos  # anchored at the lower plate's own position
+
+    assert len(result.raw_placements) == 1
+    backing = result.raw_placements[0]
+    assert backing.part_id == "3024"
+    # The slope's own declared origin (bottom-anchored) computes to LDU
+    # Y=-8 at pos.y=1 -- confirmed flush with a normal top-anchored plate
+    # placed at pos.y=0 (also LDU Y=-8), which is exactly why a plate
+    # placed there (the first, wrong fix) can never reach the real notch:
+    # the boxes were already touching. The real notch, measured directly
+    # from 11477's own raw geometry, is one full plate INSIDE that box,
+    # landing at LDU Y=-16 -- not -8.
+    assert backing.pos_ldu == (10, -16, 10)

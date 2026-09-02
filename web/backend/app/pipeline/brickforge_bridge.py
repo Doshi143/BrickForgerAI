@@ -206,7 +206,7 @@ def mesh_to_ldr(
     model = void_result.model
 
     sloped = substitute_staircase_slopes(model)
-    refined = _substitute_tiles_preserving_wireframe(sloped)
+    refined = _substitute_tiles_preserving_wireframe(sloped.model)
 
     # Re-verify (and, if needed, re-repair) the model actually being saved,
     # not an earlier snapshot. A real bug, not a hypothetical: `report`
@@ -254,7 +254,16 @@ def mesh_to_ldr(
             final_report = candidate_report
             symmetrized = True
 
-    save_ldr(refined, ldr_out_path, name=model_name)
+    # sloped.raw_placements: cosmetic-only extras (currently just the
+    # 11477 backing plate -- see slopes.py's own _NEEDS_ANCHOR_BACKING_PLATE
+    # docstring) that must render inside another part's own declared
+    # footprint, so they can't go through the normal collision-checked
+    # Model.place() path at all. Not re-validated against whatever
+    # bridge_unstable/refill_enclosed_holes/symmetry did to `refined`
+    # above -- same accepted limitation this codebase's existing SNOT
+    # raw_placements already have (see examples/structural_report.py),
+    # not a new gap introduced here.
+    save_ldr(refined, ldr_out_path, name=model_name, raw_placements=sloped.raw_placements)
 
     pdf_generated = False
     if pdf_out_path:

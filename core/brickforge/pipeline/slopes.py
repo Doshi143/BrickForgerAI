@@ -183,8 +183,11 @@ only one slope can ever replace a single candidate.
 
 from __future__ import annotations
 
-from ..lattice import Rotation
-from ..model import Brick, Model, PlacementError
+from dataclasses import dataclass, field
+
+from ..ldr_writer import RawPlacement
+from ..lattice import GridPos, Rotation, placement_to_ldraw
+from ..model import Brick, Model
 from ..parts import PartCatalog
 
 # (dx, dz) downhill direction -> rotation whose tall/uphill face points at -direction.
@@ -228,26 +231,48 @@ _FLIPPED_PART_IDS: frozenset[str] = frozenset(
 
 # 11477's own real geometry (fetched and computed the same way its
 # footprint/height/local_offset were -- see parts_v1.yaml's own comment)
-# has NO material at its own local Y=0 across the anchor-end half of its
-# footprint: the bottom face this catalog declares "full" is, in the real
-# part, a genuine notch/void under the thick/tall end (verified directly:
-# every explicit bottom-layer vertex in the real part's geometry falls in
-# local Z in [-20, 0], never [0, 20] -- and transforming that region
-# through the part's own confirmed placement rotation lands it at the
-# AWAY-from-anchor cell, meaning the anchor cell -- the thick end, right
-# where the uphill support is -- is the one left hollow underneath).
-# Confirmed as a real, not hypothetical, cost: founder built this into a
-# real model and found the piece visibly floating/disconnected right where
-# this notch sits, with a manual test confirming a single backing plate
-# there closes it.
+# has NO solid floor across the anchor-end half of its own footprint: the
+# bottom face this catalog declares "full" is, in the real part, a genuine
+# notch under the thick/tall end. Confirmed as a real, not hypothetical,
+# cost: founder built this into a real model and found the piece visibly
+# floating/disconnected right where this notch sits.
 #
-# _build_slope_map's own top:none / bottom:full declaration is a
-# whole-part, not per-cell, flag -- it can't express "full everywhere
-# except this one notched cell" -- so rather than make the catalog schema
-# per-cell just for one part, the substitution site (this module) places a
-# real, ordinary 1x1 plate directly under the anchor cell for any part
-# listed here, physically closing the exact gap the part's own geometry
-# leaves and giving that cell real (not just declared) connectivity.
+# The notch's exact depth and position were computed, not guessed --
+# walking the part's own real quad/triangle geometry (skipping only
+# decorative rounding primitives, the same method already validated
+# against 3040's and 24201's known-correct catalog values) finds the
+# anchor-cell region's only genuine flat floor at local Y=-8, one full
+# plate above the part's own declared local Y=0. That means the notch is
+# a full plate-height gap **inside** the part's own declared 2-plate
+# range, at its own first (lowest) layer -- not below it.
+#
+# A first version of this fix placed an ordinary plate one layer BELOW
+# the slope's own position instead, through the normal collision-checked
+# Model.place(). That was wrong, and provably so: the declared bounding
+# boxes were already exactly flush (confirmed by computing both parts'
+# real LDU placement), so a plate placed outside that box only ever
+# extends the assembly one plate taller than the original pair -- it can
+# never reach the notch, which sits INSIDE the slope's own declared
+# range. Founder caught this directly in Studio (the piece still floated,
+# just with a new plate one layer further down). Any plate placed via
+# the normal API at the notch's own real position would collide with the
+# slope's own occupied_cells(), which (like every part in this catalog)
+# claims its full rectangular footprint regardless of the real,
+# non-rectangular silhouette -- a limitation this catalog's schema has no
+# per-cell way to express.
+#
+# The actual fix: a RawPlacement (see ldr_writer.py's own docstring --
+# already used for exactly this class of problem, SNOT children needing
+# to render inside a parent's own declared space) bypasses Model's
+# collision grid entirely, so the backing plate can be placed at the
+# notch's own real, computed LDU position -- verified correct by
+# construction, not by trial and error, since it's derived directly from
+# the same measured local-Y=-8 offset above. Not tracked by the
+# structural graph (same as every other RawPlacement in this codebase),
+# which is fine here: build_connectivity_graph already relies on this
+# part's declared bottom:full flag for its own connectivity, unaffected
+# by whether this cosmetic plate exists or not -- this fix closes the
+# real, confirmed VISUAL gap, which is what was actually reported.
 _NEEDS_ANCHOR_BACKING_PLATE: frozenset[str] = frozenset({"11477"})
 _BACKING_PLATE_ID = "3024"  # 1x1 plate
 
@@ -590,7 +615,28 @@ def _find_2plate_merge(
     return slope_id, rotation, upper_index
 
 
-def substitute_staircase_slopes(model: Model) -> Model:
+@dataclass
+class StaircaseSlopeResult:
+    """model: everything substitute_staircase_slopes places through the
+    normal, collision-checked Model.place() -- unchanged from before this
+    was added, still the thing callers pass into analyze()/save_ldr() as
+    the model itself.
+
+    raw_placements: cosmetic-only extras that must render INSIDE another
+    part's own declared footprint (currently just the 11477 backing plate
+    -- see _NEEDS_ANCHOR_BACKING_PLATE's own docstring for why that can
+    only ever be a RawPlacement, never a normal Model.place() call).
+    Empty for every model that never substitutes a part needing one --
+    existing callers that ignore this field see no behavior change.
+    Pass straight through to save_ldr's own raw_placements parameter,
+    same as this codebase's existing SNOT raw_placements are already
+    threaded through (see examples/structural_report.py)."""
+
+    model: Model
+    raw_placements: list[RawPlacement] = field(default_factory=list)
+
+
+def substitute_staircase_slopes(model: Model) -> StaircaseSlopeResult:
     """Return a copy of `model` with blocks at a genuine step-down edge
     replaced by the matching upright slope, at both the 3-plate (swap) and
     2-plate (merge) tiers the catalog provides, plus blocks at a genuine
@@ -666,7 +712,10 @@ def substitute_staircase_slopes(model: Model) -> Model:
             merge_choice[i] = (slope_id, rotation)
             merged_away.add(upper_index)
 
+    backing_plate_part = model.catalog.get(_BACKING_PLATE_ID)
+
     refined = Model(catalog=model.catalog)
+    raw_placements: list[RawPlacement] = []
     for i, brick in enumerate(model.bricks):
         if i in merged_away or i in stacked_away:
             continue
@@ -683,22 +732,30 @@ def substitute_staircase_slopes(model: Model) -> Model:
             continue
         refined.place(slope_id, brick.color, brick.pos.x, brick.pos.y, brick.pos.z, rotation=rotation)
 
-        if slope_id in _NEEDS_ANCHOR_BACKING_PLATE and brick.pos.y >= 1:
-            # See _NEEDS_ANCHOR_BACKING_PLATE's own docstring: this part's
-            # real geometry has no material under its own anchor cell, so
-            # place a real, ordinary plate there to close the gap. Guarded
-            # by y >= 1 (nothing to place below the model's own baseplate
-            # level) and by catching a collision rather than checking
-            # occupancy ahead of time: the anchor cell one layer down is
-            # normally free (nothing else claims a slope's own anchor
-            # column at exactly that layer), but on the rare chance
-            # something is already there, that material already provides
-            # real connectivity and this plate would be redundant, not
-            # required -- skipping it is correct, not a fallback masking a
-            # bug.
-            try:
-                refined.place(_BACKING_PLATE_ID, brick.color, brick.pos.x, brick.pos.y - 1, brick.pos.z)
-            except PlacementError:
-                pass
+        if slope_id in _NEEDS_ANCHOR_BACKING_PLATE:
+            # See _NEEDS_ANCHOR_BACKING_PLATE's own docstring: the notch
+            # this fills sits INSIDE the slope's own declared range, at
+            # its own first (lowest) layer -- the SAME (x, pos.y, z) the
+            # slope itself already claims, computed here (not pos.y - 1,
+            # a wrong first attempt that landed the plate below the
+            # slope's own box, where the box was already flush and the
+            # real notch never was). A normal Model.place() call at this
+            # position would collide with the slope's own occupied_cells()
+            # every time, so this is a RawPlacement -- its exact LDU
+            # position is computed the same way every other part's
+            # position is (placement_to_ldraw), just for a plain,
+            # top-anchored, unrotated 1x1 plate at the slope's own (x,
+            # pos.y, z) rather than going through Model.place().
+            ex, ey, ez = placement_to_ldraw(
+                GridPos(brick.pos.x, brick.pos.y, brick.pos.z),
+                *backing_plate_part.footprint,
+                backing_plate_part.height_plates,
+                Rotation.YAW_0,
+                local_offset=backing_plate_part.local_offset,
+                y_anchor=backing_plate_part.y_anchor,
+            )
+            raw_placements.append(
+                RawPlacement(part_id=_BACKING_PLATE_ID, color=brick.color, pos_ldu=(ex, ey, ez), matrix=Rotation.YAW_0.matrix)
+            )
 
-    return refined
+    return StaircaseSlopeResult(model=refined, raw_placements=raw_placements)

@@ -41,7 +41,7 @@ def final_part_count(mesh_path: Path, studs: int) -> int:
     bridged = bridge_unstable(result.model, solid_grid=result.solid_grid)
     refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
     sloped = substitute_staircase_slopes(refilled.model)
-    refined = substitute_tiles(sloped)
+    refined = substitute_tiles(sloped.model)
     return len(refined)
 
 

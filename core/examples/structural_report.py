@@ -86,7 +86,7 @@ def report_and_save(model, name: str, solid_grid=None) -> None:
     # module docstring). Tile substitution operates on plates only, so its
     # ordering relative to SNOT doesn't matter either way -- SNOT runs
     # before it here only because it's convenient to report together.
-    snot_result = place_snot_panels(sloped, solid_grid=solid_grid)
+    snot_result = place_snot_panels(sloped.model, solid_grid=solid_grid)
     refined = substitute_tiles(snot_result.model)
 
     slope_count = sum(1 for b in refined if b.part.category == "slope")
@@ -113,7 +113,7 @@ def report_and_save(model, name: str, solid_grid=None) -> None:
         )
         refined_path = OUT_DIR / f"{name}_refined.ldr"
 
-        raw_placements: list[RawPlacement] = []
+        raw_placements: list[RawPlacement] = list(sloped.raw_placements)
         for child in snot_result.snot_children:
             parent = refined.bricks[child.parent_index]
             frame = snot_frame_for_brick(parent, parent.part.side_stud_face, face_offset=parent.part.side_stud_offset)
