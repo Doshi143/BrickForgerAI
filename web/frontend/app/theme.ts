@@ -82,7 +82,7 @@ export const lightColors: ThemeColors = {
   craterColor: "#d98a4a",
   cloudColor: "rgba(255,255,255,0.85)",
   mountainColor: "#a4bcd3",
-  mountainLit: "#cfe0ef",
+  mountainLit: "#b9cee0",
   mountainFar: "#cbdcec",
   mountainSnow: "#ffffff",
   hillFar: "#a8c98a",

@@ -104,7 +104,7 @@ export default function Scenery({
               key={`mtn-far-${i}`}
               m={m}
               color={colors.mountainFar}
-              bottom={14 + groundCurve(m.left, 5)}
+              bottom={groundTop(m.left) - 1}
             />
           ))}
         </div>
@@ -117,7 +117,7 @@ export default function Scenery({
               color={colors.mountainColor}
               lit={colors.mountainLit}
               snowColor={colors.mountainSnow}
-              bottom={12 + groundCurve(m.left, 7)}
+              bottom={groundTop(m.left) - 3}
             />
           ))}
         </div>
@@ -204,15 +204,16 @@ const CLOUD_MASK = [
   1, 1, 1, 1, 1, 1, 1, 1,
 ];
 
-// Approximates the grass hill's own elliptical dome silhouette (see hill()
-// below) so a mountain row's baseline rises toward the center and falls
-// toward the edges along the same kind of curve, instead of sitting on a
-// flat line that a curved hill in front of it would otherwise cut across
-// unevenly. `62` mirrors the ~1.4x horizontal stretch hill() applies via
-// scaleX, so the curve's reach roughly matches the grass shape it sits above.
-function groundCurve(leftPct: number, riseAtCenter: number): number {
-  const t = Math.min(1, Math.max(-1, (leftPct - 50) / 62));
-  return riseAtCenter * Math.sqrt(1 - t * t);
+// The real top edge of the grass ground, matching hillFar's own rendered
+// ellipse exactly (see hill() below): a 16%-tall dome, stretched by
+// scaleX(1.4) around its horizontal center, which widens its effective
+// reach to 50 * 1.4 = 70% either side of center. Mountain rows are pinned
+// to (and tucked a little below) this exact line so their bases sit flush
+// against the ground and rise/fall with its curve, instead of floating
+// above it on a flat baseline with a gap of sky showing underneath.
+function groundTop(leftPct: number): number {
+  const t = Math.min(1, Math.max(-1, (leftPct - 50) / 70));
+  return 16 * Math.sqrt(1 - t * t);
 }
 
 // A low-poly ridge peak: a single clip-path triangle whose tip sits at
