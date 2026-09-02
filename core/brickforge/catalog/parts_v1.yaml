@@ -364,6 +364,23 @@ parts:
     bottom: full
     local_offset: [0, 10]
 
+  # --- Same shape/mold family as 3040 (a "with Cutout and without Stud"
+  # print variant), added for founder-requested part-library variety.
+  # Verified independently, not assumed identical just because the name
+  # says "2 x 1" too: fetched both 28192.dat and 3040.dat's real geometry
+  # and computed their full bounding boxes programmatically (recursively
+  # resolving every subpart/primitive transform, not hand-traced) --
+  # X[-10,10] Y[0,24] Z[-30,10] for both, an exact match. Same footprint,
+  # height, top/bottom, and local_offset as 3040 follow directly.
+  - id: "28192"
+    name: "Slope Brick 45 2 x 1 with Cutout and without Stud"
+    category: slope
+    footprint: [1, 2]
+    height_plates: 3
+    top: none
+    bottom: full
+    local_offset: [0, 10]
+
   # --- 45-degree inverted slopes: mounted upside down relative to the
   # slopes above, so the flat face is on TOP (full studs) and the
   # sloped/cut face is on the BOTTOM (no anti-stud connectivity claimed,
@@ -421,6 +438,35 @@ parts:
     bottom: none
     local_offset: [0, 10]
 
+  # --- Curved upright slope, a genuinely different shape family from
+  # every 45-degree slope above (a rounded top, not a flat angled face) --
+  # founder-requested addition. Verified programmatically, not hand-traced
+  # or assumed to share the flat family's geometry just for being another
+  # "slope": fetched 11477.dat's full real geometry and computed its
+  # bounding box by recursively resolving every subpart transform,
+  # deliberately excluding purely decorative rounding/bevel primitives
+  # (the same "footprint is the placement envelope, not the exact
+  # silhouette" reasoning 2310/3676 above already establish) to isolate
+  # the real structural box. Result: X[-10,10] Z[-20,20] -- symmetric on
+  # both axes, so local_offset [0, 0], unlike the asymmetric flat family.
+  # Y[-16, 0] -- entirely non-positive, meaning this part's own origin is
+  # at its BOTTOM (y_anchor: bottom), not its top, and only 16 LDU tall =
+  # 2 plates, not the 3-plate brick height the flat 45-degree family uses.
+  # Cross-checked against its own inverted counterpart (24201 immediately
+  # below, already in this catalog): computing 24201's bounding box the
+  # same way reproduces that entry's own already-documented values
+  # (Y[0,~16], Z[-10,30]) exactly, which is what gives real confidence in
+  # this method rather than just a plausible-looking number for 11477.
+  - id: "11477"
+    name: "Slope Brick Curved 2 x 1"
+    category: slope
+    footprint: [1, 2]
+    height_plates: 2
+    top: none
+    bottom: full
+    local_offset: [0, 0]
+    y_anchor: bottom
+
   # --- Curved inverted slope, a genuinely different height tier and
   # local_offset SIGN from the flat inverted family above -- confirmed by
   # fetching 24201.dat's raw geometry directly, not inferred from being
@@ -435,7 +481,9 @@ parts:
   # 2-plate-tall; "inverted" (top:full/bottom:none) tracks with
   # top-anchored for every slope measured in this catalog so far,
   # upright or inverted, only the flat/non-inverted 2-plate family is
-  # bottom-anchored).
+  # bottom-anchored -- 11477 immediately above is now a second, genuine
+  # exception to that generalization, since it's upright, not inverted,
+  # and still bottom-anchored; the real rule is per-part, verify each one).
   - id: "24201"
     name: "Slope Brick Curved 2 x 1 Inverted"
     category: slope

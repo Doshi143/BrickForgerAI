@@ -224,8 +224,12 @@ _FLIPPED_PART_IDS: frozenset[str] = frozenset(
 # Cosmetic variants that share an exact (height, perp, run) key with a
 # plain part -- see _build_inverted_slope_map's own docstring for why
 # these must never win an automatic substitution over the plain part
-# they're a decorated version of.
-_DECORATIVE_INVERTED_VARIANTS: frozenset[str] = frozenset({"2310", "3676"})
+# they're a decorated version of. "28192" added alongside the original two
+# once it created the identical problem on the UPRIGHT side: it's a "with
+# Cutout and without Stud" print variant of 3040 (same footprint, height,
+# and local_offset -- verified independently, see parts_v1.yaml's own
+# comment), so it collides on the exact same (height, perp, run) key.
+_DECORATIVE_SLOPE_VARIANTS: frozenset[str] = frozenset({"2310", "3676", "28192"})
 
 
 def _build_slope_map(catalog: PartCatalog) -> dict[tuple[int, int, int], tuple[str, bool]]:
@@ -240,13 +244,23 @@ def _build_slope_map(catalog: PartCatalog) -> dict[tuple[int, int, int], tuple[s
     and 33-degree (run=3) families are both brick-height and both span
     widths 1-4 studs. A 2-key lookup would let one family silently shadow
     the other for every shared (height, perp) pair; the 3-key lookup
-    can't collide, since (height, perp, run) uniquely identifies which
-    family (and therefore which part) applies."""
-    return {
-        (p.height_plates, p.footprint[0], p.footprint[1]): (p.id, p.id in _FLIPPED_PART_IDS)
-        for p in catalog
-        if p.category == "slope" and p.top == "none"
-    }
+    can't collide FAMILIES, since (height, perp, run) uniquely identifies
+    which family applies -- but it can still collide within a single
+    family, the same way _build_inverted_slope_map's own key can: 28192 is
+    a decorative print variant of 3040 sharing its exact key. Same fix,
+    same reasoning -- see _DECORATIVE_SLOPE_VARIANTS and
+    _build_inverted_slope_map's own docstring for why a decorative variant
+    must never silently win an automatic substitution over the plain part
+    it's a decorated version of."""
+    result: dict[tuple[int, int, int], tuple[str, bool]] = {}
+    for p in catalog:
+        if not (p.category == "slope" and p.top == "none"):
+            continue
+        key = (p.height_plates, p.footprint[0], p.footprint[1])
+        if key in result and p.id in _DECORATIVE_SLOPE_VARIANTS:
+            continue  # a plain part already claimed this key -- keep it
+        result[key] = (p.id, p.id in _FLIPPED_PART_IDS)
+    return result
 
 
 def _find_step_edge_rotation(
@@ -325,25 +339,25 @@ def _build_inverted_slope_map(catalog: PartCatalog) -> dict[tuple[int, int, int]
     top == "none" (an upright one). Keyed identically, and reuses the
     same _FLIPPED_PART_IDS registry -- see module docstring.
 
-    Unlike the upright map, this one has a real (height, perp, run)
-    collision: 3660 and its two cosmetic variants (2310's footprint is
-    actually [1,2], distinct, but 3676 shares 3660's exact [2,2]
-    footprint and height) can share a key. A plain dict comprehension
-    would let whichever part iterates last silently shadow the other --
-    exactly the failure shape _build_slope_map's own 3-key design was
-    built to prevent for the 45/33-degree families, just one level down
-    (same key, different part, rather than a colliding key at all). Since
-    there's no principled reason to prefer a decorative cutout/convex
-    variant over the plain part for an *automatic* substitution, this
-    explicitly prefers whichever candidate is NOT in
-    `_DECORATIVE_INVERTED_VARIANTS`, rather than leaving the choice to
-    incidental catalog ordering."""
+    Has a real (height, perp, run) collision, same as the upright map now
+    does too (see _build_slope_map's own docstring): 3660 and its two
+    cosmetic variants (2310's footprint is actually [1,2], distinct, but
+    3676 shares 3660's exact [2,2] footprint and height) can share a key.
+    A plain dict comprehension would let whichever part iterates last
+    silently shadow the other -- exactly the failure shape
+    _build_slope_map's own 3-key design was built to prevent for the
+    45/33-degree families, just one level down (same key, different part,
+    rather than a colliding key at all). Since there's no principled
+    reason to prefer a decorative cutout/convex variant over the plain
+    part for an *automatic* substitution, this explicitly prefers
+    whichever candidate is NOT in `_DECORATIVE_SLOPE_VARIANTS`, rather
+    than leaving the choice to incidental catalog ordering."""
     result: dict[tuple[int, int, int], tuple[str, bool]] = {}
     for p in catalog:
         if not (p.category == "slope" and p.top == "full" and p.bottom == "none"):
             continue
         key = (p.height_plates, p.footprint[0], p.footprint[1])
-        if key in result and p.id in _DECORATIVE_INVERTED_VARIANTS:
+        if key in result and p.id in _DECORATIVE_SLOPE_VARIANTS:
             continue  # a plain part already claimed this key -- keep it
         result[key] = (p.id, p.id in _FLIPPED_PART_IDS)
     return result
