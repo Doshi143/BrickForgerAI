@@ -218,6 +218,11 @@ _FLIPPED_PART_IDS: frozenset[str] = frozenset(
         "54200", "85984", "7825", "7835",  # 2-plate ("cheese") family
         "4286", "3298", "4161", "3297",  # 33-degree 3-plate family
         "3665", "3660", "2310", "3676",  # inverted 45-degree 3-plate family
+        "11477",  # curved 2-plate slope -- shipped backwards, confirmed visually in
+        # Studio (slope11477_orientation_test.ldr): the default (unflipped)
+        # orientation put the thin edge against the uphill support instead of
+        # the tall/rounded face. Same fix as the 2-plate flat family above,
+        # which had the identical bug the first time it shipped.
     }
 )
 
