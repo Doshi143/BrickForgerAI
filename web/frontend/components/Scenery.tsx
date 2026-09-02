@@ -122,8 +122,8 @@ export default function Scenery({
           ))}
         </div>
 
-        <div style={hill(colors.hillFar, "16%", "scaleX(1.4)", prominence)} />
-        <div style={hill(colors.hillNear, "11%", "scaleX(1.4) translateY(20%)", prominence)} />
+        <div style={hill(mixColor(colors.hillFar, colors.skyBottom, 1 - prominence), "16%", "scaleX(1.4)")} />
+        <div style={hill(mixColor(colors.hillNear, colors.skyBottom, 1 - prominence), "11%", "scaleX(1.4) translateY(20%)")} />
 
         {shrubs.map((s, i) => (
           <div
@@ -243,9 +243,7 @@ function Mountain({
   const bodyClip = `polygon(${m.peak}% 0%, 0% 100%, 100% 100%)`;
   const litClip = `polygon(${m.peak}% 0%, ${m.peak}% 100%, 100% 100%)`;
   const snowDepth = 32; // % of height the cap extends down from the tip
-  const leftX = m.peak * (1 - snowDepth / 100);
-  const rightX = m.peak + (100 - m.peak) * (snowDepth / 100);
-  const snowClip = `polygon(${m.peak}% 0%, ${jaggedEdge(leftX, rightX, snowDepth)})`;
+  const snowClip = `polygon(${m.peak}% 0%, ${jaggedEdge(m.peak, snowDepth)})`;
   return (
     <div
       style={{
@@ -264,19 +262,24 @@ function Mountain({
   );
 }
 
-// A zigzag path between two fixed endpoints, used as the snow cap's own
-// lower boundary -- alternates between the full melt depth and a
-// shallower one so the rock/snow line reads as jagged and irregular
-// rather than a single straight diagonal cut. Both endpoints stay at the
-// full depth (teeth is even) so the cap still meets the mountain's real
-// slanted edges exactly, the same guarantee the old straight edge had.
-function jaggedEdge(leftX: number, rightX: number, depth: number): string {
+// A zigzag path used as the snow cap's own lower boundary -- alternates
+// between the full melt depth and a shallower one so the rock/snow line
+// reads as jagged and irregular rather than a single straight diagonal
+// cut. Each vertex's x is computed from the mountain's own slanted-edge
+// bounds AT THAT VERTEX'S OWN Y depth (not lerped between the two
+// endpoints' bounds at the full depth) -- the triangle narrows as y
+// decreases toward the peak, so reusing the full-depth width for a
+// shallower vertex previously pushed it outside the mountain's real edge,
+// visibly poking the snow color past the triangle's own silhouette.
+function jaggedEdge(peak: number, depth: number): string {
   const teeth = 6;
   const pts: string[] = [];
   for (let i = 0; i <= teeth; i++) {
     const t = i / teeth;
-    const x = leftX + (rightX - leftX) * t;
     const y = i % 2 === 0 ? depth : depth * 0.55;
+    const xLeft = peak * (1 - y / 100);
+    const xRight = peak + (100 - peak) * (y / 100);
+    const x = xLeft + (xRight - xLeft) * t;
     pts.push(`${x}% ${y}%`);
   }
   return pts.join(", ");
@@ -320,7 +323,7 @@ function crater(color: string, size: number, top: number, left: number): React.C
   };
 }
 
-function hill(color: string, height: string, transform: string, opacity: number): React.CSSProperties {
+function hill(color: string, height: string, transform: string): React.CSSProperties {
   return {
     position: "absolute",
     bottom: 0,
@@ -330,6 +333,25 @@ function hill(color: string, height: string, transform: string, opacity: number)
     background: color,
     borderRadius: "50% 50% 0 0 / 100% 100% 0 0",
     transform,
-    opacity,
   };
+}
+
+// Ground must stay fully opaque -- transparency here is what let mountain
+// silhouettes bleed through the grass near its curved top edge (visible as
+// a faint triangle ghosted over the hill). Lower-prominence pages (auth
+// forms, secondary pages) still want a washed-out ground, so that effect
+// is reproduced by blending the real grass color toward the sky instead of
+// lowering alpha, which keeps the hill opaque at every prominence level.
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function mixColor(hex: string, towardHex: string, t: number): string {
+  const [r1, g1, b1] = hexToRgb(hex);
+  const [r2, g2, b2] = hexToRgb(towardHex);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r}, ${g}, ${b})`;
 }
