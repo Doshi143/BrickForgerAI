@@ -8,7 +8,7 @@ import ThemeProvider from "@/components/ThemeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BrickForgerAI — Build anything with bricks",
+  title: "BrickForgerAI",
   description:
     "Type a prompt. Get a custom brick model with a downloadable .ldr file, full parts list, and step-by-step PDF build instructions.",
 };
