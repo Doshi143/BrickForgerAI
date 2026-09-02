@@ -536,3 +536,38 @@ def test_11477_backing_plate_lands_inside_the_slopes_own_notch(catalog):
     # from 11477's own raw geometry, is one full plate INSIDE that box,
     # landing at LDU Y=-16 -- not -8.
     assert backing.pos_ldu == (10, -16, 10)
+
+
+def test_11477_backing_plate_rotates_with_the_slope_not_hardcoded_to_yaw0(catalog):
+    # The previous fix (see the test above) only ever exercised YAW_180 --
+    # the one rotation this exact candidate geometry happens to produce.
+    # Since 11477's local_offset is (0, 0) (centered, unlike the 3-plate
+    # family), nothing tracked *which* of its 2 world grid cells the
+    # notch's own local +Z half actually lands on once rotated -- it only
+    # coincided with brick.pos for YAW_180/YAW_270 by chance. This
+    # candidate arrangement (uphill support at z=+2, beyond the pair
+    # rather than adjacent to it) makes _find_step_edge_rotation choose
+    # YAW_0 instead, which the old hardcoded-YAW_0 formula got wrong by a
+    # full stud -- landing the plate in the slope's own SOLID cell rather
+    # than the real notch. Pinned by asserting the real LDU position, not
+    # just that a raw_placement exists (same discipline as the test above).
+    model = Model(catalog=catalog)
+    model.place("3005", RED, x=0, y=0, z=2)  # uphill support, beyond the pair
+    model.place("3005", RED, x=0, y=3, z=2)
+    model.place("3023", RED, x=0, y=1, z=0, rotation=Rotation.YAW_90)  # candidate, lower
+    model.place("3023", RED, x=0, y=2, z=0, rotation=Rotation.YAW_90)  # candidate, upper
+
+    result = substitute_staircase_slopes(model)
+    refined = result.model
+
+    slope = next(b for b in refined if b.part.id == "11477")
+    assert slope.rotation == Rotation.YAW_0
+
+    assert len(result.raw_placements) == 1
+    backing = result.raw_placements[0]
+    assert backing.part_id == "3024"
+    # The notch's local +Z half, un-rotated at YAW_0, maps directly onto
+    # the SECOND world Z cell (z=1, LDU [20, 40]) of the slope's 2-cell
+    # footprint -- NOT z=0 (LDU [0, 20]), where the old hardcoded formula
+    # placed it, landing it squarely in the slope's own solid material.
+    assert backing.pos_ldu == (10, -16, 30)

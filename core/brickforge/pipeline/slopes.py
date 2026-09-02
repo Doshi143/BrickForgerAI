@@ -186,7 +186,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..ldr_writer import RawPlacement
-from ..lattice import GridPos, Rotation, placement_to_ldraw
+from ..lattice import PLATE_HEIGHT_LDU, GridPos, Rotation, placement_to_ldraw
 from ..model import Brick, Model
 from ..parts import PartCatalog
 
@@ -712,8 +712,6 @@ def substitute_staircase_slopes(model: Model) -> StaircaseSlopeResult:
             merge_choice[i] = (slope_id, rotation)
             merged_away.add(upper_index)
 
-    backing_plate_part = model.catalog.get(_BACKING_PLATE_ID)
-
     refined = Model(catalog=model.catalog)
     raw_placements: list[RawPlacement] = []
     for i, brick in enumerate(model.bricks):
@@ -735,25 +733,49 @@ def substitute_staircase_slopes(model: Model) -> StaircaseSlopeResult:
         if slope_id in _NEEDS_ANCHOR_BACKING_PLATE:
             # See _NEEDS_ANCHOR_BACKING_PLATE's own docstring: the notch
             # this fills sits INSIDE the slope's own declared range, at
-            # its own first (lowest) layer -- the SAME (x, pos.y, z) the
-            # slope itself already claims, computed here (not pos.y - 1,
-            # a wrong first attempt that landed the plate below the
-            # slope's own box, where the box was already flush and the
-            # real notch never was). A normal Model.place() call at this
-            # position would collide with the slope's own occupied_cells()
-            # every time, so this is a RawPlacement -- its exact LDU
-            # position is computed the same way every other part's
-            # position is (placement_to_ldraw), just for a plain,
-            # top-anchored, unrotated 1x1 plate at the slope's own (x,
-            # pos.y, z) rather than going through Model.place().
-            ex, ey, ez = placement_to_ldraw(
+            # its own first (lowest) layer, in the SECOND of its 2-cell
+            # footprint's own local cells (raw local Z in [0, 20], the
+            # part's own +Z half -- confirmed from its raw geometry, see
+            # the docstring above).
+            #
+            # A first version of this computed the backing plate directly
+            # from GridPos(brick.pos...) at a hardcoded YAW_0, ignoring the
+            # slope's own `rotation` entirely. That's provably wrong for 2
+            # of the 4 possible rotations: the slope's `local_offset` is
+            # (0, 0) (it's centered, unlike the 3-plate family), so nothing
+            # here tracked *which* of its 2 world grid cells the notch's
+            # local +Z half actually lands on once rotated -- it only
+            # happened to be the same cell as brick.pos for YAW_180/YAW_270
+            # (the one rotation the existing regression test exercises),
+            # and silently landed the plate in the slope's SOLID cell
+            # instead for YAW_0/YAW_90, visibly clipping into the slope's
+            # own mesh rather than filling the real gap. Confirmed by
+            # computing both formulas side by side for all 4 rotations
+            # against the slope's own real `placement_to_ldraw` output, not
+            # just re-checked against the one already-passing case.
+            #
+            # Fixed by computing the slope's own placement origin (through
+            # the SAME rotation it was actually placed with) and then
+            # applying that identical rotation to a fixed, rotation-
+            # independent local offset -- 10 LDU into the part's own raw
+            # +Z half from its center -- via Rotation.rotate_offset, the
+            # same mechanism local_offset already uses elsewhere in this
+            # module for exactly this class of problem (a local-frame fact
+            # that points a different way depending on which way the part
+            # is turned).
+            slope_part = model.catalog.get(slope_id)
+            slope_ex, slope_ey, slope_ez = placement_to_ldraw(
                 GridPos(brick.pos.x, brick.pos.y, brick.pos.z),
-                *backing_plate_part.footprint,
-                backing_plate_part.height_plates,
-                Rotation.YAW_0,
-                local_offset=backing_plate_part.local_offset,
-                y_anchor=backing_plate_part.y_anchor,
+                *slope_part.footprint,
+                slope_part.height_plates,
+                rotation,
+                local_offset=slope_part.local_offset,
+                y_anchor=slope_part.y_anchor,
             )
+            notch_dx, notch_dz = rotation.rotate_offset(0, 10)
+            ex = slope_ex + notch_dx
+            ez = slope_ez + notch_dz
+            ey = slope_ey - PLATE_HEIGHT_LDU  # one plate above the slope's own (bottom-anchored) origin
             raw_placements.append(
                 RawPlacement(part_id=_BACKING_PLATE_ID, color=brick.color, pos_ldu=(ex, ey, ez), matrix=Rotation.YAW_0.matrix)
             )
