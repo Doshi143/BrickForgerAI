@@ -222,3 +222,94 @@ def test_single_column_island_still_gets_only_one_pillar(catalog):
     assert len(result.added) == 1
     report = analyze(result.model)
     assert report.ungrounded_bricks == set()
+
+
+def _elbow_grid(nx, ny, nz) -> VoxelGrid:
+    grid = VoxelGrid.empty(nx, ny, nz)
+    grid.occupied[0, :, 0] = True  # ground anchor's own column
+    return grid
+
+
+def test_elbow_reaches_a_neighboring_column_when_its_own_column_is_blocked(catalog):
+    # The island's own column, (5, *, 5), is interior ONLY at y=3 (the
+    # elbow's own layer, one below the island brick at y=4) -- y=2 and
+    # below are exterior, so a straight pillar down this column is
+    # impossible regardless of length. The neighbor column, (6, *, 5), is
+    # interior all the way from y=3 down to y=0. Neither a straight pillar
+    # (blocked at y=2) nor a 2x2 wide pillar (the other 3 cells of any
+    # offset are never marked interior at all) can reach ground here --
+    # only the elbow, hinging from (5,3,5) to (6,3,5) and continuing
+    # straight down from there, can.
+    model = Model(catalog=catalog)
+    _place_ground_anchor(model)
+    model.place("3024", RED, 5, 4, 5)  # island: single 1x1 plate, one column
+
+    grid = _elbow_grid(10, 12, 10)
+    grid.occupied[5, 3, 5] = True  # island's own column, elbow layer only
+    grid.occupied[6, 0:4, 5] = True  # neighbor column, elbow layer down to ground
+
+    result = bridge_unstable(model, solid_grid=grid)
+
+    assert len(result.removed) == 0
+    assert len(result.added) == 4  # 1 elbow plate (2 cells) + 3 straight plates (y=2,1,0)
+    elbow_bricks = [b for b in result.added if b.part.id == "3023"]
+    assert len(elbow_bricks) == 1
+    elbow = elbow_bricks[0]
+    assert (elbow.pos.x, elbow.pos.y, elbow.pos.z) == (5, 3, 5)
+    assert set(elbow.occupied_cells()) == {(5, 3, 5), (6, 3, 5)}
+    continuation = [b for b in result.added if b.part.id != "3023"]
+    assert sorted((b.pos.x, b.pos.y, b.pos.z) for b in continuation) == [(6, 0, 5), (6, 1, 5), (6, 2, 5)]
+
+    report = analyze(result.model)
+    # Not is_single_piece: the bridged group reaches ground on its own, at
+    # a different column from the ground anchor -- two independently-
+    # grounded pieces that never touch each other, correctly reported as
+    # two pieces (find_disconnected_components) even though neither is at
+    # risk of falling (find_bricks_outside_main_component's own second
+    # refinement -- see weakpoints.py's own docstring), same reasoning
+    # every other test in this file that bridges to a fresh column relies
+    # on already.
+    assert report.ungrounded_bricks == set()
+
+
+def test_elbow_is_not_tried_when_a_straight_pillar_already_works(catalog):
+    # Same neighbor-column setup as the test above, but this time the
+    # island's OWN column also has a clean interior path to ground -- the
+    # straight pillar must win, and no "3023" elbow plate should appear at
+    # all, matching this module's own preference for the cheaper, simpler
+    # connector whenever it's available.
+    model = Model(catalog=catalog)
+    _place_ground_anchor(model)
+    model.place("3024", RED, 5, 4, 5)
+
+    grid = _elbow_grid(10, 12, 10)
+    grid.occupied[5, 0:4, 5] = True  # island's own column, fully solid down to ground
+    grid.occupied[6, 0:4, 5] = True  # neighbor column, also solid (must not be preferred)
+
+    result = bridge_unstable(model, solid_grid=grid)
+
+    assert len(result.removed) == 0
+    assert all(b.part.id != "3023" for b in result.added)
+    assert len(result.added) == 4  # straight pillar y=3,2,1,0 at (5, *, 5)
+    for b in result.added:
+        assert (b.pos.x, b.pos.z) == (5, 5)
+    report = analyze(result.model)
+    assert report.ungrounded_bricks == set()
+
+
+def test_elbow_and_straight_column_are_both_blocked_still_prunes(catalog):
+    # No solid_grid at all this island's column or any neighbor -- neither
+    # a straight pillar nor an elbow has anywhere interior to go, so this
+    # must fall back to pruning exactly as it did before elbows existed.
+    model = Model(catalog=catalog)
+    _place_ground_anchor(model)
+    model.place("3024", RED, 5, 4, 5)
+
+    grid = _elbow_grid(10, 12, 10)  # only the ground anchor's own column is solid
+
+    result = bridge_unstable(model, solid_grid=grid)
+
+    assert result.added == []
+    assert len(result.removed) == 1
+    report = analyze(result.model)
+    assert report.ungrounded_bricks == set()

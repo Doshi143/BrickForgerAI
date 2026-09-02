@@ -84,10 +84,55 @@ one wherever the geometry allows it. A genuinely single-column sliver has
 nowhere else to attach and is left with just the one pillar, same as
 before.
 
-Whatever has no interior-only pillar at all gets pruned
+Before giving up on an island, one more shape is tried: an "elbow" --
+`_find_elbow` / `_find_elbow_upward`. A straight pillar only ever searches
+the island's OWN column, but a whole island can fail purely because that
+one column pokes outside the solid silhouette somewhere along its length,
+even when a neighboring column, one cell over, has a clean interior path
+the island simply never touches. A single wide plate (1x2), placed at one
+layer, naturally connects to whatever's directly above/below it at BOTH
+columns it spans -- so it can act as a hinge: one end lands on the island
+in its own column, the other end lands in the neighbor column, and the
+straight run to ground continues from THAT column instead. Two separate
+1x1 plates side by side could never do this (this catalog has no lateral
+clutch -- see this module's own earlier point on that), so the elbow has
+to be one real, single part spanning both cells.
+
+An earlier attempt at reducing pruning (peeling individual bricks out of a
+failed island and retrying the same straight-column search on the
+remainder) was tried and reverted before this: it turned out to be
+provably inert given this model's vertical-only connectivity -- any column
+that could ever succeed already gets tried in the very first, whole-island
+search, since that search iterates every column in the combined footprint
+independently of which specific bricks are "in the group". The elbow is a
+genuinely different mechanism, not a smarter search over the same one: it
+adds a real new column to the search space (the neighbor), which a
+same-column-only search, however cleverly retried, can never reach.
+
+Tried only as a fallback, after the existing wide/thin straight search
+finds nothing at all for the island -- a straight pillar is cheaper (fewer
+parts) and simpler, so it's always preferred when it works.
+
+Whatever has no interior-only pillar or elbow at all gets pruned
 (repair.py::prune_unstable) as a last resort -- same reasoning as before:
 an unbridgeable, unsupported part is guaranteed to separate, so it's safer
 gone than shipped as a visible external strut or a floating piece.
+
+Proven to work, not just plausible: a deliberate, isolated test
+(test_elbow_reaches_a_neighboring_column_when_its_own_column_is_blocked)
+constructs a column that's blocked below the elbow layer with a clean
+neighbor right beside it, and confirms the elbow finds and uses it.
+Measured, not assumed, on the real example models, though: re-run on
+turret/mushroom/bunny, pruned-part counts are byte-for-byte identical to
+before this was added (mushroom -34, bunny -3, same as the straight-only
+version). Not a bug -- this pipeline's few remaining disconnected islands
+on these two models (13/13/4/4 on the mushroom, 2/1 on the bunny) just
+don't happen to have the specific "own column blocked, neighbor column
+clear" shape this mechanism targets, at least not on these two fixtures.
+Left in because it's a genuinely different, real capability (adds an
+actual new column to the search space, unlike the peeling approach tried
+and reverted before this -- see git history), not because it's been
+observed helping on real output yet.
 """
 
 from __future__ import annotations
@@ -96,6 +141,7 @@ from dataclasses import dataclass, field
 
 import networkx as nx
 
+from ..lattice import Rotation
 from ..model import Brick, Model
 from .graph import build_connectivity_graph
 from .repair import prune_unstable
@@ -103,6 +149,21 @@ from .weakpoints import find_bricks_outside_main_component
 
 BRIDGE_PART_ID = "3024"  # 1x1 plate: guaranteed to fit any single-cell path, last-resort fallback
 BRIDGE_PART_ID_WIDE = "3022"  # 2x2 plate: preferred whenever a hidden 2x2 column fits
+BRIDGE_PART_ID_ELBOW = "3023"  # 1x2 plate: the only single part that can span two adjacent columns
+
+# (dx, dz, rotation): the 4 lateral directions an elbow can reach from a
+# given island column, and the Rotation that makes a "3023" 1x2 plate span
+# that direction -- footprint_at(YAW_0) is [2, 1] (spans x), footprint_at
+# (YAW_90) is [1, 2] (spans z), per this catalog's own "second number runs
+# along local X" convention (see CLAUDE.md). Whichever of x0/x0+dx (or
+# z0/z0+dz) is smaller becomes the part's own placement corner -- place()
+# always takes the footprint's min corner, regardless of rotation.
+_ELBOW_DIRECTIONS = [
+    (1, 0, Rotation.YAW_0),
+    (-1, 0, Rotation.YAW_0),
+    (0, 1, Rotation.YAW_90),
+    (0, -1, Rotation.YAW_90),
+]
 
 # A single-stud-wide pillar has almost no bending stiffness -- fine for
 # pull-apart strength, but a real, physical weak point against lateral
@@ -228,6 +289,121 @@ def _find_wide_pillar_upward(
     return None
 
 
+@dataclass
+class ElbowCandidate:
+    """One elbow bridge: a single 1x2 plate at `elbow_pos` (its own min
+    corner, per Model.place's own convention) with `elbow_rotation`, whose
+    two cells land on the island's own column at one end and a fresh
+    neighbor column at the other -- plus `continuation`, the straight
+    pillar cells (BRIDGE_PART_ID, same as a plain thin bridge) that carry
+    the neighbor column the rest of the way to ground or existing
+    material. `cost` (2 elbow cells + len(continuation)) is what
+    _search_elbow compares candidates by, the same "fewer new parts wins"
+    principle _search_group already uses for straight pillars."""
+
+    elbow_pos: tuple[int, int, int]
+    elbow_rotation: Rotation
+    continuation: list[tuple[int, int, int]]
+
+    @property
+    def cost(self) -> int:
+        return 2 + len(self.continuation)
+
+
+def _find_elbow(
+    x0: int, z0: int, y_start: int, dx: int, dz: int, rotation: Rotation, occupied_cells: set, is_interior
+) -> ElbowCandidate | None:
+    """Downward elbow candidate anchored at island column (x0, z0), layer
+    y_start (one below the island's own lowest brick at this column --
+    same meaning as _search_group's y_start_for), reaching into the
+    neighbor column (x0+dx, z0+dz). Both of the elbow plate's own cells
+    must be interior and currently empty (it's new material, same
+    requirement a straight pillar's own cells have); the neighbor column
+    then continues via a plain _find_pillar from one layer below the
+    elbow -- reusing the exact same downward search a straight bridge
+    already uses, just anchored at a different column."""
+    x1, z1 = x0 + dx, z0 + dz
+    if not (is_interior(x0, y_start, z0) and is_interior(x1, y_start, z1)):
+        return None
+    if (x0, y_start, z0) in occupied_cells or (x1, y_start, z1) in occupied_cells:
+        return None
+    continuation = _find_pillar(x1, z1, y_start - 1, occupied_cells, is_interior)
+    if continuation is None:
+        return None
+    corner_x, corner_z = min(x0, x1), min(z0, z1)
+    return ElbowCandidate(elbow_pos=(corner_x, y_start, corner_z), elbow_rotation=rotation, continuation=continuation)
+
+
+def _find_elbow_upward(
+    x0: int, z0: int, y_start: int, y_max: int, dx: int, dz: int, rotation: Rotation, occupied_cells: set, is_interior
+) -> ElbowCandidate | None:
+    """Upward mirror of `_find_elbow` -- y_start here is one ABOVE the
+    island's own highest brick at (x0, z0) (matching y_start_for_upward's
+    own meaning), and the neighbor column continues via _find_pillar_upward
+    from one layer above the elbow, which (like every upward search in
+    this module) must land on real existing material -- there's no
+    always-valid ceiling the way y=0 is for the downward direction."""
+    x1, z1 = x0 + dx, z0 + dz
+    if not (is_interior(x0, y_start, z0) and is_interior(x1, y_start, z1)):
+        return None
+    if (x0, y_start, z0) in occupied_cells or (x1, y_start, z1) in occupied_cells:
+        return None
+    continuation = _find_pillar_upward(x1, z1, y_start + 1, y_max, occupied_cells, is_interior)
+    if continuation is None:
+        return None
+    corner_x, corner_z = min(x0, x1), min(z0, z1)
+    return ElbowCandidate(elbow_pos=(corner_x, y_start, corner_z), elbow_rotation=rotation, continuation=continuation)
+
+
+def _search_elbow(
+    island_bricks: list[Brick], occupied_cells: set, is_interior, y_max: int
+) -> ElbowCandidate | None:
+    """Tried only as a fallback from bridge_unstable, after the existing
+    straight wide/thin search (_search_group) has already failed on every
+    column in the island's own footprint -- see this module's own
+    docstring for why a straight pillar is always preferred when it works.
+    Tries every (island column) x (lateral direction) x (up/down)
+    combination and keeps whichever valid elbow has the lowest `cost`,
+    the same "fewer new parts" preference _search_group already applies
+    to straight pillars."""
+    columns: set[tuple[int, int]] = set()
+    for brick in island_bricks:
+        w, d = brick.footprint
+        for bx in range(w):
+            for bz in range(d):
+                columns.add((brick.pos.x + bx, brick.pos.z + bz))
+
+    def y_start_for(x0: int, z0: int) -> int:
+        return (
+            min(
+                b.pos.y
+                for b in island_bricks
+                if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]
+            )
+            - 1
+        )
+
+    def y_start_for_upward(x0: int, z0: int) -> int:
+        return max(
+            b.pos.y + b.part.height_plates
+            for b in island_bricks
+            if b.pos.x <= x0 < b.pos.x + b.footprint[0] and b.pos.z <= z0 < b.pos.z + b.footprint[1]
+        )
+
+    best: ElbowCandidate | None = None
+    for x0, z0 in columns:
+        y_down = y_start_for(x0, z0)
+        y_up = y_start_for_upward(x0, z0)
+        for dx, dz, rotation in _ELBOW_DIRECTIONS:
+            down = _find_elbow(x0, z0, y_down, dx, dz, rotation, occupied_cells, is_interior)
+            if down is not None and (best is None or down.cost < best.cost):
+                best = down
+            up = _find_elbow_upward(x0, z0, y_up, y_max, dx, dz, rotation, occupied_cells, is_interior)
+            if up is not None and (best is None or up.cost < best.cost):
+                best = up
+    return best
+
+
 def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
     graph = build_connectivity_graph(model)
     disconnected = find_bricks_outside_main_component(graph)
@@ -328,7 +504,23 @@ def bridge_unstable(model: Model, solid_grid=None) -> BridgeResult:
             continue
 
         if best_path is None:
-            continue  # no hidden route found; leave ungrounded, prune_unstable will remove it
+            # No straight column works anywhere in the island's own
+            # footprint -- try an elbow into a neighboring column before
+            # conceding to prune_unstable (see this module's own docstring
+            # for why this is a genuinely different search, not a smarter
+            # retry of the one that just failed).
+            elbow = _search_elbow(island_bricks, occupied_cells, is_interior, y_max)
+            if elbow is None:
+                continue  # no hidden route found; leave ungrounded, prune_unstable will remove it
+            ex, ey, ez = elbow.elbow_pos
+            elbow_brick = working.place(BRIDGE_PART_ID_ELBOW, color, ex, ey, ez, rotation=elbow.elbow_rotation)
+            added.append(elbow_brick)
+            occupied_cells.update(elbow_brick.occupied_cells())
+            for x, y, z in elbow.continuation:
+                new_brick = working.place(BRIDGE_PART_ID, color, x, y, z)
+                added.append(new_brick)
+                occupied_cells.add((x, y, z))
+            continue
 
         for x, y, z in best_path:
             new_brick = working.place(BRIDGE_PART_ID, color, x, y, z)
