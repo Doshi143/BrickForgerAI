@@ -12,11 +12,16 @@ export type ThemeColors = {
   craterColor: string;
   cloudColor: string;
   mountainColor: string;
+  mountainFar: string;
+  mountainSnow: string;
   hillFar: string;
   hillNear: string;
   treeTrunk: string;
   treeCanopy: string;
   treeCanopyLight: string;
+  shrubColor: string;
+  shrubColorLight: string;
+  rockColor: string;
   birdColor: string;
   gridColor: string;
   navBg: string;
@@ -40,12 +45,17 @@ export const darkColors: ThemeColors = {
   glow: "rgba(232,236,245,0.35)",
   craterColor: "#a9b3cc",
   cloudColor: "rgba(220,226,240,0.5)",
-  mountainColor: "#26314d",
+  mountainColor: "#2c3a5c",
+  mountainFar: "#1c2848",
+  mountainSnow: "#c9d3ec",
   hillFar: "#1f3a2c",
   hillNear: "#173123",
   treeTrunk: "#2a1f16",
   treeCanopy: "#254a30",
   treeCanopyLight: "#2f5a3a",
+  shrubColor: "#1f3d28",
+  shrubColorLight: "#2a4e32",
+  rockColor: "#3a4560",
   birdColor: "#cfd6e6",
   gridColor: "rgba(255,255,255,0.06)",
   navBg: "rgba(11,19,48,0.7)",
@@ -69,12 +79,17 @@ export const lightColors: ThemeColors = {
   glow: "rgba(245,163,92,0.4)",
   craterColor: "#d98a4a",
   cloudColor: "rgba(255,255,255,0.85)",
-  mountainColor: "#b8c9d9",
+  mountainColor: "#a4bcd3",
+  mountainFar: "#cbdcec",
+  mountainSnow: "#ffffff",
   hillFar: "#a8c98a",
   hillNear: "#8fb96e",
   treeTrunk: "#7a5233",
-  treeCanopy: "#6fa34c",
+  treeCanopy: "#5f9645",
   treeCanopyLight: "#7fb85c",
+  shrubColor: "#5f9645",
+  shrubColorLight: "#7fb85c",
+  rockColor: "#b9b2a2",
   birdColor: "#1e2233",
   gridColor: "rgba(30,30,30,0.06)",
   navBg: "rgba(250,246,240,0.75)",
@@ -104,10 +119,30 @@ export const birds = [
   { top: "23%", duration: 24, delay: -3 },
 ];
 
+// peak: 0-100, the % across the mountain's own width where its tip sits --
+// varied per mountain (not always 50%) so the ridge line reads as a real,
+// irregular range rather than a row of identical symmetric triangles.
 export const mountains = [
-  { w: 70, h: 100 }, { w: 95, h: 150 }, { w: 60, h: 85 }, { w: 105, h: 175 },
-  { w: 75, h: 115 }, { w: 90, h: 140 }, { w: 65, h: 95 }, { w: 100, h: 160 },
-  { w: 70, h: 105 }, { w: 85, h: 130 }, { w: 60, h: 90 },
+  { w: 70, h: 100, peak: 42 }, { w: 95, h: 150, peak: 58 }, { w: 60, h: 85, peak: 50 }, { w: 105, h: 175, peak: 38 },
+  { w: 75, h: 115, peak: 55 }, { w: 90, h: 140, peak: 46 }, { w: 65, h: 95, peak: 60 }, { w: 100, h: 160, peak: 44 },
+  { w: 70, h: 105, peak: 52 }, { w: 85, h: 130, peak: 40 }, { w: 60, h: 90, peak: 56 },
+];
+
+// A second, smaller/hazier row rendered behind the main ridge for depth --
+// fewer peaks, no snow caps (distant enough to read as atmospheric haze).
+export const mountainsFar = [
+  { w: 55, h: 70, peak: 48 }, { w: 80, h: 100, peak: 55 }, { w: 65, h: 82, peak: 40 },
+  { w: 90, h: 115, peak: 52 }, { w: 60, h: 75, peak: 58 }, { w: 75, h: 95, peak: 45 },
+];
+
+// Low clusters of 3 overlapping blobs plus a small rock -- scattered among
+// the trees to break up the empty grass between them.
+export const shrubs = [
+  { bottom: "6%", left: "13%", scale: 0.9 },
+  { bottom: "5%", left: "28%", scale: 0.7 },
+  { bottom: "9%", left: "65%", scale: 0.8 },
+  { bottom: "7%", left: "78%", scale: 1 },
+  { bottom: "5%", left: "97%", scale: 0.65 },
 ];
 
 export const trees = [
