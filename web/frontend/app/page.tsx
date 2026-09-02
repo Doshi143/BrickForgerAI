@@ -256,7 +256,7 @@ export default function Home() {
               : "Free plan: 5 credits a month • Pay only to download the .ldr file"}
           </p>
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
-            Built from a 53-part real, purchasable brick library - including a wide range of slope
+            Built from a 55-part real, purchasable brick library - including a wide range of slope
             angles and curves for smoother surfaces - growing all the time. Vehicles, buildings,
             and other symmetric subjects get their left and right sides automatically matched up;
             organic subjects (animals, food, landscapes) keep their natural shape. We&apos;re
