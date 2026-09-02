@@ -184,7 +184,7 @@ only one slope can ever replace a single candidate.
 from __future__ import annotations
 
 from ..lattice import Rotation
-from ..model import Brick, Model
+from ..model import Brick, Model, PlacementError
 from ..parts import PartCatalog
 
 # (dx, dz) downhill direction -> rotation whose tall/uphill face points at -direction.
@@ -225,6 +225,31 @@ _FLIPPED_PART_IDS: frozenset[str] = frozenset(
         # which had the identical bug the first time it shipped.
     }
 )
+
+# 11477's own real geometry (fetched and computed the same way its
+# footprint/height/local_offset were -- see parts_v1.yaml's own comment)
+# has NO material at its own local Y=0 across the anchor-end half of its
+# footprint: the bottom face this catalog declares "full" is, in the real
+# part, a genuine notch/void under the thick/tall end (verified directly:
+# every explicit bottom-layer vertex in the real part's geometry falls in
+# local Z in [-20, 0], never [0, 20] -- and transforming that region
+# through the part's own confirmed placement rotation lands it at the
+# AWAY-from-anchor cell, meaning the anchor cell -- the thick end, right
+# where the uphill support is -- is the one left hollow underneath).
+# Confirmed as a real, not hypothetical, cost: founder built this into a
+# real model and found the piece visibly floating/disconnected right where
+# this notch sits, with a manual test confirming a single backing plate
+# there closes it.
+#
+# _build_slope_map's own top:none / bottom:full declaration is a
+# whole-part, not per-cell, flag -- it can't express "full everywhere
+# except this one notched cell" -- so rather than make the catalog schema
+# per-cell just for one part, the substitution site (this module) places a
+# real, ordinary 1x1 plate directly under the anchor cell for any part
+# listed here, physically closing the exact gap the part's own geometry
+# leaves and giving that cell real (not just declared) connectivity.
+_NEEDS_ANCHOR_BACKING_PLATE: frozenset[str] = frozenset({"11477"})
+_BACKING_PLATE_ID = "3024"  # 1x1 plate
 
 # Cosmetic variants that share an exact (height, perp, run) key with a
 # plain part -- see _build_inverted_slope_map's own docstring for why
@@ -657,5 +682,23 @@ def substitute_staircase_slopes(model: Model) -> Model:
             refined.place(brick.part.id, brick.color, brick.pos.x, brick.pos.y, brick.pos.z, rotation=brick.rotation)
             continue
         refined.place(slope_id, brick.color, brick.pos.x, brick.pos.y, brick.pos.z, rotation=rotation)
+
+        if slope_id in _NEEDS_ANCHOR_BACKING_PLATE and brick.pos.y >= 1:
+            # See _NEEDS_ANCHOR_BACKING_PLATE's own docstring: this part's
+            # real geometry has no material under its own anchor cell, so
+            # place a real, ordinary plate there to close the gap. Guarded
+            # by y >= 1 (nothing to place below the model's own baseplate
+            # level) and by catching a collision rather than checking
+            # occupancy ahead of time: the anchor cell one layer down is
+            # normally free (nothing else claims a slope's own anchor
+            # column at exactly that layer), but on the rare chance
+            # something is already there, that material already provides
+            # real connectivity and this plate would be redundant, not
+            # required -- skipping it is correct, not a fallback masking a
+            # bug.
+            try:
+                refined.place(_BACKING_PLATE_ID, brick.color, brick.pos.x, brick.pos.y - 1, brick.pos.z)
+            except PlacementError:
+                pass
 
     return refined
