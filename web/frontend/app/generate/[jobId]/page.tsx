@@ -213,10 +213,10 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
               </Card>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginTop: 24 }}>
-                <Stat colors={colors} label="Parts" value={job.part_count?.toLocaleString() ?? "—"} />
-                <Stat colors={colors} label="Colors" value={job.color_count?.toString() ?? "—"} />
-                <Stat colors={colors} label="Slopes" value={job.slope_count?.toString() ?? "—"} />
-                <Stat colors={colors} label="Tiles" value={job.tile_count?.toString() ?? "—"} />
+                <Stat colors={colors} label="Parts" value={job.part_count?.toLocaleString() ?? "-"} />
+                <Stat colors={colors} label="Colors" value={job.color_count?.toString() ?? "-"} />
+                <Stat colors={colors} label="Slopes" value={job.slope_count?.toString() ?? "-"} />
+                <Stat colors={colors} label="Tiles" value={job.tile_count?.toString() ?? "-"} />
                 <Stat
                   colors={colors}
                   label="Structure"
@@ -267,7 +267,7 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                   >
                     {unlocking
                       ? "Redirecting…"
-                      : `Unlock Instructions — £${job.instructions_price_gbp ?? 5}`}
+                      : `Unlock Instructions - £${job.instructions_price_gbp ?? 5}`}
                   </button>
                 )}
               </div>
@@ -279,7 +279,7 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
               )}
               {!job.instructions_unlocked && checkoutStatus === "success" && (
                 <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-                  Payment received — confirming now, this usually takes just a few seconds.
+                  Payment received - confirming now, this usually takes just a few seconds.
                 </p>
               )}
 
@@ -360,7 +360,7 @@ function ProgressTrack({
         })}
       </div>
       <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 22, marginBottom: 0 }}>
-        This takes a few minutes — imagining the idea, then sculpting it in 3D, then
+        This takes a few minutes - imagining the idea, then sculpting it in 3D, then
         the brick placer.
       </p>
     </div>

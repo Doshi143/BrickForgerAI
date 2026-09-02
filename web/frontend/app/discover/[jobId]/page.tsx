@@ -146,7 +146,7 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
               Not found
             </h1>
             <p style={{ color: colors.textSecondary, marginBottom: 20 }}>
-              This build isn&apos;t in the gallery — it may have been unpublished.
+              This build isn&apos;t in the gallery - it may have been unpublished.
             </p>
             <Link href="/discover" style={{ color: colors.accent, fontWeight: 700, textDecoration: "none" }}>
               ← Back to Discover
@@ -200,10 +200,10 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                   marginTop: 24,
                 }}
               >
-                <Stat colors={colors} label="Parts" value={item.part_count?.toLocaleString() ?? "—"} />
-                <Stat colors={colors} label="Colors" value={item.color_count?.toString() ?? "—"} />
-                <Stat colors={colors} label="Slopes" value={item.slope_count?.toString() ?? "—"} />
-                <Stat colors={colors} label="Tiles" value={item.tile_count?.toString() ?? "—"} />
+                <Stat colors={colors} label="Parts" value={item.part_count?.toLocaleString() ?? "-"} />
+                <Stat colors={colors} label="Colors" value={item.color_count?.toString() ?? "-"} />
+                <Stat colors={colors} label="Slopes" value={item.slope_count?.toString() ?? "-"} />
+                <Stat colors={colors} label="Tiles" value={item.tile_count?.toString() ?? "-"} />
                 {item.symmetrized && <Stat colors={colors} label="Symmetry" value="Matched" />}
               </div>
 
@@ -230,11 +230,11 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                     href={`/signin?next=${encodeURIComponent(`/discover/${jobId}`)}`}
                     style={{ ...primaryButtonStyle(colors, false), display: "inline-block", textDecoration: "none" }}
                   >
-                    Sign in to buy — £{item.instructions_price_gbp}
+                    Sign in to buy - £{item.instructions_price_gbp}
                   </Link>
                 ) : (
                   <button onClick={handleBuy} disabled={buying} style={primaryButtonStyle(colors, buying)}>
-                    {buying ? "Redirecting…" : `Buy this build — £${item.instructions_price_gbp}`}
+                    {buying ? "Redirecting…" : `Buy this build - £${item.instructions_price_gbp}`}
                   </button>
                 )}
                 {buyError && <p style={{ color: "#ff8f6b", fontSize: 13, marginTop: 8, marginBottom: 0 }}>{buyError}</p>}
@@ -243,7 +243,7 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                 )}
                 {checkoutStatus === "success" && !hasAccess && (
                   <p style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-                    Payment received — confirming now, this usually takes just a few seconds.
+                    Payment received - confirming now, this usually takes just a few seconds.
                   </p>
                 )}
               </div>

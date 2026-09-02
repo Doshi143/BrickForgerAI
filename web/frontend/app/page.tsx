@@ -18,7 +18,7 @@ const STEPS = [
     icon: "⚡",
     num: "01",
     title: "Describe Your Vision",
-    desc: "Type what you want to build. A spaceship, a house, a dragon — anything you can imagine.",
+    desc: "Type what you want to build. A spaceship, a house, a dragon - anything you can imagine.",
   },
   {
     icon: "👁",
@@ -30,7 +30,7 @@ const STEPS = [
     icon: "↓",
     num: "03",
     title: "Build It For Real",
-    desc: "Download the .ldr file and a full step-by-step PDF build guide, included with your purchase — then order the bricks and start building.",
+    desc: "Download the .ldr file and a full step-by-step PDF build guide, included with your purchase - then order the bricks and start building.",
   },
 ];
 
@@ -247,7 +247,7 @@ export default function Home() {
             })}
           </div>
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13 }}>
-            Build size — {SIZE_OPTIONS.find((s) => s.id === size)!.hint}
+            Build size - {SIZE_OPTIONS.find((s) => s.id === size)!.hint}
           </p>
 
           <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
@@ -256,8 +256,8 @@ export default function Home() {
               : "Free plan: 5 credits a month • Pay only to download the .ldr file"}
           </p>
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
-            Built from a 53-part real, purchasable brick library — including a wide range of slope
-            angles and curves for smoother surfaces — growing all the time. Vehicles, buildings,
+            Built from a 53-part real, purchasable brick library - including a wide range of slope
+            angles and curves for smoother surfaces - growing all the time. Vehicles, buildings,
             and other symmetric subjects get their left and right sides automatically matched up;
             organic subjects (animals, food, landscapes) keep their natural shape. We&apos;re
             constantly improving stability, connectivity, and adding new building techniques
@@ -337,7 +337,7 @@ function Footer({ colors }: { colors: ThemeColors }) {
             BrickForgerAI
           </div>
           <p style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 1.6, maxWidth: 340 }}>
-            Turn your imagination into buildable brick models. Prompt, preview, purchase —
+            Turn your imagination into buildable brick models. Prompt, preview, purchase -
             your custom kit is one idea away.
           </p>
           <p style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 1.6, maxWidth: 340, marginTop: 14, opacity: 0.8 }}>

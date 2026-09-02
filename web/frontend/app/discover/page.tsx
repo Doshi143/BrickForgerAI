@@ -101,7 +101,7 @@ export default function DiscoverPage() {
               }}
             >
               <p style={{ color: colors.textSecondary, fontSize: 16, margin: 0 }}>
-                {query ? "No builds match that search." : "Nothing published yet — be the first."}
+                {query ? "No builds match that search." : "Nothing published yet - be the first."}
               </p>
             </div>
           )}
@@ -162,7 +162,7 @@ function DiscoverCard({ colors, item }: { colors: ThemeColors; item: GalleryCard
           {item.prompt}
         </div>
         <div style={{ color: colors.textSecondary, fontSize: 13, marginTop: 6 }}>
-          {item.part_count?.toLocaleString() ?? "—"} parts · £{item.instructions_price_gbp}
+          {item.part_count?.toLocaleString() ?? "-"} parts · £{item.instructions_price_gbp}
         </div>
       </div>
     </Link>

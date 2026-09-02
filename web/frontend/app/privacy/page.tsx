@@ -31,21 +31,21 @@ export default function PrivacyPage() {
         <p>Directly from you, when you register or use the Service:</p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
           <li>Email address</li>
-          <li>Password (bcrypt-hashed before storage — we never store or see it in plain text)</li>
+          <li>Password (bcrypt-hashed before storage - we never store or see it in plain text)</li>
         </ul>
         <p style={{ marginTop: 14 }}>
           As part of actually using the Service, we also store the text prompts you submit and
           the images, 3D meshes, and brick models generated from them, so you can revisit and
           re-download your own results. If you subscribe to a paid plan or make a purchase, we
           store an internal Stripe customer reference ID so we can recognize your account on
-          future purchases — never your card number or other payment details, which Stripe holds
+          future purchases - never your card number or other payment details, which Stripe holds
           directly (see below).
         </p>
       </Section>
 
       <Section title="How do we use the information we collect?">
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
-          <li>To provide the Service — generating and storing your models, and authenticating your account</li>
+          <li>To provide the Service - generating and storing your models, and authenticating your account</li>
           <li>To respond to support requests you send us</li>
           <li>To improve the Service based on how it&apos;s actually used</li>
           <li>To enforce our Terms of Service, including our content restrictions</li>
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
       <Section title="Do we share the information we collect with third parties?">
         <p>
           We do not sell your personal information, and we do not share it with advertisers,
-          marketing partners, or ad networks — we don&apos;t have any. We do share the minimum
+          marketing partners, or ad networks - we don&apos;t have any. We do share the minimum
           necessary data with the service providers that make the Service work:
         </p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
@@ -67,8 +67,8 @@ export default function PrivacyPage() {
           <li>That image is used to generate a 3D model via a third-party AI 3D-generation service</li>
           <li>Railway hosts our servers, database, and job queue</li>
           <li>Cloudflare R2 stores your generated files</li>
-          <li>Sentry receives error/crash reports to help us fix bugs — this can include request metadata such as your IP address, but never your password</li>
-          <li>Stripe processes payments if you subscribe to a paid plan, buy a credit top-up, or unlock instructions — your card details go directly to Stripe and never touch our own servers; we only receive confirmation that a payment succeeded and which plan or product it was for</li>
+          <li>Sentry receives error/crash reports to help us fix bugs - this can include request metadata such as your IP address, but never your password</li>
+          <li>Stripe processes payments if you subscribe to a paid plan, buy a credit top-up, or unlock instructions - your card details go directly to Stripe and never touch our own servers; we only receive confirmation that a payment succeeded and which plan or product it was for</li>
         </ul>
         <p style={{ marginTop: 14 }}>
           We may also disclose information where required to comply with a legal obligation, court
@@ -108,7 +108,7 @@ export default function PrivacyPage() {
 
       <Section title="Can I update, correct, or delete my information?">
         <p>
-          Yes — contact us at the email below to update your account details or request deletion
+          Yes - contact us at the email below to update your account details or request deletion
           of your personal data. There isn&apos;t a self-service &ldquo;delete my account&rdquo;
           button in the product yet, so this is currently handled manually on request; we aim to
           action deletion requests within 30 days.
@@ -119,7 +119,7 @@ export default function PrivacyPage() {
         <p>
           We do not use cookies. The Service uses your browser&apos;s <strong>local storage</strong>{" "}
           to keep you signed in and remember your preferences (like light/dark mode and your last
-          build-size choice) — this data stays on your device and is never included in a request
+          build-size choice) - this data stays on your device and is never included in a request
           header the way a cookie would be.
         </p>
       </Section>
@@ -145,7 +145,7 @@ export default function PrivacyPage() {
           If you&apos;re in the UK or the European Economic Area, the GDPR (and UK GDPR) gives you
           rights over your personal data, including the right to access, correct, delete, restrict,
           or port the data we hold about you. You can exercise any of these rights by contacting us
-          at the email below — we&apos;ll respond within one month. We do not sell personal data,
+          at the email below - we&apos;ll respond within one month. We do not sell personal data,
           and we only collect what&apos;s needed to provide the Service.
         </p>
       </Section>
@@ -156,7 +156,7 @@ export default function PrivacyPage() {
           personal information we collect and why (see above), the right to request deletion of
           your account and associated data, and the right to equal service regardless of whether
           you exercise these rights. We do not sell personal information. To exercise any of these
-          rights, contact us below — we&apos;ll respond within one month.
+          rights, contact us below - we&apos;ll respond within one month.
         </p>
       </Section>
 

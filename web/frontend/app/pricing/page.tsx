@@ -133,7 +133,7 @@ function PricingContent() {
           <p style={{ color: colors.textSecondary, fontSize: 17, maxWidth: 560, margin: "0 auto 24px" }}>
             Every plan includes full 3D previews with real colors. Unlocking a build gets you
             the downloadable .ldr file, a complete parts list, and a step-by-step PDF build
-            guide — everything you need to actually put it together.
+            guide - everything you need to actually put it together.
           </p>
 
           {checkoutStatus === "success" && (
@@ -149,7 +149,7 @@ function PricingContent() {
                 fontSize: 14,
               }}
             >
-              Payment received — this can take a few seconds to reflect below. Refresh if your
+              Payment received - this can take a few seconds to reflect below. Refresh if your
               plan or credits don&apos;t look right yet.
             </div>
           )}
@@ -166,7 +166,7 @@ function PricingContent() {
                 fontSize: 14,
               }}
             >
-              Checkout cancelled — nothing was charged.
+              Checkout cancelled - nothing was charged.
             </div>
           )}
           {error && (
@@ -370,7 +370,7 @@ function PricingContent() {
                   Need more credits this month?
                 </div>
                 <div style={{ color: colors.textSecondary, fontSize: 14 }}>
-                  +5 credits for £6, on top of your current plan — no subscription change.
+                  +5 credits for £6, on top of your current plan - no subscription change.
                 </div>
                 <button
                   onClick={handleTopup}
@@ -391,7 +391,7 @@ function PricingContent() {
                     opacity: loadingPlan === "topup" ? 0.6 : 1,
                   }}
                 >
-                  {loadingPlan === "topup" ? "Redirecting…" : "Buy +5 credits — £6"}
+                  {loadingPlan === "topup" ? "Redirecting…" : "Buy +5 credits - £6"}
                 </button>
               </div>
             </div>

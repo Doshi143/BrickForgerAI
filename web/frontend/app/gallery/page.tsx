@@ -285,7 +285,7 @@ function GalleryCard({
             {job.prompt}
           </div>
           <div style={{ color: colors.textSecondary, fontSize: 13, marginTop: 6 }}>
-            {job.part_count?.toLocaleString() ?? "—"} parts{date ? ` · ${date}` : ""}
+            {job.part_count?.toLocaleString() ?? "-"} parts{date ? ` · ${date}` : ""}
           </div>
         </div>
       </Link>
@@ -306,7 +306,7 @@ function GalleryCard({
             opacity: busy ? 0.6 : 1,
           }}
         >
-          {busy ? "…" : job.is_published ? "Published — remove from Discover" : "Publish to Discover"}
+          {busy ? "…" : job.is_published ? "Published - remove from Discover" : "Publish to Discover"}
         </button>
         {error && <span style={{ color: "#ff8f6b", fontSize: 12 }}>{error}</span>}
       </div>
@@ -342,7 +342,7 @@ function GalleryCard({
             Your build is now public
           </h2>
           <p style={{ margin: "0 0 20px", fontSize: 14, lineHeight: 1.5, color: colors.textSecondary }}>
-            Anyone can find this build on the Discover page — including people you don&apos;t know — and buy its
+            Anyone can find this build on the Discover page - including people you don&apos;t know - and buy its
             instructions there. You can remove it from Discover any time from this page.
           </p>
           <button

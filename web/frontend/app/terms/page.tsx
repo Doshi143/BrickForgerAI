@@ -26,14 +26,14 @@ export default function TermsPage() {
           BrickLink, or Studio. &ldquo;LEGO&rdquo;, &ldquo;BrickLink&rdquo;, and
           &ldquo;Studio&rdquo; are trademarks of their respective owners. We reference BrickLink
           and Studio only to describe how a generated model&apos;s <code>.ldr</code> file can be
-          opened and its parts purchased — not to suggest any partnership. Part geometry is drawn
+          opened and its parts purchased - not to suggest any partnership. Part geometry is drawn
           from the LDraw parts library, licensed under CCAL 2.0.
         </p>
       </Section>
 
       <Section title="Your prompts and content">
         <p>
-          Generate original designs — don&apos;t prompt for copyrighted characters, logos, or
+          Generate original designs - don&apos;t prompt for copyrighted characters, logos, or
           existing commercial LEGO sets. Content that appears to target a specific copyrighted
           character or trademark may be refused or removed. You&apos;re responsible for what you
           type in and for how you use the resulting files.
@@ -64,7 +64,7 @@ export default function TermsPage() {
         <p>
           Registering for a recurring plan, or buying a top-up or a one-time instructions unlock,
           means you agree to pay the fees shown at checkout. All payments are handled entirely by
-          Stripe, our payment processor — we never see, receive, or store your card number or
+          Stripe, our payment processor - we never see, receive, or store your card number or
           other payment details ourselves, only what Stripe tells us afterward (that a payment
           succeeded, and which plan or product it was for). Stripe&apos;s own terms govern your
           rights and liabilities as a payment-method holder. We reserve the right to change
@@ -148,7 +148,7 @@ export default function TermsPage() {
         </p>
         <p style={{ marginTop: 14 }}>
           Specifically on structural stability: we cannot guarantee that any given generated
-          model will be very physically stable — that depends heavily on what you asked for and
+          model will be very physically stable - that depends heavily on what you asked for and
           how thin or overhanging the resulting shape is. What we can say is that the vast
           majority of generated models come out with 100% connectivity and few flagged issues on
           BrickLink Studio&apos;s own stability checker, thanks to a built-in support-structure

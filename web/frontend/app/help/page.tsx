@@ -14,11 +14,11 @@ export default function HelpCenterPage() {
       </Section>
       <Section title="What's the difference between the preview and the instructions?">
         <p>
-          Every generation gives you a full 3D preview (with real colors) for free — you can
+          Every generation gives you a full 3D preview (with real colors) for free - you can
           rotate and inspect the model, and see its part count and color breakdown, without
           paying anything. &ldquo;Instructions&rdquo; is the downloadable <code>.ldr</code> file,
-          full parts list, and a step-by-step PDF build guide — walking through the model
-          bottom-up, layer by layer, with the new pieces for each step called out — included
+          full parts list, and a step-by-step PDF build guide - walking through the model
+          bottom-up, layer by layer, with the new pieces for each step called out - included
           automatically on the Builder and Master Builder plans, or available as a one-time
           purchase (£5–£15, based on model size) on the Free plan. You can also open the{" "}
           <code>.ldr</code> file in BrickLink Studio (free, search &ldquo;BrickLink Studio
@@ -29,13 +29,13 @@ export default function HelpCenterPage() {
         <p>
           Color comes straight from the generated 3D model&apos;s own surface, then gets mapped
           onto the closest real, purchasable brick color using a perceptually-accurate color
-          match — so it&apos;s a close approximation, not an exact one, especially on faces of the
+          match - so it&apos;s a close approximation, not an exact one, especially on faces of the
           model that came through less clearly during generation.
         </p>
       </Section>
       <Section title="Can I build what I generate with real bricks?">
         <p>
-          Yes — every part in a generated model is a real, standard brick/plate/tile/slope
+          Yes - every part in a generated model is a real, standard brick/plate/tile/slope
           shape. Unlocking a model gets you the <code>.ldr</code> file, a full parts list, and
           a PDF build guide; from there you can buy the parts from BrickLink or open the{" "}
           <code>.ldr</code> file in BrickLink Studio for its own inventory check.
@@ -43,7 +43,7 @@ export default function HelpCenterPage() {
       </Section>
       <Section title="Will my model actually be physically stable?">
         <p>
-          We can&apos;t guarantee that every generated model will be very physically stable —
+          We can&apos;t guarantee that every generated model will be very physically stable -
           it depends on what you asked for and how thin or overhanging the shape is. What we
           can say is that the vast majority of generated models come out with 100% connectivity
           and few flagged issues on BrickLink Studio&apos;s own stability checker, thanks to a
@@ -54,7 +54,7 @@ export default function HelpCenterPage() {
       </Section>
       <Section title="Still stuck?">
         <p>
-          This is a trial version of BrickForgerAI — support is informal for now, but you can
+          This is a trial version of BrickForgerAI - support is informal for now, but you can
           reach us directly at{" "}
           <a href="mailto:help@brickforgerai.com" style={{ color: "inherit" }}>
             help@brickforgerai.com
