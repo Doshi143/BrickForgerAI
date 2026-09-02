@@ -12,6 +12,7 @@ export type ThemeColors = {
   craterColor: string;
   cloudColor: string;
   mountainColor: string;
+  mountainLit: string;
   mountainFar: string;
   mountainSnow: string;
   hillFar: string;
@@ -46,6 +47,7 @@ export const darkColors: ThemeColors = {
   craterColor: "#a9b3cc",
   cloudColor: "rgba(220,226,240,0.5)",
   mountainColor: "#2c3a5c",
+  mountainLit: "#3f5280",
   mountainFar: "#1c2848",
   mountainSnow: "#c9d3ec",
   hillFar: "#1f3a2c",
@@ -80,6 +82,7 @@ export const lightColors: ThemeColors = {
   craterColor: "#d98a4a",
   cloudColor: "rgba(255,255,255,0.85)",
   mountainColor: "#a4bcd3",
+  mountainLit: "#cfe0ef",
   mountainFar: "#cbdcec",
   mountainSnow: "#ffffff",
   hillFar: "#a8c98a",
@@ -122,17 +125,27 @@ export const birds = [
 // peak: 0-100, the % across the mountain's own width where its tip sits --
 // varied per mountain (not always 50%) so the ridge line reads as a real,
 // irregular range rather than a row of identical symmetric triangles.
+// left: 0-100, the row's own horizontal position -- deliberately spaced
+// closer than each mountain's own width so adjacent triangles overlap
+// (a nearer peak's slope partially covering a neighbor's base), the same
+// layered-range look real mountain photos have, instead of a row of
+// separate, evenly-gapped cones.
 export const mountains = [
-  { w: 70, h: 100, peak: 42 }, { w: 95, h: 150, peak: 58 }, { w: 60, h: 85, peak: 50 }, { w: 105, h: 175, peak: 38 },
-  { w: 75, h: 115, peak: 55 }, { w: 90, h: 140, peak: 46 }, { w: 65, h: 95, peak: 60 }, { w: 100, h: 160, peak: 44 },
-  { w: 70, h: 105, peak: 52 }, { w: 85, h: 130, peak: 40 }, { w: 60, h: 90, peak: 56 },
+  { w: 70, h: 100, peak: 42, left: 1 }, { w: 95, h: 150, peak: 58, left: 7 },
+  { w: 60, h: 85, peak: 50, left: 15 }, { w: 105, h: 175, peak: 38, left: 21 },
+  { w: 75, h: 115, peak: 55, left: 31 }, { w: 90, h: 140, peak: 46, left: 39 },
+  { w: 65, h: 95, peak: 60, left: 49 }, { w: 100, h: 160, peak: 44, left: 56 },
+  { w: 70, h: 105, peak: 52, left: 66 }, { w: 85, h: 130, peak: 40, left: 74 },
+  { w: 60, h: 90, peak: 56, left: 84 }, { w: 78, h: 120, peak: 48, left: 91 },
 ];
 
 // A second, smaller/hazier row rendered behind the main ridge for depth --
 // fewer peaks, no snow caps (distant enough to read as atmospheric haze).
 export const mountainsFar = [
-  { w: 55, h: 70, peak: 48 }, { w: 80, h: 100, peak: 55 }, { w: 65, h: 82, peak: 40 },
-  { w: 90, h: 115, peak: 52 }, { w: 60, h: 75, peak: 58 }, { w: 75, h: 95, peak: 45 },
+  { w: 55, h: 70, peak: 48, left: 4 }, { w: 80, h: 100, peak: 55, left: 14 },
+  { w: 65, h: 82, peak: 40, left: 28 }, { w: 90, h: 115, peak: 52, left: 42 },
+  { w: 60, h: 75, peak: 58, left: 58 }, { w: 75, h: 95, peak: 45, left: 70 },
+  { w: 70, h: 88, peak: 50, left: 84 },
 ];
 
 // Low clusters of 3 overlapping blobs plus a small rock -- scattered among

@@ -58,7 +58,7 @@ export default function Scenery({
               left: 0,
               animation: `birdFly ${b.duration}s linear infinite`,
               animationDelay: `${b.delay}s`,
-              opacity: prominence,
+              opacity: prominence * 0.45,
               display: "grid",
               gridTemplateColumns: "repeat(5, 5px)",
               gridTemplateRows: "repeat(3, 5px)",
@@ -98,39 +98,27 @@ export default function Scenery({
           </div>
         ))}
 
-        <div
-          style={{
-            position: "absolute",
-            bottom: "15%",
-            left: 0,
-            right: 0,
-            height: "18%",
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-around",
-            opacity: prominence * 0.7,
-          }}
-        >
+        <div style={{ position: "absolute", inset: 0, opacity: prominence * 0.7 }}>
           {mountainsFar.map((m, i) => (
-            <Mountain key={`mtn-far-${i}`} m={m} color={colors.mountainFar} />
+            <Mountain
+              key={`mtn-far-${i}`}
+              m={m}
+              color={colors.mountainFar}
+              bottom={14 + groundCurve(m.left, 5)}
+            />
           ))}
         </div>
 
-        <div
-          style={{
-            position: "absolute",
-            bottom: "14%",
-            left: 0,
-            right: 0,
-            height: "22%",
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            opacity: prominence,
-          }}
-        >
+        <div style={{ position: "absolute", inset: 0, opacity: prominence }}>
           {mountains.map((m, i) => (
-            <Mountain key={`mtn-${i}`} m={m} color={colors.mountainColor} snowColor={colors.mountainSnow} />
+            <Mountain
+              key={`mtn-${i}`}
+              m={m}
+              color={colors.mountainColor}
+              lit={colors.mountainLit}
+              snowColor={colors.mountainSnow}
+              bottom={12 + groundCurve(m.left, 7)}
+            />
           ))}
         </div>
 
@@ -216,27 +204,81 @@ const CLOUD_MASK = [
   1, 1, 1, 1, 1, 1, 1, 1,
 ];
 
+// Approximates the grass hill's own elliptical dome silhouette (see hill()
+// below) so a mountain row's baseline rises toward the center and falls
+// toward the edges along the same kind of curve, instead of sitting on a
+// flat line that a curved hill in front of it would otherwise cut across
+// unevenly. `62` mirrors the ~1.4x horizontal stretch hill() applies via
+// scaleX, so the curve's reach roughly matches the grass shape it sits above.
+function groundCurve(leftPct: number, riseAtCenter: number): number {
+  const t = Math.min(1, Math.max(-1, (leftPct - 50) / 62));
+  return riseAtCenter * Math.sqrt(1 - t * t);
+}
+
 // A low-poly ridge peak: a single clip-path triangle whose tip sits at
 // `peak`% across its own width (not always center), so a row of these
-// reads as an irregular mountain range instead of identical cones. The
-// snow cap is a second triangle stacked on the SAME polygon, clipped to
-// just the tip -- its two base corners are computed to fall exactly on
-// the mountain's own two slanted edges (see snowClip below), so the cap's
-// edges always line up with the peak underneath it, at any width/height/
-// peak-offset combination, rather than a fixed-size overlay that only
-// looks right by coincidence on some peaks.
-function Mountain({ m, color, snowColor }: { m: { w: number; h: number; peak: number }; color: string; snowColor?: string }) {
+// reads as an irregular mountain range instead of identical cones. `lit`
+// overlays a second triangle from the peak to the right edge -- the same
+// two-tone technique PineTier uses for its own highlight half -- so each
+// mountain reads as lit on the side facing the sun/moon (fixed at the
+// scene's upper right in both themes) and shadowed on the other. The snow
+// cap is a third shape stacked on top, clipped to the tip; its lower edge
+// is a jagged zigzag (see jaggedEdge) rather than a single straight cut,
+// and its two ends are still computed to land exactly on the mountain's
+// own slanted edges, so it lines up at any width/height/peak combination.
+function Mountain({
+  m,
+  color,
+  lit,
+  snowColor,
+  bottom,
+}: {
+  m: { w: number; h: number; peak: number; left: number };
+  color: string;
+  lit?: string;
+  snowColor?: string;
+  bottom: number;
+}) {
   const bodyClip = `polygon(${m.peak}% 0%, 0% 100%, 100% 100%)`;
-  const snowDepth = 0.32; // fraction of height the cap extends down from the tip
-  const leftX = m.peak * (1 - snowDepth);
-  const rightX = m.peak + (100 - m.peak) * snowDepth;
-  const snowClip = `polygon(${m.peak}% 0%, ${leftX}% ${snowDepth * 100}%, ${rightX}% ${snowDepth * 100}%)`;
+  const litClip = `polygon(${m.peak}% 0%, ${m.peak}% 100%, 100% 100%)`;
+  const snowDepth = 32; // % of height the cap extends down from the tip
+  const leftX = m.peak * (1 - snowDepth / 100);
+  const rightX = m.peak + (100 - m.peak) * (snowDepth / 100);
+  const snowClip = `polygon(${m.peak}% 0%, ${jaggedEdge(leftX, rightX, snowDepth)})`;
   return (
-    <div style={{ position: "relative", width: m.w * 2, height: m.h, flexShrink: 0 }}>
+    <div
+      style={{
+        position: "absolute",
+        left: `${m.left}%`,
+        bottom: `${bottom}%`,
+        transform: "translateX(-50%)",
+        width: m.w * 2,
+        height: m.h,
+      }}
+    >
       <div style={{ position: "absolute", inset: 0, background: color, clipPath: bodyClip }} />
+      {lit && <div style={{ position: "absolute", inset: 0, background: lit, clipPath: litClip }} />}
       {snowColor && <div style={{ position: "absolute", inset: 0, background: snowColor, clipPath: snowClip }} />}
     </div>
   );
+}
+
+// A zigzag path between two fixed endpoints, used as the snow cap's own
+// lower boundary -- alternates between the full melt depth and a
+// shallower one so the rock/snow line reads as jagged and irregular
+// rather than a single straight diagonal cut. Both endpoints stay at the
+// full depth (teeth is even) so the cap still meets the mountain's real
+// slanted edges exactly, the same guarantee the old straight edge had.
+function jaggedEdge(leftX: number, rightX: number, depth: number): string {
+  const teeth = 6;
+  const pts: string[] = [];
+  for (let i = 0; i <= teeth; i++) {
+    const t = i / teeth;
+    const x = leftX + (rightX - leftX) * t;
+    const y = i % 2 === 0 ? depth : depth * 0.55;
+    pts.push(`${x}% ${y}%`);
+  }
+  return pts.join(", ");
 }
 
 // One tapered, two-tone tier of a stacked low-poly pine tree -- a solid
