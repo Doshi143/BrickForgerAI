@@ -2,7 +2,7 @@ import StaticPage, { Section } from "@/components/StaticPage";
 
 export default function PrivacyPage() {
   return (
-    <StaticPage title="Privacy Policy" subtitle="Last updated August 7th, 2026">
+    <StaticPage title="Privacy Policy" subtitle="Last updated September 3rd, 2026">
       <Section title="Overview">
         <p>
           BrickForgerAI (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;) is committed
@@ -47,12 +47,39 @@ export default function PrivacyPage() {
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
           <li>To provide the Service - generating and storing your models, and authenticating your account</li>
           <li>To respond to support requests you send us</li>
-          <li>To improve the Service based on how it&apos;s actually used</li>
+          <li>To understand how the Service is used and improve its functionality, reliability, and performance</li>
           <li>To enforce our Terms of Service, including our content restrictions</li>
         </ul>
         <p style={{ marginTop: 14 }}>
           We do not send marketing emails or newsletters, and we do not use your email address for
-          advertising or audience-targeting purposes of any kind.
+          advertising or audience-targeting purposes of any kind. We also do not use your prompts or
+          the models generated from them to train our own AI models.
+        </p>
+      </Section>
+
+      <Section title="Legal basis for processing">
+        <p>
+          Under the UK GDPR, we need a lawful basis to process your personal data. Depending on the
+          circumstances, we process your information because:
+        </p>
+        <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
+          <li>
+            <strong>Contract:</strong> processing is necessary to provide the Service you request,
+            including creating and storing your account, generating models, and processing purchases.
+          </li>
+          <li>
+            <strong>Legitimate interests:</strong> processing is necessary for our legitimate
+            interests in maintaining, securing, improving, and protecting the Service, provided
+            those interests are not overridden by your rights.
+          </li>
+          <li>
+            <strong>Legal obligations:</strong> where processing is necessary to comply with
+            applicable law.
+          </li>
+        </ul>
+        <p style={{ marginTop: 14 }}>
+          We do not generally rely on consent to process the personal data necessary to provide the
+          Service.
         </p>
       </Section>
 
@@ -90,9 +117,11 @@ export default function PrivacyPage() {
 
       <Section title="Could my information be transferred to other countries?">
         <p>
-          BrickForgerAI is based in the United Kingdom, but the service providers listed above may
-          process or host information outside the UK. By using the Service, you consent to this
-          transfer to the extent permitted by applicable law.
+          BrickForgerAI is based in the United Kingdom. Some of our service providers may process or
+          host information outside the UK. Where personal data is transferred internationally, we
+          take appropriate steps to ensure it receives a level of protection consistent with
+          applicable data protection law, including through adequacy regulations, approved
+          contractual safeguards, or other legally recognised transfer mechanisms where required.
         </p>
       </Section>
 
@@ -120,7 +149,9 @@ export default function PrivacyPage() {
           We do not use cookies. The Service uses your browser&apos;s <strong>local storage</strong>{" "}
           to keep you signed in and remember your preferences (like light/dark mode and your last
           build-size choice) - this data stays on your device and is never included in a request
-          header the way a cookie would be.
+          header the way a cookie would be. If you make a purchase, you&apos;ll be taken to
+          Stripe&apos;s own checkout page to complete it - that page is on Stripe&apos;s domain, not
+          ours, and Stripe&apos;s own cookie and privacy practices apply there.
         </p>
       </Section>
 
@@ -147,6 +178,12 @@ export default function PrivacyPage() {
           or port the data we hold about you. You can exercise any of these rights by contacting us
           at the email below - we&apos;ll respond within one month. We do not sell personal data,
           and we only collect what&apos;s needed to provide the Service.
+        </p>
+        <p style={{ marginTop: 14 }}>
+          You also have the right to lodge a complaint with the UK Information Commissioner&apos;s
+          Office (ICO) if you believe your personal data has been handled unlawfully. We&apos;d
+          appreciate the opportunity to address your concerns first, but you&apos;re free to contact
+          the ICO directly.
         </p>
       </Section>
 
