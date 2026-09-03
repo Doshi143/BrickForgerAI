@@ -16,7 +16,7 @@ import os
 import time
 import traceback
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from dotenv import load_dotenv
@@ -532,6 +532,76 @@ def _backfill_stale_statuses() -> None:
 
 
 _backfill_stale_statuses()
+
+
+# How long a job can sit in a non-terminal status before it's treated as
+# abandoned rather than still legitimately running. Generous relative to
+# process_job's own "easily minutes" runtime and railway.worker.json's
+# drainingSeconds grace period (see that file's own comment) combined --
+# wide enough margin that no genuinely-still-running job should ever be
+# caught by this, only ones truly orphaned by a dead worker.
+_ORPHAN_THRESHOLD_SECONDS = 30 * 60
+
+
+def _recover_orphaned_jobs() -> None:
+    """One-time, idempotent self-healing, same pattern as
+    _backfill_missing_prompts/_backfill_stale_statuses above -- run once
+    per process start (both API and worker import this module), after
+    _backfill_stale_statuses has already reconciled job_index against
+    meta.json, so whatever's left non-terminal here really is stuck (or
+    unreadable), not just stale bookkeeping that already resolved.
+
+    Root cause this fixes: a worker process that dies mid-job (a crash, an
+    OOM kill, or a deploy's SIGKILL arriving before RQ's own warm shutdown
+    -- see worker.py -- can finish it) leaves that job frozen forever in
+    whatever non-terminal status it was last in, with no error and no
+    retry -- confirmed on real production data: two real users' first-ever
+    generations died mid-pipeline when a deploy restarted the worker while
+    their job was running, and neither the app nor the user ever saw
+    anything but an indefinitely spinning "generating...". Increasing
+    railway.worker.json's drainingSeconds gives RQ's existing warm
+    shutdown (which already waits for an in-flight job to finish before
+    exiting -- see rq.worker.Worker._shutdown) a real chance to succeed,
+    but nothing can save a job from a genuine crash or OOM kill (SIGKILL
+    bypasses graceful shutdown entirely, by definition) -- this is the
+    safety net for that case, and for any other reason a worker might
+    disappear mid-job.
+
+    Scoped to jobs whose own meta.json (the actual source of truth for
+    status -- see load_job_meta's own docstring on why job_index isn't)
+    is still non-terminal well past any legitimate runtime for this
+    pipeline -- a job this can't find meta.json for at all is left alone
+    (no evidence either way, same conservative behaviour as the other two
+    backfills above), not marked failed by assumption."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_ORPHAN_THRESHOLD_SECONDS)).isoformat()
+    with auth._connect() as conn:
+        rows = conn.execute(
+            auth._ph("SELECT job_id FROM job_index WHERE status NOT IN (?, ?) AND created_at <= ?"),
+            (JobStatus.DONE.value, JobStatus.FAILED.value, cutoff),
+        ).fetchall()
+    recovered = 0
+    for row in rows:
+        job_id = row["job_id"]
+        try:
+            meta = load_job_meta(job_id)
+        except Exception:
+            logger.warning("orphan recovery: could not load meta for %s", job_id, exc_info=True)
+            continue
+        if meta is None or meta.get("status") in (JobStatus.DONE.value, JobStatus.FAILED.value):
+            continue
+        meta["status"] = JobStatus.FAILED.value
+        meta["error"] = (
+            "This job was interrupted before it could finish (its worker process stopped "
+            "unexpectedly, e.g. during a deploy) and could not be automatically resumed. "
+            "Please try generating again."
+        )
+        _write_job_meta_dict(job_id, meta)
+        recovered += 1
+    if rows:
+        logger.info("orphan recovery: marked %d/%d abandoned non-terminal job(s) as failed", recovered, len(rows))
+
+
+_recover_orphaned_jobs()
 
 
 def _set_status(job: Job, status: JobStatus) -> None:

@@ -9,6 +9,26 @@ Requires REDIS_URL to be set in .env -- there is no local fallback here on
 purpose: if you don't have Redis configured, main.py's generate() falls
 back to running the pipeline in-process via BackgroundTasks instead, and
 this worker has nothing to do.
+
+Graceful shutdown on redeploy: confirmed on real production data that a
+`git push` (Railway auto-redeploys every service on push, worker included)
+landing while a real job was mid-pipeline silently killed it -- no error,
+no retry, the affected user just saw "generating..." forever. RQ's plain
+Worker.work() (used here on Linux -- see WorkerClass below) already
+installs a SIGTERM handler that does a WARM shutdown by default: on the
+first SIGTERM it stops accepting new jobs but waits for the current one to
+actually finish before exiting (rq.worker.Worker._shutdown); nothing in
+this file has to implement that. The only reason it didn't save the two
+real jobs above is that Railway's default drainingSeconds (the gap between
+SIGTERM and the hard SIGKILL that follows) is far shorter than this
+pipeline's own "easily minutes" runtime -- see railway.worker.json, now
+set generously so RQ's existing warm shutdown gets a real chance to
+finish an in-flight job instead of racing a hard kill it can never win.
+That still can't save a job from a genuine crash or OOM (SIGKILL bypasses
+graceful shutdown by definition, no signal handler runs) -- app/jobs.py's
+_recover_orphaned_jobs() is the safety net for that case, run once at
+import time by this process (and the API process) to reclaim anything a
+previous worker abandoned mid-job.
 """
 from __future__ import annotations
 
