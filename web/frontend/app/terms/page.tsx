@@ -2,7 +2,7 @@ import StaticPage, { Section } from "@/components/StaticPage";
 
 export default function TermsPage() {
   return (
-    <StaticPage title="Terms of Service" subtitle="Last updated August 7th, 2026">
+    <StaticPage title="Terms of Service" subtitle="Last updated September 3rd, 2026">
       <Section title="General terms">
         <p>
           By accessing or using BrickForgerAI (&ldquo;we,&rdquo; &ldquo;us,&rdquo; the
@@ -51,7 +51,7 @@ export default function TermsPage() {
 
       <Section title="Credits and plans">
         <p>
-          The Free plan includes 5 model generations a month. Builder includes 12, with
+          The Free plan includes 3 model generations a month. Builder includes 12, with
           instructions unlocks included free on every generation, for £9/month. Master Builder
           includes 30, also with instructions included, for £20/month. Unused credits do not roll
           over between months. Any signed-in user, on any plan, can also buy a one-off top-up of

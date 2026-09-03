@@ -27,9 +27,9 @@ const PLANS: Plan[] = [
     name: "Free",
     price: "£0",
     priceNote: "forever",
-    credits: "5 build credits a month",
+    credits: "3 build credits a month",
     features: [
-      "5 model generations a month",
+      "3 model generations a month",
       "Full 3D preview with real colors",
       ".ldr file + parts list + PDF build guide: pay per model, £5–£15 (based on size)",
     ],

@@ -1,5 +1,5 @@
 """Accounts: signup/login, and the credit balance the pricing plans are
-built around (10/month free, 30/month pro -- see PLAN_CREDITS below).
+built around (3/month free, 30/month pro -- see PLAN_CREDITS below).
 
 SQLite, not a real database server, for the same reason the job store is
 in-memory-plus-JSON: this is a trial app, not a production deployment (see
@@ -165,7 +165,7 @@ RESET_TOKEN_TTL_MINUTES = 60
 # Prices in billing.py's PRICE_IDS -- the two dicts must stay in sync, but
 # live in separate modules deliberately (this one has no Stripe
 # dependency, so local dev/tests that never touch billing still work).
-PLAN_CREDITS = {"free": 5, "builder": 12, "pro": 30}
+PLAN_CREDITS = {"free": 3, "builder": 12, "pro": 30}
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
