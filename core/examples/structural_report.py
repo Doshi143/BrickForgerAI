@@ -2,13 +2,18 @@
 models and export a stability heatmap LDR next to each one (green = OK,
 yellow = single point of failure, red = floating / overloaded connection).
 
-Repair is bridge-then-refill-then-prune: bridge_unstable connects an
-ungrounded region with a hidden interior pillar wherever the model's own
-original solid silhouette allows one (mesh-derived models only -- see
+Repair is bridge-then-refill-then-ground_bridge: bridge_unstable connects
+an ungrounded region with a hidden interior pillar wherever the model's
+own original solid silhouette allows one (mesh-derived models only -- see
 mesh_to_model_full's solid_grid); refill_enclosed_holes patches back any
 single removed cell that's now boxed in on all sides by what's left;
-whatever still can't be connected or refilled stays pruned. See
-CLAUDE.md / structure/bridge.py and structure/refill.py for why each step
+whatever still can't be connected or refilled stays pruned. Then
+bridge_disconnected_pieces handles the one case that pass deliberately
+never touches: two (or more) regions that are each independently
+grounded but never physically connected to EACH OTHER -- correctly not a
+fall risk (so bridge_unstable/prune_unstable leave them alone), but still
+not one buildable model. See CLAUDE.md / structure/bridge.py,
+structure/refill.py, and structure/ground_bridge.py for why each step
 exists and what it does and doesn't guarantee.
 
 Run:
@@ -25,6 +30,7 @@ from brickforge.pipeline.surface_refine import substitute_tiles
 from brickforge.snot import place_in_frame, snot_frame_for_brick
 from brickforge.structure import (
     analyze,
+    bridge_disconnected_pieces,
     bridge_unstable,
     build_heatmap_model,
     refill_enclosed_holes,
@@ -48,14 +54,17 @@ def report_and_save(model, name: str, solid_grid=None) -> None:
 
     bridged = bridge_unstable(model, solid_grid=solid_grid)
     refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-    structurally_sound = refilled.model
+    ground_bridged = bridge_disconnected_pieces(refilled.model)
+    structurally_sound = ground_bridged.model
 
-    if bridged.added or bridged.removed or refilled.refilled:
+    if bridged.added or bridged.removed or refilled.refilled or ground_bridged.added:
         report_after = analyze(structurally_sound)
         print(
             f"--- {name} (after repair: +{len(bridged.added)} hidden pillar part(s), "
             f"-{len(bridged.removed)} unbridgeable part(s) pruned, "
-            f"+{len(refilled.refilled)} of those cells refilled as enclosed holes) ---"
+            f"+{len(refilled.refilled)} of those cells refilled as enclosed holes, "
+            f"+{len(ground_bridged.added)} ground-to-ground connector plate(s), "
+            f"{len(ground_bridged.unresolved_pieces)} disconnected piece(s) still unresolved) ---"
         )
         print(summarize(report_after))
         repaired_path = OUT_DIR / f"{name}_repaired.ldr"

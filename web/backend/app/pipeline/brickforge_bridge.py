@@ -25,7 +25,13 @@ from brickforge.pipeline.mesh_to_model import mesh_to_model_full
 from brickforge.pipeline.slopes import substitute_staircase_slopes
 from brickforge.pipeline.surface_refine import substitute_tiles
 from brickforge.pipeline.symmetry import detect_mirror_plane, enforce_symmetry
-from brickforge.structure import analyze, bridge_unstable, close_enclosed_voids, refill_enclosed_holes
+from brickforge.structure import (
+    analyze,
+    bridge_disconnected_pieces,
+    bridge_unstable,
+    close_enclosed_voids,
+    refill_enclosed_holes,
+)
 
 from .instructions_pdf import render_instructions_pdf
 from .mesh_conditioning import strip_base_slab
@@ -191,7 +197,16 @@ def mesh_to_ldr(
         was_repaired = True
         bridged = bridge_unstable(model, solid_grid=result.solid_grid)
         refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-        model = refilled.model
+        # bridge_unstable/refill only ever act on a region with NO ground
+        # contact of its own (find_bricks_outside_main_component -- see
+        # that function's own docstring) -- a real, separate gap:
+        # bridge_disconnected_pieces handles the complementary case, two
+        # (or more) regions that are each independently grounded but
+        # never physically connected to EACH OTHER, correctly not touched
+        # by the pass above since neither is at fall risk, but still not
+        # one buildable model (see structure/ground_bridge.py).
+        ground_bridged = bridge_disconnected_pieces(refilled.model)
+        model = ground_bridged.model
         report = analyze(model)
 
     # Unconditional, not gated on was_repaired: refill_enclosed_holes only
@@ -222,7 +237,8 @@ def mesh_to_ldr(
         was_repaired = True
         bridged = bridge_unstable(refined, solid_grid=result.solid_grid)
         refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-        refined = refilled.model
+        ground_bridged = bridge_disconnected_pieces(refilled.model)
+        refined = ground_bridged.model
         final_report = analyze(refined)
 
     # Symmetry enforcement runs LAST, after slopes/tiles, not before --
@@ -248,7 +264,8 @@ def mesh_to_ldr(
                 was_repaired = True
                 bridged = bridge_unstable(candidate, solid_grid=result.solid_grid)
                 refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-                candidate = refilled.model
+                ground_bridged = bridge_disconnected_pieces(refilled.model)
+                candidate = ground_bridged.model
                 candidate_report = analyze(candidate)
             refined = candidate
             final_report = candidate_report

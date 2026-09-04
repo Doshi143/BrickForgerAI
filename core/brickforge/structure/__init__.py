@@ -1,5 +1,6 @@
 from .bridge import BridgeResult, bridge_unstable
 from .graph import GROUND, build_connectivity_graph
+from .ground_bridge import GroundBridgeResult, bridge_disconnected_pieces
 from .heatmap import build_heatmap_model, classify_bricks
 from .load import LoadResult, estimate_brick_weight, propagate_gravity_load
 from .refill import RefillResult, VoidCloseResult, close_enclosed_voids, refill_enclosed_holes
@@ -10,12 +11,14 @@ from .weakpoints import find_articulation_points, find_bridges, find_disconnecte
 __all__ = [
     "GROUND",
     "BridgeResult",
+    "GroundBridgeResult",
     "LoadResult",
     "PruneResult",
     "RefillResult",
     "StabilityReport",
     "VoidCloseResult",
     "analyze",
+    "bridge_disconnected_pieces",
     "bridge_unstable",
     "build_connectivity_graph",
     "build_heatmap_model",
