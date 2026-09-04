@@ -83,7 +83,15 @@ export default function Viewer3D({
     // looking UP at its underside, not above it looking down. +260, not
     // -260, is the fix -- same sign correction applied to frameObject and
     // the key light below.
-    camera.position.set(300, 260, 300);
+    //
+    // X/Z were also both flipped to negative (a second, separate reported
+    // issue): the model's own front consistently faces away from a
+    // positive-X/Z camera, so both the default interactive view and the
+    // auto-captured thumbnail (onRendered, which fires right after
+    // frameObject positions the camera -- see below) were showing the
+    // back of the build. Height/elevation (the Y offset) is unaffected,
+    // this is a pure 180-degree turn around the model.
+    camera.position.set(-300, 260, -300);
 
     // preserveDrawingBuffer: the onRendered screenshot capture below reads
     // the canvas via toDataURL() right after a render call -- without this
@@ -99,10 +107,10 @@ export default function Viewer3D({
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
-    key.position.set(200, 400, 300); // genuinely above, post-flip (see camera comment above)
+    key.position.set(-200, 400, -300); // genuinely above, post-flip (see camera comment above); X/Z match the camera's own 180-degree turn so the now-front-facing side stays key-lit, not thrown into shadow
     scene.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.4);
-    fill.position.set(-200, 100, -200);
+    fill.position.set(200, 100, 200);
     scene.add(fill);
 
     function frameObject(object3d: THREE.Object3D) {
@@ -111,7 +119,13 @@ export default function Viewer3D({
       const center = box.getCenter(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
       const dist = maxDim * 1.8;
-      camera.position.set(center.x + dist, center.y + dist, center.z + dist);
+      // Negative X/Z (not positive) -- see the initial camera.position
+      // comment above for why: this is what actually determines both the
+      // default interactive angle and the auto-captured thumbnail for
+      // every real model (this runs once the model's own real bounding
+      // box is known, overriding the placeholder position set before
+      // load).
+      camera.position.set(center.x - dist, center.y + dist, center.z - dist);
       controls.target.copy(center);
       camera.near = dist / 100;
       camera.far = dist * 100;
