@@ -55,34 +55,69 @@ class StubImageGenClient(ImageGenClient):
         )
 
 
+# gpt-image-1 is capped at 5 images/minute at Tier 1 (confirmed directly
+# against the real OpenAI project limits page, not assumed) -- a hard,
+# per-project ceiling shared across every gpt-image-* model, not a soft
+# one: OpenAI returns 429 rather than queueing. With only one worker this
+# was never actually reachable (the rest of the pipeline is slow enough
+# that 5/minute was never the bottleneck), but a launch-day traffic spike
+# -- especially with multiple worker replicas making concurrent requests --
+# makes it a real one: more than 5 people generating within the same
+# minute means someone gets a 429. Previously that propagated straight up
+# through process_job's generic except-Exception handler as an outright
+# job failure with a raw HTTP error message, on literally the very first
+# pipeline step of a brand new user's very first prompt. Retrying instead
+# of failing outright is a small, contained fix for a real, likely-to-fire
+# failure mode, not speculative hardening.
+_MAX_RATE_LIMIT_RETRIES = 5
+_DEFAULT_RETRY_AFTER_SECONDS = 15  # ~5/minute means a slot frees up roughly every 12s
+
+
 class OpenAIImageClient(ImageGenClient):
     def __init__(self, api_key: str):
         self.api_key = api_key
 
     def generate(self, prompt: str, out_path: str) -> str:
         import base64
+        import time
+
         import requests
 
-        response = requests.post(
-            "https://api.openai.com/v1/images/generations",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": "gpt-image-1",
-                "prompt": prompt,
-                "size": "1024x1024",
-                "n": 1,
-            },
-            timeout=120,
-        )
-        if not response.ok:
-            raise RuntimeError(
-                f"OpenAI image generation failed ({response.status_code}): {response.text}"
+        for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
+            response = requests.post(
+                "https://api.openai.com/v1/images/generations",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": "gpt-image-1",
+                    "prompt": prompt,
+                    "size": "1024x1024",
+                    "n": 1,
+                },
+                timeout=120,
             )
-        data = response.json()
-        b64 = data["data"][0]["b64_json"]
-        with open(out_path, "wb") as f:
-            f.write(base64.b64decode(b64))
-        return out_path
+            if response.status_code == 429 and attempt < _MAX_RATE_LIMIT_RETRIES:
+                # Respect OpenAI's own Retry-After header when present --
+                # it reflects the real state of this project's shared
+                # 5-images/minute window, not a guess.
+                try:
+                    wait_s = float(response.headers.get("Retry-After", _DEFAULT_RETRY_AFTER_SECONDS))
+                except ValueError:
+                    wait_s = _DEFAULT_RETRY_AFTER_SECONDS
+                time.sleep(max(wait_s, 1.0))
+                continue
+            if not response.ok:
+                raise RuntimeError(
+                    f"OpenAI image generation failed ({response.status_code}): {response.text}"
+                )
+            data = response.json()
+            b64 = data["data"][0]["b64_json"]
+            with open(out_path, "wb") as f:
+                f.write(base64.b64decode(b64))
+            return out_path
+
+        raise RuntimeError(
+            f"OpenAI image generation rate-limited after {_MAX_RATE_LIMIT_RETRIES} retries"
+        )
 
 
 def get_image_client() -> ImageGenClient:
