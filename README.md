@@ -53,3 +53,10 @@ analysis + repair) are done and tested. Phase 3 (surface refinement —
 tiles, two slope tiers) is in progress. The trial web app in `web/` is an
 early Phase 4/5 slice (no payments, no persistent job queue yet). See
 `CLAUDE.md` for exactly what's been measured and what's still open.
+
+## License
+
+Source-available, not open-source: no license is granted, all rights
+reserved. This code is public for visibility, not for reuse, modification,
+or redistribution. (LDraw part geometry remains separately licensed under
+CCAL 2.0 — see above.)
