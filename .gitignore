@@ -35,6 +35,16 @@ CLAUDE.md
 DESIGN.md
 HANDOFF.md
 
+# Operational docs -- no secrets in them (values are never written down,
+# only var names/purposes), but they map the whole production infra
+# (every env var name the app reads, which services exist, where to log
+# into them) for free reconnaissance value with zero upside to a public
+# reader. Kept locally, not tracked going forward -- same history caveat
+# as the build-history docs above applies here too.
+web/DEPLOYMENT.md
+web/DEPLOYMENT_ENV.md
+web/OPERATIONS.md
+
 # Secrets -- real .env files carry live API keys and must never be
 # committed. .env.example (the template, no real values) is intentionally
 # still tracked.
