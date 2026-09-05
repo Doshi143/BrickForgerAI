@@ -6,25 +6,30 @@ it won't fall apart, refines the surface with slopes and tiles, and
 exports a `.ldr` file plus a parts list — built from real, purchasable
 brick/plate/tile/slope parts, not an abstraction.
 
+Live at [brickforgerai.com](https://brickforgerai.com).
+
 Not affiliated with, endorsed, or sponsored by the LEGO Group. Part
 geometry comes from the [LDraw](https://www.ldraw.org/) parts library,
 licensed under CCAL 2.0.
 
-## Layout
+## Contents
 
-```
-core/     brickforge — the actual pipeline (voxelize → shell → color-quantize
-          → legalize → structural repair → surface refinement → LDR), as a
-          standalone, tested Python library + CLI.
-web/      A trial Next.js frontend + FastAPI backend wiring that pipeline to
-          image generation and mesh reconstruction, with accounts, credits,
-          and a pricing model. See web/README.md to run it.
-viewer/   A standalone three.js LDR viewer (drag-and-drop any .ldr/.mpd file).
-```
+- [Repo layout](#repo-layout)
+- [Quickstart: the core pipeline](#quickstart-the-core-pipeline)
+- [Quickstart: the trial web app](#quickstart-the-trial-web-app)
+- [Status](#status)
+- [License](#license)
 
-`DESIGN.md` has the full architecture, algorithm references, and roadmap.
-`CLAUDE.md` has the detailed build history — what's been tried, measured,
-and fixed, and why — kept current as work progresses.
+## Repo layout
+
+| Path | What's there |
+|---|---|
+| `core/` | `brickforge` — the actual pipeline (voxelize → shell → color-quantize → legalize → structural repair → surface refinement → LDR), a standalone, tested Python library + CLI. |
+| `core/brickforge/` | The library: lattice + part catalog, pipeline stages, structural analysis/repair, SNOT (sideways-building) placement. |
+| `core/examples/` | Runnable scripts that produce the example models/reports referenced above. |
+| `core/tests/` | Full pytest suite. |
+| `web/` | The live Next.js frontend + FastAPI backend behind brickforgerai.com — accounts, credits, Stripe billing, a Redis/RQ job queue, wired to image/mesh generation and the `core` pipeline. See [`web/README.md`](web/README.md). |
+| `viewer/` | A standalone three.js LDR viewer (drag-and-drop any `.ldr`/`.mpd` file). |
 
 ## Quickstart: the core pipeline
 
@@ -48,11 +53,12 @@ brickforge stage itself runs with neither, against a bundled test mesh.
 
 ## Status
 
-Phases 0–2 (lattice/catalog/LDR export, the legalizer, and structural
-analysis + repair) are done and tested. Phase 3 (surface refinement —
-tiles, two slope tiers) is in progress. The trial web app in `web/` is an
-early Phase 4/5 slice (no payments, no persistent job queue yet). See
-`CLAUDE.md` for exactly what's been measured and what's still open.
+Phases 0–3 (lattice/catalog/LDR export, the legalizer, structural analysis
++ repair, and surface refinement — tiles plus two slope tiers) are done and
+tested. SNOT (sideways/side-stud building) is in active development. The
+web app in `web/` is live in production at brickforgerai.com — real Stripe
+payments, a persistent Redis/RQ job queue, and real users, not a local-only
+trial.
 
 ## License
 
