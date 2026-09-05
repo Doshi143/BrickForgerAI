@@ -54,7 +54,7 @@ def report_and_save(model, name: str, solid_grid=None) -> None:
 
     bridged = bridge_unstable(model, solid_grid=solid_grid)
     refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-    ground_bridged = bridge_disconnected_pieces(refilled.model)
+    ground_bridged = bridge_disconnected_pieces(refilled.model, solid_grid=solid_grid)
     structurally_sound = ground_bridged.model
 
     if bridged.added or bridged.removed or refilled.refilled or ground_bridged.added:

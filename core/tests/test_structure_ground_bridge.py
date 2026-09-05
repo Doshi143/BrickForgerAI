@@ -1,6 +1,7 @@
 import pytest
 
-from brickforge import Model, PartCatalog
+from brickforge import Model, PartCatalog, Rotation
+from brickforge.pipeline.grid import VoxelGrid
 from brickforge.structure import analyze, bridge_disconnected_pieces
 
 RED = 4
@@ -105,3 +106,86 @@ def test_already_single_piece_model_is_left_untouched(catalog):
     assert result.added == []
     assert result.unresolved_pieces == []
     assert len(result.model) == len(model)
+
+
+def test_overhang_with_its_own_grounded_leg_is_bridged_by_a_hidden_pillar(catalog):
+    # The real-world case the lateral weld alone can't reach: main is a
+    # trunk with a wide "roof" plate cantilevered out over column (1, 0);
+    # stray is a short leg, independently grounded at that SAME column,
+    # too short to touch the roof directly (a 2-plate vertical gap). No
+    # single connector plate can span this -- it's not lateral adjacency
+    # at all, it's a straight vertical reach, exactly the hidden-pillar
+    # fallback this module gained to handle overhanging segments.
+    model = Model(catalog=catalog)
+    model.place("3024", RED, 0, 0, 0)  # trunk, column (0, 0)
+    model.place("3024", RED, 0, 1, 0)  # trunk continues
+    model.place("3024", RED, 0, 2, 0)  # trunk top = 3
+    model.place("3023", RED, 0, 3, 0, rotation=Rotation.YAW_0)  # roof: spans (0,0)-(1,0) at y=3
+    model.place("3024", RED, 1, 0, 0)  # stray: independently grounded leg, column (1, 0), top = 1
+
+    report_before = analyze(model)
+    assert report_before.is_single_piece is False
+    assert len(report_before.components) == 2
+
+    result = bridge_disconnected_pieces(model)
+
+    assert result.unresolved_pieces == []
+    assert len(result.added) >= 1
+    # A lateral weld can't produce this: the leg's own column is entirely
+    # shadowed by the taller roof in _column_tops, so a real vertical
+    # pillar must have fired instead.
+    assert all(b.part.id in ("3024", "3022") for b in result.added)
+
+    report_after = analyze(result.model)
+    assert report_after.is_single_piece is True
+    assert report_after.critical_bricks == set()
+
+
+def test_single_hop_elbow_bridges_a_leg_that_a_straight_pillar_cannot_reach(catalog):
+    # Stray's own column (2, 0) never lines up with any of main's material
+    # (columns 0 and 1 only) -- no straight pillar in stray's own column
+    # can ever find main, so this only resolves via the elbow: one hop
+    # sideways into column (1, 0) (empty there below the roof), then a
+    # short straight run up to the roof's own extension cell.
+    model = Model(catalog=catalog)
+    model.place("3024", RED, 0, 0, 0)  # trunk
+    model.place("3024", RED, 0, 1, 0)
+    model.place("3024", RED, 0, 2, 0)  # trunk top = 3
+    model.place("3023", RED, 0, 3, 0, rotation=Rotation.YAW_0)  # roof: spans (0,0)-(1,0) at y=3
+    model.place("3024", RED, 2, 0, 0)  # stray: grounded leg, column (2, 0), not adjacent to column 0
+
+    result = bridge_disconnected_pieces(model)
+
+    assert result.unresolved_pieces == []
+    assert len(result.added) == 2  # one elbow plate + one straight continuation cell
+    assert any(b.part.id == "3023" for b in result.added)  # the elbow itself
+
+    report_after = analyze(result.model)
+    assert report_after.is_single_piece is True
+    assert report_after.critical_bricks == set()
+
+
+def _solid_column(nx: int, ny: int, nz: int, solid_xz: set[tuple[int, int]]) -> VoxelGrid:
+    grid = VoxelGrid.empty(nx, ny, nz)
+    for x, z in solid_xz:
+        grid.occupied[x, :, z] = True
+    return grid
+
+
+def test_solid_grid_blocks_a_hidden_pillar_that_would_poke_through_open_air(catalog):
+    # Same shape as the straight-pillar success case above, but column
+    # (1, *) is NOT part of the mesh's original solid silhouette anywhere
+    # -- a pillar there would be a visible pole through open air, not a
+    # hidden brace, so this must stay unresolved rather than add one.
+    model = Model(catalog=catalog)
+    model.place("3024", RED, 0, 0, 0)
+    model.place("3024", RED, 0, 1, 0)
+    model.place("3024", RED, 0, 2, 0)
+    model.place("3023", RED, 0, 3, 0, rotation=Rotation.YAW_0)
+    model.place("3024", RED, 1, 0, 0)  # stray leg, column (1, 0)
+    solid_grid = _solid_column(5, 6, 5, {(0, 0)})  # only the trunk's own column is "solid"
+
+    result = bridge_disconnected_pieces(model, solid_grid=solid_grid)
+
+    assert result.added == []
+    assert len(result.unresolved_pieces) == 1

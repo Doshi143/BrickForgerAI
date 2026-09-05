@@ -205,7 +205,7 @@ def mesh_to_ldr(
         # never physically connected to EACH OTHER, correctly not touched
         # by the pass above since neither is at fall risk, but still not
         # one buildable model (see structure/ground_bridge.py).
-        ground_bridged = bridge_disconnected_pieces(refilled.model)
+        ground_bridged = bridge_disconnected_pieces(refilled.model, solid_grid=result.solid_grid)
         model = ground_bridged.model
         report = analyze(model)
 
@@ -237,7 +237,7 @@ def mesh_to_ldr(
         was_repaired = True
         bridged = bridge_unstable(refined, solid_grid=result.solid_grid)
         refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-        ground_bridged = bridge_disconnected_pieces(refilled.model)
+        ground_bridged = bridge_disconnected_pieces(refilled.model, solid_grid=result.solid_grid)
         refined = ground_bridged.model
         final_report = analyze(refined)
 
@@ -264,7 +264,7 @@ def mesh_to_ldr(
                 was_repaired = True
                 bridged = bridge_unstable(candidate, solid_grid=result.solid_grid)
                 refilled = refill_enclosed_holes(bridged.model, removed=bridged.removed)
-                ground_bridged = bridge_disconnected_pieces(refilled.model)
+                ground_bridged = bridge_disconnected_pieces(refilled.model, solid_grid=result.solid_grid)
                 candidate = ground_bridged.model
                 candidate_report = analyze(candidate)
             refined = candidate
