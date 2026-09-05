@@ -56,19 +56,25 @@ camera.position.set(300, -260, 300); // LDraw is -Y-up; a positive-Y camera look
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, -60, 0);
 controls.update();
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const key = new THREE.DirectionalLight(0xffffff, 1.2);
+scene.add(new THREE.HemisphereLight(0xd7e6ff, 0x35291d, 0.55));
+const key = new THREE.DirectionalLight(0xfff2df, 2.0);
 key.position.set(200, -400, 300); // "above" in LDraw's -Y-up space
 scene.add(key);
-const fill = new THREE.DirectionalLight(0xffffff, 0.4);
+const fill = new THREE.DirectionalLight(0xcfe0ff, 0.5);
 fill.position.set(-200, 100, -200);
 scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+rim.position.set(-250, -150, 250);
+scene.add(rim);
 
 let modelGroup = null;
 

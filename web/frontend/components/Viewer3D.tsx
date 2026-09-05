@@ -99,19 +99,40 @@ export default function Viewer3D({
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    // ACES filmic tone mapping + a touch of extra exposure is what actually
+    // makes LDraw's saturated plastic colors "pop" instead of reading flat --
+    // without it, three's default NoToneMapping just clips bright highlights
+    // to white instead of rolling off, which is what made molded studs and
+    // glossy surfaces look washed out rather than glossy.
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     mount.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 60, 0);
     controls.update();
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const key = new THREE.DirectionalLight(0xffffff, 1.2);
+    // Hemisphere light replaces the old flat AmbientLight -- a soft
+    // sky/ground gradient reads as more natural ambient than a single flat
+    // fill color, and keeps shadow sides from going fully dead/grey.
+    scene.add(new THREE.HemisphereLight(0xd7e6ff, 0x35291d, 0.55));
+    // Warm-tinted key + cool-tinted fill (classic three-point lighting) --
+    // the color contrast between them is what gives bricks visible form and
+    // makes adjacent LDraw colors separate from each other instead of
+    // reading as one flat wash under pure-white light.
+    const key = new THREE.DirectionalLight(0xfff2df, 2.0);
     key.position.set(-200, 400, -300); // genuinely above, post-flip (see camera comment above); X/Z match the camera's own 180-degree turn so the now-front-facing side stays key-lit, not thrown into shadow
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.4);
+    const fill = new THREE.DirectionalLight(0xcfe0ff, 0.5);
     fill.position.set(200, 100, 200);
     scene.add(fill);
+    // Rim light from the opposite side of the key, catching edges the key
+    // and fill both miss -- separates the model from the background and
+    // adds the glossy-plastic edge highlight real LEGO photography has.
+    const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+    rim.position.set(250, 150, -250);
+    scene.add(rim);
 
     function frameObject(object3d: THREE.Object3D) {
       const box = new THREE.Box3().setFromObject(object3d);
