@@ -23,9 +23,17 @@ Thumbs.db
 # left on disk, just not tracked.
 *.io
 
-# Claude Code local (machine-specific, not for sharing)
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
+# Claude Code local tooling config -- dev-only, not product content.
+.claude/
+
+# Internal build-history/planning docs -- candid, detailed writeups of the
+# proprietary brick-placement/structural-repair engine and unreleased
+# roadmap thinking (kept locally, not tracked going forward now that this
+# repo may go public). Note: their content still exists in past commits --
+# untracking here doesn't scrub git history.
+CLAUDE.md
+DESIGN.md
+HANDOFF.md
 
 # Secrets -- real .env files carry live API keys and must never be
 # committed. .env.example (the template, no real values) is intentionally
