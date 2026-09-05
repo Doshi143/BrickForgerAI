@@ -261,6 +261,8 @@ export default function Home() {
             constantly improving stability, connectivity, and adding new building techniques
             (including sideways building, aka SNOT). Most generated models come out with 100%
             connectivity and few flagged issues on BrickLink Studio&apos;s stability checker.
+            Right now it&apos;s strongest on organic shapes (animals, plants, sculptural forms) -
+            and the more specific your prompt, the better the result.
           </p>
         </div>
 
