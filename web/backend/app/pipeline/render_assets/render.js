@@ -84,15 +84,31 @@ function init() {
 
   renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(1000, 800);
+  // Same ACES filmic tone mapping + exposure bump ported from Viewer3D.tsx
+  // (the interactive preview) -- without it, LDraw's saturated plastic
+  // colors clip to flat white highlights instead of rolling off, which is
+  // exactly as visible compressed into a PDF screenshot as it was live.
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
   document.getElementById("mount").appendChild(renderer.domElement);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const key = new THREE.DirectionalLight(0xffffff, 1.2);
-  key.position.set(200, -400, 300);
+  // Hemisphere ambient + warm-key/cool-fill/rim three-point setup, same
+  // upgrade as Viewer3D.tsx -- but NOT the same light positions: that
+  // file's camera and this one's VIEW_DIRECTION (below) face the model
+  // from different corners, so the key light here is aimed to match
+  // *this* file's own camera direction instead, or the "richer" lighting
+  // would key-light the side the camera can't even see.
+  scene.add(new THREE.HemisphereLight(0xd7e6ff, 0x35291d, 0.55));
+  const key = new THREE.DirectionalLight(0xfff2df, 2.0);
+  key.position.set(300, 500, 300); // aligned with VIEW_DIRECTION below, so the camera-facing side is the lit one
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.4);
-  fill.position.set(-200, 100, -200);
+  const fill = new THREE.DirectionalLight(0xcfe0ff, 0.5);
+  fill.position.set(-200, 100, -200); // opposite side from the camera, unchanged from before
   scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+  rim.position.set(-300, 400, 300); // edge highlight from the side key+fill both miss
+  scene.add(rim);
 
   loader = new LDrawLoader();
   loader.smoothNormals = true;
