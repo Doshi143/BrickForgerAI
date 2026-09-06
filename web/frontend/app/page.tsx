@@ -333,7 +333,7 @@ function Footer({ colors }: { colors: ThemeColors }) {
     <div style={{ padding: "60px 48px 40px", borderTop: `1px solid ${colors.cardBorder}`, background: colors.ctaBg }}>
       <div
         className="footer-grid"
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 40, maxWidth: 1100, margin: "0 auto" }}
+        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 40, maxWidth: 1100, margin: "0 auto" }}
       >
         <div>
           <div
@@ -369,8 +369,7 @@ function Footer({ colors }: { colors: ThemeColors }) {
             <FooterLink href="/privacy">Privacy Policy</FooterLink>
           </div>
         </div>
-        <div>
-          <div style={{ fontWeight: 700, color: colors.textPrimary, marginBottom: 14 }}>Featured on</div>
+        <div style={{ gridColumn: "2 / 4", marginTop: 20 }}>
           <a
             href="https://www.producthunt.com/products/brickforgerai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-brickforgerai"
             target="_blank"
