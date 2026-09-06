@@ -6,7 +6,7 @@ export default function HelpCenterPage() {
     <StaticPage title="Help Center" subtitle="Common questions about building with BrickForgerAI.">
       <Section title="How many credits do I get?">
         <p>
-          Free accounts get 3 build credits a month, Builder gets 12, and Master Builder gets 30.
+          Starter gets 3 build credits a month, Builder gets 12, and Master Builder gets 30.
           One credit is used each time you generate a model. Credits reset at the start of each
           calendar month, and you can always buy +5 credits for £6 on top of your current plan.
           See the <Link href="/pricing">Pricing</Link> page for full plan details.
@@ -19,8 +19,8 @@ export default function HelpCenterPage() {
           paying anything. &ldquo;Instructions&rdquo; is the downloadable <code>.ldr</code> file,
           full parts list, and a step-by-step PDF build guide - walking through the model
           bottom-up, layer by layer, with the new pieces for each step called out - included
-          automatically on the Builder and Master Builder plans, or available as a one-time
-          purchase (£5–£15, based on model size) on the Free plan. You can also open the{" "}
+          automatically on every current plan (Starter, Builder, and Master Builder). You can
+          also open the{" "}
           <code>.ldr</code> file in BrickLink Studio (free, search &ldquo;BrickLink Studio
           download&rdquo;) to check the parts list against real BrickLink inventory.
         </p>

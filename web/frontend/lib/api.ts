@@ -34,7 +34,7 @@ export type Job = {
   is_published: boolean;
 };
 
-export type Plan = "free" | "builder" | "pro";
+export type Plan = "free" | "starter" | "builder" | "pro";
 
 export type AuthUser = {
   id: string;
@@ -137,10 +137,13 @@ export async function unlockInstructions(jobId: string, token: string): Promise<
   return res.json();
 }
 
-/** Free -> Builder/Master Builder, or a change between the two. Returns a
+/** Starter -> Builder/Master Builder, or a change between any of the three. Returns a
  * Stripe Checkout URL -- the plan change itself happens from the backend's
  * webhook once Stripe confirms payment, not immediately on this call. */
-export async function startPlanCheckout(plan: "builder" | "pro", token: string): Promise<{ checkout_url: string }> {
+export async function startPlanCheckout(
+  plan: "starter" | "builder" | "pro",
+  token: string
+): Promise<{ checkout_url: string }> {
   const res = await fetch(`${API_BASE}/billing/checkout`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

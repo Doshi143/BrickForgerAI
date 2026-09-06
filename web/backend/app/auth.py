@@ -165,7 +165,30 @@ RESET_TOKEN_TTL_MINUTES = 60
 # Prices in billing.py's PRICE_IDS -- the two dicts must stay in sync, but
 # live in separate modules deliberately (this one has no Stripe
 # dependency, so local dev/tests that never touch billing still work).
-PLAN_CREDITS = {"free": 3, "builder": 12, "pro": 30}
+PLAN_CREDITS = {"free": 3, "starter": 3, "builder": 12, "pro": 30}
+
+# Off by default -- a plain code constant, not a Railway env var, so this
+# is a one-line revert with a normal commit + push (Railway auto-redeploys
+# on push), same "just ask Claude" pattern as MAINTENANCE_MODE in main.py.
+# True restores the original behavior exactly: every new signup gets
+# PLAN_CREDITS["free"] credits immediately, no payment needed. False
+# (current) means a brand new signup gets an account but 0 credits, and
+# must subscribe to Starter (or any paid plan) before generating anything
+# -- see create_user's own comment for where this is actually checked.
+OFFER_FREE_TIER_TO_NEW_SIGNUPS = False
+
+# Grandfathers accounts that existed before free stopped being offered,
+# by signup date rather than a schema migration -- see the monthly-reset
+# logic below (get_user_by_id's own docstring), the actual place this is
+# checked. Anyone whose account predates this keeps the free plan's
+# original 3-credits-a-month safety net forever, INCLUDING if they later
+# cancel a paid plan and land back on "free" -- deliberate: an early user
+# who trusted this site enough to sign up under the old terms keeps that
+# deal even if their circumstances change later, rather than this being
+# scoped to "only if they were on free specifically". Anyone whose account
+# is created on or after this resets to 0 on "free" instead, whether
+# that's a brand new signup or a later cancellation.
+_FREE_TIER_GRANDFATHER_CUTOFF = "2026-09-06T00:00:00+00:00"
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -305,6 +328,7 @@ def _row_to_user(row: sqlite3.Row) -> "User":
         stripe_customer_id=row["stripe_customer_id"],
         topup_credits_remaining=row["topup_credits_remaining"],
         dev_credits_remaining=row["dev_credits_remaining"],
+        created_at=row["created_at"],
     )
     # Monthly reset: if the stored reset-month doesn't match the real
     # current month, this user's credits haven't been topped up yet.
@@ -313,7 +337,20 @@ def _row_to_user(row: sqlite3.Row) -> "User":
     # monthly allowance does (see add_credits's own docstring).
     this_month = _current_month()
     if user.credits_reset_month != this_month:
-        user.credits_remaining = PLAN_CREDITS[user.plan]
+        if user.plan == "free":
+            # PLAN_CREDITS["free"] (3) is kept only so users who were
+            # already on the free plan before OFFER_FREE_TIER_TO_NEW_SIGNUPS
+            # went off keep their existing 3/month forever -- a plain
+            # `PLAN_CREDITS[user.plan]` reset would otherwise silently hand
+            # every FUTURE free-plan user (a new 0-credit signup, or anyone
+            # who cancels a paid plan) 3 free credits again the moment
+            # their very first monthly rollover hits, quietly undoing the
+            # whole point. Grandfathered by signup date instead of a schema
+            # migration: an account created before the cutoff keeps 3/month;
+            # one created on or after it resets to 0 until it subscribes.
+            user.credits_remaining = PLAN_CREDITS["free"] if user.created_at < _FREE_TIER_GRANDFATHER_CUTOFF else 0
+        else:
+            user.credits_remaining = PLAN_CREDITS[user.plan]
         user.credits_reset_month = this_month
         with _connect() as conn:
             conn.execute(
@@ -333,6 +370,10 @@ class User:
     stripe_customer_id: str | None = None
     topup_credits_remaining: int = 0
     dev_credits_remaining: int = 0
+    # Defaulted, not required, so this doesn't break any existing call
+    # site that builds a User without it -- only the free-tier grandfather
+    # check (see the monthly-reset logic above) actually needs it.
+    created_at: str = ""
 
 
 def create_user(email: str, password: str, source: str | None = None) -> User:
@@ -345,6 +386,13 @@ def create_user(email: str, password: str, source: str | None = None) -> User:
     password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     user_id = str(uuid.uuid4())
     this_month = _current_month()
+    created_at = datetime.now(timezone.utc).isoformat()
+    # See OFFER_FREE_TIER_TO_NEW_SIGNUPS's own docstring above -- a new
+    # signup still gets a "free"-plan row either way (that label is the
+    # baseline/no-subscription state the rest of this codebase already
+    # assumes, e.g. what a cancelled subscription falls back to), the flag
+    # only decides whether that row starts with real credits or none.
+    starting_credits = PLAN_CREDITS["free"] if OFFER_FREE_TIER_TO_NEW_SIGNUPS else 0
 
     with _connect() as conn:
         existing = conn.execute(_ph("SELECT id FROM users WHERE email = ?"), (email,)).fetchone()
@@ -361,14 +409,21 @@ def create_user(email: str, password: str, source: str | None = None) -> User:
                 user_id,
                 email,
                 password_hash,
-                PLAN_CREDITS["free"],
+                starting_credits,
                 this_month,
-                datetime.now(timezone.utc).isoformat(),
+                created_at,
                 source,
             ),
         )
 
-    return User(id=user_id, email=email, plan="free", credits_remaining=PLAN_CREDITS["free"], credits_reset_month=this_month)
+    return User(
+        id=user_id,
+        email=email,
+        plan="free",
+        credits_remaining=starting_credits,
+        credits_reset_month=this_month,
+        created_at=created_at,
+    )
 
 
 def authenticate(email: str, password: str) -> User:
@@ -624,7 +679,7 @@ def _user_to_dict(user: User) -> dict:
         # summary display needs to distinguish.
         "credits_remaining": user.credits_remaining + user.dev_credits_remaining + user.topup_credits_remaining,
         "monthly_credit_allowance": PLAN_CREDITS[user.plan],
-        "instructions_included": user.plan in ("builder", "pro"),
+        "instructions_included": user.plan in ("starter", "builder", "pro"),
         # Not the raw Stripe customer ID (that stays server-side) -- just
         # enough for the frontend to decide whether "Manage billing" has
         # anything to show. True for anyone who's ever subscribed or

@@ -51,12 +51,13 @@ export default function TermsPage() {
 
       <Section title="Credits and plans">
         <p>
-          The Free plan includes 3 model generations a month. Builder includes 12, with
-          instructions unlocks included free on every generation, for £9/month. Master Builder
-          includes 30, also with instructions included, for £20/month. Unused credits do not roll
-          over between months. Any signed-in user, on any plan, can also buy a one-off top-up of
-          +5 credits for £6, added on top of their current balance without affecting their
-          monthly plan allowance.
+          Starter includes 3 model generations a month, with the .ldr file, parts list, and PDF
+          build guide included free on every generation, for £1.50/month. Builder includes 12 for
+          £9/month, and Master Builder includes 30 for £20/month, both with the same downloads
+          included. Unused credits do not roll over between months. Any signed-in user, on any
+          plan, can also buy a one-off top-up of +5 credits for £6, added on top of their current
+          balance without affecting their monthly plan allowance. Accounts created while a free
+          plan was previously offered keep the terms they signed up under.
         </p>
       </Section>
 

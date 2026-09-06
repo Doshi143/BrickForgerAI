@@ -248,7 +248,8 @@ def generate(
         # sold to anyone); a "topup" credit never auto-unlocks, even on a
         # paid plan (it IS real, tracked revenue) -- see consume_credit's
         # own docstring for the full reasoning behind all three sources.
-        instructions_unlocked=credit_source == "dev" or (credit_source == "monthly" and user.plan in ("builder", "pro")),
+        instructions_unlocked=credit_source == "dev"
+        or (credit_source == "monthly" and user.plan in ("starter", "builder", "pro")),
     )
     save_job_meta(job)
 
@@ -673,7 +674,7 @@ def gallery_purchase_checkout(job_id: str, user: auth.User = Depends(auth.get_cu
 
 
 class PlanCheckoutRequest(BaseModel):
-    plan: str  # "builder" or "pro"
+    plan: str  # "starter", "builder", or "pro"
 
 
 @app.post("/billing/checkout")
@@ -685,7 +686,10 @@ def billing_checkout(req: PlanCheckoutRequest, user: auth.User = Depends(auth.ge
     _check_generation_allowlist(user)
     if req.plan not in billing.PRICE_IDS:
         raise HTTPException(400, f"Unknown plan: {req.plan!r}")
-    return {"checkout_url": billing.create_subscription_checkout(user, req.plan)}
+    try:
+        return {"checkout_url": billing.create_subscription_checkout(user, req.plan)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/billing/topup-checkout")

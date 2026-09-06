@@ -35,6 +35,17 @@ _WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 # STRIPE_SECRET_KEY is live): builder price_1U1jmTDJhBkIl2qGHfCf8geE, pro
 # price_1U1vK9DJhBkIl2qGRu9iF2LQ, topup price_1U1jmUDJhBkIl2qGMAmLAJsR.
 PRICE_IDS = {
+    # £1.50/mo, 3 credits, .ldr/instructions bundled free (same as
+    # Builder/Master Builder -- see main.py's own instructions_unlocked
+    # check) -- the replacement for the free plan on new signups (see
+    # auth.py's OFFER_FREE_TIER_TO_NEW_SIGNUPS). Read from an env var
+    # rather than hardcoded like the others below: this Price doesn't
+    # exist yet as of this commit -- create it in the Stripe dashboard
+    # (recurring, £1.50 GBP, monthly), then set STRIPE_STARTER_PRICE_ID
+    # in Railway. create_subscription_checkout below refuses to start a
+    # checkout against a blank ID rather than sending Stripe an empty
+    # price and getting a confusing 400 back.
+    "starter": os.environ.get("STRIPE_STARTER_PRICE_ID", ""),
     "builder": "price_1U1wEpDJhBkIl2qGAPTrPbEn",  # £9/mo, 12 credits
     "pro": "price_1U1wFsDJhBkIl2qGPJArx7aq",  # £20/mo, 30 credits (Master Builder)
     # An earlier live Price (price_1U1wEpDJhBkIl2qG6VJNcmXf) was created at £25 by mistake --
@@ -101,6 +112,8 @@ def create_subscription_checkout(user: auth.User, plan: str) -> str:
     it."""
     if plan not in PRICE_IDS:
         raise ValueError(f"Unknown plan: {plan!r}")
+    if not PRICE_IDS[plan]:
+        raise ValueError(f"{plan!r} isn't available yet -- its Stripe Price hasn't been configured.")
     return _create_checkout_session(
         user,
         mode="subscription",

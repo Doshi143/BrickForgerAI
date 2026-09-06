@@ -18,29 +18,15 @@ export default function HowItWorksPage() {
           it won&apos;t fall apart when picked up.
         </p>
       </Section>
-      <Section title="3. What you get depends on your plan">
+      <Section title="3. What every plan includes">
         <p>Every generation, on every plan, includes:</p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
           <li>A live 3D preview you can rotate and zoom, in real part colors</li>
           <li>A part count and color breakdown</li>
+          <li>The downloadable .ldr file, a full parts list, and a step-by-step PDF build guide - included automatically, no separate purchase needed</li>
         </ul>
         <p>
-          To actually build it, you need the downloadable .ldr file, parts list, and PDF build
-          guide:
-        </p>
-        <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
-          <li>
-            <strong>Free plan</strong> - unlock the download for an individual model for
-            £5–£15 (based on size)
-          </li>
-          <li>
-            <strong>Builder and Master Builder plans</strong> - downloads are included
-            automatically on every generation
-          </li>
-        </ul>
-        <p>
-          Unlocking a model gets you the .ldr file, a full parts list, and a step-by-step PDF
-          build guide - walking through the model bottom-up, layer by layer, with the new
+          The build guide walks through the model bottom-up, layer by layer, with the new
           pieces highlighted at each step. You can also open the .ldr file in BrickLink Studio
           (free) to check the parts list against real BrickLink inventory. See{" "}
           <Link href="/pricing">Pricing</Link> for full plan details.

@@ -12,7 +12,7 @@ import { ThemeColors, darkColors, lightColors } from "@/app/theme";
 import { ApiError, startBillingPortal, startPlanCheckout, startTopupCheckout } from "@/lib/api";
 
 type Plan = {
-  id: "free" | "builder" | "pro";
+  id: "starter" | "builder" | "pro";
   name: string;
   price: string;
   priceNote: string;
@@ -23,15 +23,15 @@ type Plan = {
 
 const PLANS: Plan[] = [
   {
-    id: "free",
-    name: "Free",
-    price: "£0",
-    priceNote: "forever",
+    id: "starter",
+    name: "Starter",
+    price: "£1.50",
+    priceNote: "/ month",
     credits: "3 build credits a month",
     features: [
       "3 model generations a month",
       "Full 3D preview with real colors",
-      ".ldr file + parts list + PDF build guide: pay per model, £5–£15 (based on size)",
+      ".ldr file + parts list + PDF build guide included free on every generation",
     ],
   },
   {
@@ -72,7 +72,7 @@ function PricingContent() {
   const colors = dark ? darkColors : lightColors;
   const checkoutStatus = searchParams.get("checkout");
 
-  async function handleUpgrade(planId: "builder" | "pro") {
+  async function handleUpgrade(planId: "starter" | "builder" | "pro") {
     if (!user || !token) {
       router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
       return;
@@ -196,7 +196,6 @@ function PricingContent() {
           >
             {PLANS.map((plan) => {
               const isCurrent = user?.plan === plan.id;
-              const isPaid = plan.id !== "free";
               return (
                 <div
                   key={plan.id}
@@ -249,24 +248,13 @@ function PricingContent() {
                   </ul>
 
                   <button
-                    disabled={
-                      isCurrent ||
-                      (isPaid && loadingPlan === plan.id) ||
-                      (!isPaid && !!user && loadingPlan === "portal")
-                    }
+                    disabled={isCurrent || loadingPlan === plan.id}
                     onClick={() => {
-                      if (!isPaid) {
-                        // "Downgrade to Free" for a currently-paid user has
-                        // to go through Stripe's own cancellation flow in
-                        // the billing portal, not just flip a plan flag in
-                        // our own DB -- otherwise the Stripe subscription
-                        // stays active and they'd still be charged next
-                        // cycle. See handleManageBilling's own comment.
-                        if (!user) router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
-                        else handleManageBilling();
+                      if (!user) {
+                        router.push(`/signup?next=${encodeURIComponent("/pricing")}`);
                         return;
                       }
-                      handleUpgrade(plan.id as "builder" | "pro");
+                      handleUpgrade(plan.id);
                     }}
                     style={{
                       width: "100%",
@@ -279,17 +267,13 @@ function PricingContent() {
                       fontSize: 15,
                       cursor: isCurrent ? "default" : "pointer",
                       fontFamily: "inherit",
-                      opacity: (isPaid && loadingPlan === plan.id) || (!isPaid && loadingPlan === "portal") ? 0.6 : 1,
+                      opacity: loadingPlan === plan.id ? 0.6 : 1,
                     }}
                   >
                     {isCurrent
                       ? "Your current plan"
                       : !user
-                      ? "Sign up free"
-                      : !isPaid
-                      ? loadingPlan === "portal"
-                        ? "Redirecting…"
-                        : "Downgrade to Free"
+                      ? "Sign up"
                       : loadingPlan === plan.id
                       ? "Redirecting…"
                       : "Upgrade"}

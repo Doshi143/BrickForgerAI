@@ -25,7 +25,7 @@ const STEPS = [
     icon: "👁",
     num: "02",
     title: "Preview Your Model",
-    desc: "See it in 3D, with part count and dominant colors. Free tier shows you the basics.",
+    desc: "See it in 3D, with part count and dominant colors, before you commit to building it.",
   },
   {
     icon: "↓",
@@ -258,7 +258,7 @@ export default function Home() {
               <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
                 {user
                   ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month`
-                  : "Free plan: 3 credits a month • Pay only to download the .ldr file"}
+                  : "£1.50/month: 3 generations, with the .ldr file and instructions included"}
               </p>
             </>
           )}
