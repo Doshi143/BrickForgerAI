@@ -154,9 +154,12 @@ def _strip_internal_fields(data: dict) -> dict:
     """user_id is persisted in meta.json (see jobs.py::_job_to_dict) so
     unlock_instructions can verify ownership from disk/storage alone --
     the worker updates a job from a separate process, so there's no live
-    in-memory object left in this process to check against. Every
-    endpoint that returns job data to a client must strip it here first."""
-    return {k: v for k, v in data.items() if k != "user_id"}
+    in-memory object left in this process to check against. credit_source
+    is persisted the same way, purely so _recover_orphaned_jobs can refund
+    into the right pool if this job never finishes -- neither belongs in a
+    client-facing response. Every endpoint that returns job data to a
+    client must strip both here first."""
+    return {k: v for k, v in data.items() if k not in ("user_id", "credit_source")}
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -201,6 +204,7 @@ def generate(
         target_size_studs=req.target_size_studs,
         created_at=datetime.now(timezone.utc).isoformat(),
         user_id=user.id,
+        credit_source=credit_source,
         # Builder was missing here before -- only "pro" (Master Builder)
         # ever got free instructions at job-creation time, contradicting
         # what the account info/pricing page/Terms all actually promise

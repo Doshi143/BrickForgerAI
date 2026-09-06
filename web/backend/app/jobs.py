@@ -313,6 +313,11 @@ class Job:
     created_at: str
     user_id: str
     instructions_unlocked: bool  # true for pro-plan users; free users see a paywall stub
+    # Which of consume_credit()'s three pools (monthly/dev/topup) paid for
+    # this job -- internal-only, same as user_id, persisted purely so
+    # _recover_orphaned_jobs can refund into the correct pool if this job
+    # never finishes. None for jobs created before this field existed.
+    credit_source: str | None = None
     status: JobStatus = JobStatus.QUEUED
     error: str | None = None
     image_path: str | None = None
@@ -359,6 +364,7 @@ def _job_to_dict(job: Job) -> dict:
         # against) -- public-facing endpoints (get_job, list_jobs in
         # main.py) must strip this before returning it to a client.
         "user_id": job.user_id,
+        "credit_source": job.credit_source,
         "instructions_unlocked": job.instructions_unlocked,
         "instructions_price_gbp": _estimate_instructions_price_gbp(job.part_count),
         "status": job.status.value if isinstance(job.status, JobStatus) else job.status,
@@ -593,9 +599,25 @@ def _recover_orphaned_jobs() -> None:
         meta["error"] = (
             "This job was interrupted before it could finish (its worker process stopped "
             "unexpectedly, e.g. during a deploy) and could not be automatically resumed. "
-            "Please try generating again."
+            "Please try generating again. Your credit for this generation has been refunded."
         )
         _write_job_meta_dict(job_id, meta)
+        # The same real bug as /generate's enqueue-failure case (see
+        # main.py): a credit was already spent for a job that never
+        # produced anything usable. credit_source is only present on jobs
+        # created after that field was added -- an older orphaned job
+        # (nothing to refund correctly into, source unknown) is logged and
+        # skipped rather than guessed at, same conservative "no evidence,
+        # no action" stance the rest of this function already takes.
+        user_id = meta.get("user_id")
+        credit_source = meta.get("credit_source")
+        if user_id and credit_source:
+            try:
+                auth.refund_credit(user_id, credit_source)
+            except Exception:
+                logger.warning("orphan recovery: failed to refund credit for %s", job_id, exc_info=True)
+        elif user_id:
+            logger.warning("orphan recovery: %s has no credit_source on record, cannot auto-refund", job_id)
         recovered += 1
     if rows:
         logger.info("orphan recovery: marked %d/%d abandoned non-terminal job(s) as failed", recovered, len(rows))
