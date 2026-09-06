@@ -373,14 +373,28 @@ function Footer({ colors }: { colors: ThemeColors }) {
       <div
         style={{
           textAlign: "center",
-          color: colors.textSecondary,
-          fontSize: 14,
           marginTop: 40,
           paddingTop: 24,
           borderTop: `1px solid ${colors.cardBorder}`,
         }}
       >
-        © 2026 BrickForgerAI. Built with precision.
+        <a
+          href="https://www.producthunt.com/products/brickforgerai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-brickforgerai"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: "inline-block" }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="BrickForgerAI - Turn any prompt into a brick set you can actually build | Product Hunt"
+            width={250}
+            height={54}
+            src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1239306&theme=light&t=1788700474913"
+          />
+        </a>
+        <div style={{ color: colors.textSecondary, fontSize: 14, marginTop: 16 }}>
+          © 2026 BrickForgerAI. Built with precision.
+        </div>
       </div>
     </div>
   );
