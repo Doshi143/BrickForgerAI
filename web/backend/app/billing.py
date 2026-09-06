@@ -233,6 +233,27 @@ def create_billing_portal_session(user: auth.User) -> str:
     return session.url
 
 
+def cancel_all_subscriptions(user: auth.User) -> None:
+    """Used by account deletion (main.py's DELETE /auth/me) -- a deleted
+    user has no way to log back in and cancel via the billing portal
+    afterward, so this app has to do it on their behalf at delete time
+    rather than leaving them billed with no way to stop it. Cancels
+    immediately (not at period end, unlike the portal's own cancel flow)
+    since the account -- and any reason to keep serving the plan -- is
+    gone the moment this runs. A no-op, not an error, if the user never
+    had a Stripe customer or currently has no active subscription."""
+    if not user.stripe_customer_id:
+        return
+    try:
+        subs = stripe.Subscription.list(customer=user.stripe_customer_id, status="active")
+        for sub in subs.auto_paging_iter():
+            stripe.Subscription.cancel(sub.id)
+    except stripe.InvalidRequestError:
+        # Same stale/unresolvable customer ID scenario create_billing_portal_session
+        # guards against -- nothing to cancel if Stripe doesn't recognize the customer.
+        pass
+
+
 def verify_and_parse_webhook(payload: bytes, signature_header: str | None) -> stripe.Event:
     """Raises ValueError on a missing/invalid signature -- the caller
     (main.py) turns that into an HTTP 400. Never process a webhook body

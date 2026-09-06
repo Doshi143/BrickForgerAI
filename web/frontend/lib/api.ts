@@ -186,6 +186,23 @@ export async function startBillingPortal(token: string): Promise<{ portal_url: s
   return res.json();
 }
 
+/** Permanently deletes the signed-in account -- cancels any active Stripe
+ * subscription and removes the account's own (non-published) job history
+ * server-side. Irreversible; the caller is responsible for confirming with
+ * the user before calling this and for clearing the stored token/logging
+ * out afterward, since the token stops resolving to anyone the moment this
+ * succeeds. */
+export async function deleteAccount(token: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to delete account");
+  }
+}
+
 /** Off by default -- a plain code constant, not a Railway env var, so this
  * can be flipped with a normal commit + push (Railway auto-redeploys on
  * push) rather than needing dashboard access. True hides the real generate

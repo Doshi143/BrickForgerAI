@@ -35,6 +35,7 @@ from .jobs import (
     JobStatus,
     _job_dir,
     _write_job_meta_dict,
+    delete_jobs_for_user,
     has_gallery_access,
     is_job_published,
     list_gallery_jobs,
@@ -711,6 +712,22 @@ def billing_portal(user: auth.User = Depends(auth.get_current_user)) -> dict:
         return {"portal_url": billing.create_billing_portal_session(user)}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@app.delete("/auth/me")
+def delete_account(user: auth.User = Depends(auth.get_current_user)) -> dict:
+    """Permanently deletes the signed-in account: cancels any active
+    Stripe subscription first (so deleting the account doesn't leave
+    someone billed with no way to log back in and stop it), then removes
+    the user's own non-published job history and the account row itself.
+    A published job stays live for anyone who already bought or is
+    viewing it in Discover -- see jobs.delete_jobs_for_user's own
+    docstring. Irreversible; the frontend is responsible for confirming
+    with the user before calling this."""
+    billing.cancel_all_subscriptions(user)
+    delete_jobs_for_user(user.id)
+    auth.delete_user(user.id)
+    return {"deleted": True}
 
 
 @app.post("/stripe/webhook")

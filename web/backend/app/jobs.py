@@ -174,6 +174,23 @@ def list_job_ids_for_user(user_id: str) -> list[str]:
     return [row["job_id"] for row in rows]
 
 
+def delete_jobs_for_user(user_id: str) -> None:
+    """Used by account deletion (main.py's DELETE /auth/me). Only removes
+    job_index rows that were never published to the Discover gallery --
+    a published job's own gallery_purchases rows (recorded against
+    job_id, not the original creator) stay valid for whoever bought it,
+    so deleting the creator's account must not pull the build out from
+    under a paying buyer. This intentionally leaves a published job's
+    row (and its R2 files) behind with no live owner, the same tradeoff
+    "delete my account" makes everywhere the deleted account's content
+    has already been shared with other people."""
+    with auth._connect() as conn:
+        conn.execute(
+            auth._ph("DELETE FROM job_index WHERE user_id = ? AND (is_published IS NULL OR is_published = FALSE)"),
+            (user_id,),
+        )
+
+
 def set_job_published(job_id: str, user_id: str, published: bool, prompt: str | None = None) -> bool:
     """Returns False if job_id doesn't exist in the index or doesn't
     belong to user_id -- the caller (main.py) turns that into a 403/404.

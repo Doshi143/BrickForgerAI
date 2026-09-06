@@ -443,6 +443,21 @@ def get_user_by_id(user_id: str) -> User | None:
     return None if row is None else _row_to_user(row)
 
 
+def delete_user(user_id: str) -> None:
+    """Used by account deletion (main.py's DELETE /auth/me). The caller is
+    responsible for cancelling any active Stripe subscription first (see
+    billing.cancel_all_subscriptions) and for cleaning up the user's own
+    job_index rows (see jobs.delete_jobs_for_user) -- this function only
+    owns tables auth.py itself defines. gallery_purchases rows where this
+    user was the *buyer* are deliberately left alone: a purchase already
+    made shouldn't un-happen just because the buyer's account is gone,
+    and the row carries no other personal data than an id that no longer
+    resolves to anyone."""
+    with _connect() as conn:
+        conn.execute(_ph("DELETE FROM password_reset_tokens WHERE user_id = ?"), (user_id,))
+        conn.execute(_ph("DELETE FROM users WHERE id = ?"), (user_id,))
+
+
 def consume_credit(user_id: str) -> tuple[User, str]:
     """Decrements one credit and returns (user, credit_source), where
     credit_source is one of "monthly" | "dev" | "topup" -- the caller
