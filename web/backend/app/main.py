@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -44,6 +45,8 @@ from .jobs import (
     save_job_meta,
     set_job_published,
 )
+
+logger = logging.getLogger(__name__)
 
 # No-op when SENTRY_DSN is unset -- sentry_sdk.init(dsn=None) disables
 # capture entirely rather than erroring, so no separate guard is needed
@@ -226,16 +229,34 @@ def generate(
         # job_timeout is RQ's own distinctly-named reserved kwarg (renamed
         # by RQ upstream from a plain "timeout" for exactly this collision
         # reason) and is safe to pass as a keyword.
-        QUEUE.enqueue(
-            process_job,
-            job.id,
-            job.prompt,
-            job.target_size_studs,
-            job.user_id,
-            job.instructions_unlocked,
-            job.created_at,
-            job_timeout=JOB_TIMEOUT_S,
-        )
+        try:
+            QUEUE.enqueue(
+                process_job,
+                job.id,
+                job.prompt,
+                job.target_size_studs,
+                job.user_id,
+                job.instructions_unlocked,
+                job.created_at,
+                job_timeout=JOB_TIMEOUT_S,
+            )
+        except Exception as exc:
+            # consume_credit() above already spent a real credit for a job
+            # that never actually made it onto the queue -- confirmed as a
+            # real production failure, not hypothetical: Redis restarting
+            # (e.g. Railway's own image upgrades) at exactly this moment
+            # raises here uncaught, and this endpoint had no guard for it
+            # while rate_limit.py's own Redis calls already did (see that
+            # module's own fail-open handling of the identical error
+            # class). Refund before surfacing the error, and still report
+            # it to Sentry explicitly -- catching it here would otherwise
+            # make this failure mode invisible to monitoring.
+            auth.refund_credit(user.id, credit_source)
+            logger.error("Failed to enqueue job %s, refunded credit: %s", job.id, exc)
+            sentry_sdk.capture_exception(exc)
+            raise HTTPException(
+                503, "Couldn't start your generation right now -- please try again. You have not been charged a credit."
+            ) from exc
     else:
         background_tasks.add_task(
             process_job,

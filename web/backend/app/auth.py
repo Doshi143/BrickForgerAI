@@ -439,6 +439,27 @@ def consume_credit(user_id: str) -> tuple[User, str]:
         return user, "topup"
 
 
+_CREDIT_SOURCE_COLUMN = {
+    "monthly": "credits_remaining",
+    "dev": "dev_credits_remaining",
+    "topup": "topup_credits_remaining",
+}
+
+
+def refund_credit(user_id: str, credit_source: str) -> None:
+    """Reverses exactly one consume_credit() call -- for when a credit was
+    correctly deducted but the generation it paid for never actually
+    started (e.g. the job never made it onto the queue because Redis was
+    unreachable at that exact moment, confirmed to happen in production).
+    Adds back to whichever pool consume_credit took from specifically, not
+    just credits_remaining -- refunding a spent topup credit into the
+    monthly pool would let it expire at the next reset instead of staying
+    available the way a real topup credit should."""
+    column = _CREDIT_SOURCE_COLUMN[credit_source]
+    with _connect() as conn:
+        conn.execute(_ph(f"UPDATE users SET {column} = {column} + 1 WHERE id = ?"), (user_id,))
+
+
 def get_user_by_stripe_customer_id(customer_id: str) -> User | None:
     with _connect() as conn:
         row = conn.execute(_ph("SELECT * FROM users WHERE stripe_customer_id = ?"), (customer_id,)).fetchone()
