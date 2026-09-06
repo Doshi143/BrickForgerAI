@@ -370,41 +370,42 @@ function Footer({ colors }: { colors: ThemeColors }) {
           </div>
         </div>
       </div>
+      {/* Own grid (not part of the links grid above) so its row height isn't
+          stretched by the tall brand column - keeps it snug under Product/Support
+          instead of inheriting a ~200px-tall row. */}
+      <div
+        className="footer-grid"
+        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 40, maxWidth: 1100, margin: "24px auto 0" }}
+      >
+        <div />
+        <div style={{ gridColumn: "2 / 4", display: "flex", justifyContent: "center" }}>
+          <a
+            href="https://www.producthunt.com/products/brickforgerai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-brickforgerai"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-block" }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt="BrickForgerAI - Turn any prompt into a brick set you can actually build | Product Hunt"
+              width={180}
+              height={39}
+              src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1239306&theme=light&t=1788700474913"
+            />
+          </a>
+        </div>
+      </div>
       <div
         style={{
-          position: "relative",
-          maxWidth: 1100,
-          margin: "40px auto 0",
+          textAlign: "center",
+          color: colors.textSecondary,
+          fontSize: 14,
+          marginTop: 24,
           paddingTop: 24,
           borderTop: `1px solid ${colors.cardBorder}`,
         }}
       >
-        <div style={{ textAlign: "center", color: colors.textSecondary, fontSize: 14 }}>
-          © 2026 BrickForgerAI. Built with precision.
-        </div>
-        {/* Centered under the Product + Support columns above (which together
-            span the right half, x=50%-100%, of this same 1100px-wide box). */}
-        <a
-          className="footer-badge"
-          href="https://www.producthunt.com/products/brickforgerai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-brickforgerai"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            position: "absolute",
-            left: "75%",
-            top: "50%",
-            transform: "translate(-50%, -50%)",
-            display: "inline-block",
-          }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt="BrickForgerAI - Turn any prompt into a brick set you can actually build | Product Hunt"
-            width={180}
-            height={39}
-            src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1239306&theme=light&t=1788700474913"
-          />
-        </a>
+        © 2026 BrickForgerAI. Built with precision.
       </div>
     </div>
   );
