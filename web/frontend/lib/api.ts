@@ -183,6 +183,33 @@ export async function startBillingPortal(token: string): Promise<{ portal_url: s
   return res.json();
 }
 
+/** Off by default -- a plain code constant, not a Railway env var, so this
+ * can be flipped with a normal commit + push (Railway auto-redeploys on
+ * push) rather than needing dashboard access. True hides the real generate
+ * flow behind a waitlist signup instead. Meant to be flipped together with
+ * the backend's own MAINTENANCE_MODE (main.py) in the same commit -- this
+ * half only changes what the homepage shows; that half is what actually
+ * stops real API spend, since a cached page or a direct API call could
+ * otherwise still reach a cost-incurring endpoint even with this alone on. */
+export const MAINTENANCE_MODE = false;
+
+/** No auth -- this is the one action a visitor can take while
+ * MAINTENANCE_MODE is on. Throws ApiError(429) if the same IP submits too
+ * many times in a row (see backend rate limiting); the caller should show
+ * that message as-is rather than a generic failure. */
+export async function joinWaitlist(email: string): Promise<{ ok: true }> {
+  const res = await fetch(`${API_BASE}/waitlist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status, detail?.detail ?? "Failed to join the waitlist");
+  }
+  return res.json();
+}
+
 /** Phase labels shown while a job runs. Keys match the backend's JobStatus enum. */
 export const STATUS_LABELS: Record<JobStatus, string> = {
   queued: "Queued",

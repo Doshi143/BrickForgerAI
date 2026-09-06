@@ -7,11 +7,12 @@ import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
+import WaitlistForm from "@/components/WaitlistForm";
 import { useActiveJob } from "@/components/ActiveJobProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, lightColors } from "./theme";
-import { ApiError, BuildSize, SIZE_OPTIONS, startGeneration } from "@/lib/api";
+import { ApiError, BuildSize, MAINTENANCE_MODE, SIZE_OPTIONS, startGeneration } from "@/lib/api";
 
 const STEPS = [
   {
@@ -147,114 +148,120 @@ export default function Home() {
             in minutes.
           </p>
 
-          <div
-            className="prompt-row"
-            style={{
-              display: "flex",
-              gap: 14,
-              justifyContent: "center",
-              marginTop: 40,
-              maxWidth: 640,
-              marginLeft: "auto",
-              marginRight: "auto",
-            }}
-          >
-            <input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
-              disabled={submitting}
-              placeholder="A stylized cartoon pineapple..."
-              style={{
-                flex: 1,
-                padding: "18px 22px",
-                borderRadius: 14,
-                border: `1px solid ${colors.inputBorder}`,
-                background: colors.cardBg,
-                color: colors.textPrimary,
-                fontSize: 16,
-                outline: "none",
-                fontFamily: "inherit",
-              }}
-            />
-            <button
-              onClick={handleGenerate}
-              disabled={submitting || !prompt.trim()}
-              style={{
-                background: colors.accent,
-                color: "#fff",
-                border: "none",
-                padding: "18px 30px",
-                borderRadius: 14,
-                fontWeight: 700,
-                fontSize: 16,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {submitting ? "Starting…" : "Generate →"}
-            </button>
-          </div>
-
-          {error && (
-            <p style={{ color: "#ff8f6b", marginTop: 18, fontSize: 15, maxWidth: 640, marginInline: "auto" }}>
-              {error}
-            </p>
-          )}
-
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              justifyContent: "center",
-              marginTop: 22,
-              maxWidth: 640,
-              marginLeft: "auto",
-              marginRight: "auto",
-            }}
-          >
-            {SIZE_OPTIONS.map((opt) => {
-              const active = size === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => handleSetSize(opt.id)}
-                  title={opt.hint}
+          {MAINTENANCE_MODE ? (
+            <WaitlistForm colors={colors} />
+          ) : (
+            <>
+              <div
+                className="prompt-row"
+                style={{
+                  display: "flex",
+                  gap: 14,
+                  justifyContent: "center",
+                  marginTop: 40,
+                  maxWidth: 640,
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                <input
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
+                  disabled={submitting}
+                  placeholder="A stylized cartoon pineapple..."
                   style={{
                     flex: 1,
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    border: `1px solid ${active ? colors.accent : colors.cardBorder}`,
-                    background: active ? colors.badgeBg : colors.cardBg,
-                    color: active ? colors.accent : colors.textSecondary,
-                    fontWeight: active ? 700 : 600,
-                    fontSize: 14,
+                    padding: "18px 22px",
+                    borderRadius: 14,
+                    border: `1px solid ${colors.inputBorder}`,
+                    background: colors.cardBg,
+                    color: colors.textPrimary,
+                    fontSize: 16,
+                    outline: "none",
                     fontFamily: "inherit",
+                  }}
+                />
+                <button
+                  onClick={handleGenerate}
+                  disabled={submitting || !prompt.trim()}
+                  style={{
+                    background: colors.accent,
+                    color: "#fff",
+                    border: "none",
+                    padding: "18px 30px",
+                    borderRadius: 14,
+                    fontWeight: 700,
+                    fontSize: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
                     cursor: "pointer",
+                    fontFamily: "inherit",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  {opt.label}
-                  <span style={{ display: "block", fontSize: 11, fontWeight: 500, opacity: 0.8, marginTop: 2 }}>
-                    {opt.studs} studs
-                  </span>
+                  {submitting ? "Starting…" : "Generate →"}
                 </button>
-              );
-            })}
-          </div>
-          <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13 }}>
-            Build size - {SIZE_OPTIONS.find((s) => s.id === size)!.hint}
-          </p>
+              </div>
 
-          <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
-            {user
-              ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month`
-              : "Free plan: 3 credits a month • Pay only to download the .ldr file"}
-          </p>
+              {error && (
+                <p style={{ color: "#ff8f6b", marginTop: 18, fontSize: 15, maxWidth: 640, marginInline: "auto" }}>
+                  {error}
+                </p>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  justifyContent: "center",
+                  marginTop: 22,
+                  maxWidth: 640,
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                {SIZE_OPTIONS.map((opt) => {
+                  const active = size === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleSetSize(opt.id)}
+                      title={opt.hint}
+                      style={{
+                        flex: 1,
+                        padding: "10px 14px",
+                        borderRadius: 12,
+                        border: `1px solid ${active ? colors.accent : colors.cardBorder}`,
+                        background: active ? colors.badgeBg : colors.cardBg,
+                        color: active ? colors.accent : colors.textSecondary,
+                        fontWeight: active ? 700 : 600,
+                        fontSize: 14,
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {opt.label}
+                      <span style={{ display: "block", fontSize: 11, fontWeight: 500, opacity: 0.8, marginTop: 2 }}>
+                        {opt.studs} studs
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13 }}>
+                Build size - {SIZE_OPTIONS.find((s) => s.id === size)!.hint}
+              </p>
+
+              <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
+                {user
+                  ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month`
+                  : "Free plan: 3 credits a month • Pay only to download the .ldr file"}
+              </p>
+            </>
+          )}
           <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
             Built from a 55-part real, purchasable brick library - including a wide range of slope
             angles and curves for smoother surfaces - growing all the time. We&apos;re

@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import auth, billing, content_filter, rate_limit
+from . import auth, billing, content_filter, rate_limit, waitlist
 from .storage import R2Storage
 from .jobs import (
     JOB_TIMEOUT_S,
@@ -73,13 +73,29 @@ GENERATION_ALLOWLIST = {
     e.strip().lower() for e in os.environ.get("GENERATION_ALLOWLIST", "").split(",") if e.strip()
 }
 
+# Off by default -- a plain code constant, not a Railway env var, so this
+# can be flipped with a normal commit + push (Railway auto-redeploys on
+# push) rather than needing dashboard access. Blocks EVERYONE, no
+# exceptions, including the founder's own account -- unlike
+# GENERATION_ALLOWLIST above (a controlled-beta allowlist), the whole
+# point here is stopping real API spend outright while the budget is low,
+# and testing still spends it. Meant to be flipped together with the
+# frontend's own MAINTENANCE_MODE (lib/api.ts) in the same commit -- that
+# half swaps the homepage UI to a waitlist form, this half is what
+# actually stops the spend, and either can be toggled independently if
+# only one effect is wanted.
+MAINTENANCE_MODE = False
+
 
 def _check_generation_allowlist(user: "auth.User") -> None:
-    """Raises 403 if GENERATION_ALLOWLIST is set and this user isn't on
-    it -- shared by every endpoint that either costs real API money
-    (generate) or moves real money (checkout/top-up/unlock). See
-    GENERATION_ALLOWLIST's own docstring above for why webhook handling
+    """Raises 503 if MAINTENANCE_MODE is on (see its own docstring above --
+    blocks everyone, no exceptions), or 403 if GENERATION_ALLOWLIST is set
+    and this user isn't on it -- shared by every endpoint that either costs
+    real API money (generate) or moves real money (checkout/top-up/unlock).
+    See GENERATION_ALLOWLIST's own docstring above for why webhook handling
     itself is deliberately excluded from this check."""
+    if MAINTENANCE_MODE:
+        raise HTTPException(503, "Generation is temporarily paused while we restock our AI budget -- check back soon!")
     if GENERATION_ALLOWLIST and user.email.lower() not in GENERATION_ALLOWLIST:
         raise HTTPException(
             403, "This action is temporarily restricted while we finish setting up payments -- check back soon!"
@@ -148,6 +164,26 @@ class GenerateResponse(BaseModel):
     job_id: str
     status: JobStatus
     credits_remaining: int
+
+
+class WaitlistRequest(BaseModel):
+    email: str
+
+
+@app.post("/waitlist")
+def join_waitlist(req: WaitlistRequest, request: Request) -> dict:
+    """No auth -- this exists specifically for MAINTENANCE_MODE, when the
+    frontend shows a waitlist form instead of the real generate flow to a
+    logged-out visitor. Same IP-based throttle shape as the auth endpoints
+    (see auth.py's own _client_ip/check_auth_rate_limit) since this is
+    otherwise a fully open, unauthenticated write."""
+    if not rate_limit.check_auth_rate_limit(auth._client_ip(request), "waitlist", limit=5, window_s=3600):
+        raise HTTPException(429, "Too many requests -- try again later.")
+    try:
+        waitlist.add_to_waitlist(req.email)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
 
 
 def _strip_internal_fields(data: dict) -> dict:
