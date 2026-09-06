@@ -93,21 +93,20 @@ function init() {
   renderer.toneMappingExposure = 1.15;
   document.getElementById("mount").appendChild(renderer.domElement);
 
-  // Hemisphere ambient + warm-key/cool-fill/rim three-point setup, same
-  // upgrade as Viewer3D.tsx -- but NOT the same light positions: that
-  // file's camera and this one's VIEW_DIRECTION (below) face the model
-  // from different corners, so the key light here is aimed to match
-  // *this* file's own camera direction instead, or the "richer" lighting
-  // would key-light the side the camera can't even see.
+  // Hemisphere ambient + warm-key/cool-fill/rim three-point setup, ported
+  // directly from Viewer3D.tsx -- these exact light positions, not just
+  // the same upgrade, now that VIEW_DIRECTION below matches that file's
+  // own camera direction too: same corner-facing camera, same lighting
+  // already proven correct for it in production.
   scene.add(new THREE.HemisphereLight(0xd7e6ff, 0x35291d, 0.55));
   const key = new THREE.DirectionalLight(0xfff2df, 2.0);
-  key.position.set(300, 500, 300); // aligned with VIEW_DIRECTION below, so the camera-facing side is the lit one
+  key.position.set(-200, 400, -300);
   scene.add(key);
   const fill = new THREE.DirectionalLight(0xcfe0ff, 0.5);
-  fill.position.set(-200, 100, -200); // opposite side from the camera, unchanged from before
+  fill.position.set(200, 100, 200);
   scene.add(fill);
   const rim = new THREE.DirectionalLight(0xffffff, 0.9);
-  rim.position.set(-300, 400, 300); // edge highlight from the side key+fill both miss
+  rim.position.set(250, 150, -250);
   scene.add(rim);
 
   loader = new LDrawLoader();
@@ -214,18 +213,25 @@ window.__bf = {
   },
 };
 
-// Unit direction for the fixed corner viewing angle: above, front, and to
-// the side -- a real bug, caught from actual rendered output (a build
-// that reads as viewed from underneath, new pieces at the bottom of frame
-// impossible to identify), not from the math alone. Viewer3D.tsx's own
-// frameObject uses a (+x, -y, +z) offset, and after this scene's own
-// `group.rotation.x = Math.PI` flip (LDraw -Y-up -> world +Y-up, see
-// loadStepped's own comment), a NEGATIVE Y offset puts the camera BELOW
-// the model looking up at its underside -- Viewer3D gets away with this
-// because OrbitControls lets a user immediately drag to a better angle;
-// this headless renderer has no such rescue, since the very first frame
-// captured IS the final image. +Y here, not Viewer3D's -Y, is the fix.
-const VIEW_DIRECTION = new THREE.Vector3(1, 1, 1).normalize();
+// Unit direction for the fixed corner viewing angle: matches Viewer3D.tsx's
+// own frameObject offset (center.x - dist, center.y + dist, center.z - dist)
+// exactly, so a build's PDF instructions show it from the SAME angle the
+// user already saw in the interactive preview -- previously this used a
+// different, independently-chosen octant (all-positive) that merely
+// avoided the historical underside-view bug (see below) without actually
+// matching the preview. Y stays positive here for the same reason it
+// always had to: after this scene's own `group.rotation.x = Math.PI` flip
+// (LDraw -Y-up -> world +Y-up, see loadStepped's own comment), a NEGATIVE
+// Y offset puts the camera BELOW the model looking up at its underside --
+// a real bug, caught from actual rendered output (a build that reads as
+// viewed from underneath, new pieces at the bottom of frame impossible to
+// identify), not from the math alone. Viewer3D gets away with a mistaken
+// sign there because OrbitControls lets a user immediately drag to a
+// better angle; this headless renderer has no such rescue, since the very
+// first frame captured IS the final image -- confirmed Viewer3D.tsx's
+// CURRENT (already-fixed) offset also keeps Y positive, so matching it
+// exactly doesn't reintroduce that bug.
+const VIEW_DIRECTION = new THREE.Vector3(-1, 1, -1).normalize();
 
 /** Points the camera at `box`'s center from the same fixed direction every
  * time (an isometric-ish corner view, the same relative offset
@@ -237,7 +243,7 @@ const VIEW_DIRECTION = new THREE.Vector3(1, 1, 1).normalize();
  * every time, rather than once with the whole model's box.
  *
  * A real bug lived here until caught by inspecting actual rendered
- * output, not just the math in isolation: using a raw (dist, -dist, dist)
+ * output, not just the math in isolation: using a raw (-dist, dist, -dist)
  * offset (as Viewer3D.tsx's own frameObject does) makes the true
  * Euclidean camera-to-target distance dist*sqrt(3), not dist -- Viewer3D
  * absorbs that silently into its own hand-tuned "maxDim * 1.8" margin
