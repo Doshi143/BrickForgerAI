@@ -313,35 +313,56 @@ function PricingContent() {
                 justifyContent: "center",
               }}
             >
-              {user.has_billing_account && (
-                <div
-                  style={{
-                    background: colors.cardBg,
-                    border: `1px solid ${colors.cardBorder}`,
-                    borderRadius: 20,
-                    padding: "28px 32px",
-                    flex: "1 1 420px",
-                    maxWidth: 480,
-                    textAlign: "left",
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
-                  <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
-                    Manage your billing
-                  </div>
-                  <div style={{ color: colors.textSecondary, fontSize: 14 }}>
-                    See your next billing date, update your card, or view past invoices.
-                  </div>
+              <div
+                style={{
+                  background: colors.cardBg,
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 20,
+                  padding: "28px 32px",
+                  flex: "1 1 420px",
+                  maxWidth: 480,
+                  textAlign: "left",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
+                  Manage your billing
+                </div>
+                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
+                  See your next billing date, update your card, or view past invoices.
+                </div>
+                <div style={{ marginTop: "auto", display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  {user.has_billing_account && (
+                    <button
+                      onClick={handleManageBilling}
+                      disabled={loadingPlan === "portal"}
+                      style={{
+                        alignSelf: "flex-start",
+                        background: colors.accent,
+                        border: "none",
+                        color: "#fff",
+                        padding: "12px 22px",
+                        borderRadius: 12,
+                        fontWeight: 700,
+                        fontSize: 14,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        whiteSpace: "nowrap",
+                        opacity: loadingPlan === "portal" ? 0.6 : 1,
+                      }}
+                    >
+                      {loadingPlan === "portal" ? "Redirecting…" : "Manage billing"}
+                    </button>
+                  )}
                   <button
-                    onClick={handleManageBilling}
-                    disabled={loadingPlan === "portal"}
+                    onClick={handleDeleteAccount}
+                    disabled={deleting}
                     style={{
-                      marginTop: "auto",
                       alignSelf: "flex-start",
-                      background: "none",
-                      border: `2px solid ${colors.accent}`,
-                      color: colors.accent,
+                      background: colors.accent,
+                      border: "none",
+                      color: "#fff",
                       padding: "12px 22px",
                       borderRadius: 12,
                       fontWeight: 700,
@@ -349,13 +370,13 @@ function PricingContent() {
                       cursor: "pointer",
                       fontFamily: "inherit",
                       whiteSpace: "nowrap",
-                      opacity: loadingPlan === "portal" ? 0.6 : 1,
+                      opacity: deleting ? 0.6 : 1,
                     }}
                   >
-                    {loadingPlan === "portal" ? "Redirecting…" : "Manage billing"}
+                    {deleting ? "Deleting…" : "Delete my account"}
                   </button>
                 </div>
-              )}
+              </div>
 
               <div
                 style={{
@@ -382,9 +403,9 @@ function PricingContent() {
                   style={{
                     marginTop: "auto",
                     alignSelf: "flex-start",
-                    background: "none",
-                    border: `2px solid ${colors.accent}`,
-                    color: colors.accent,
+                    background: colors.accent,
+                    border: "none",
+                    color: "#fff",
                     padding: "12px 22px",
                     borderRadius: 12,
                     fontWeight: 700,
@@ -398,56 +419,6 @@ function PricingContent() {
                   {loadingPlan === "topup" ? "Redirecting…" : "Buy +5 credits - £6"}
                 </button>
               </div>
-            </div>
-          )}
-
-          {user && (
-            <div
-              style={{
-                marginTop: 24,
-                background: colors.cardBg,
-                border: "1px solid #ff8f6b",
-                borderRadius: 20,
-                padding: "24px 32px",
-                maxWidth: 980,
-                margin: "24px auto 0",
-                textAlign: "left",
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: 16,
-                justifyContent: "space-between",
-              }}
-            >
-              <div>
-                <div className="display" style={{ fontWeight: 700, fontSize: 17, color: colors.textPrimary, marginBottom: 4 }}>
-                  Delete account
-                </div>
-                <div style={{ color: colors.textSecondary, fontSize: 14 }}>
-                  Permanently deletes your account, cancels any active subscription, and removes
-                  your generation history. This can&apos;t be undone.
-                </div>
-              </div>
-              <button
-                onClick={handleDeleteAccount}
-                disabled={deleting}
-                style={{
-                  background: "none",
-                  border: "2px solid #ff8f6b",
-                  color: "#ff8f6b",
-                  padding: "12px 22px",
-                  borderRadius: 12,
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  whiteSpace: "nowrap",
-                  opacity: deleting ? 0.6 : 1,
-                  flexShrink: 0,
-                }}
-              >
-                {deleting ? "Deleting…" : "Delete my account"}
-              </button>
             </div>
           )}
         </div>
