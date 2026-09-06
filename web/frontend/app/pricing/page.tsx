@@ -155,6 +155,10 @@ function PricingContent() {
             the downloadable .ldr file, a complete parts list, and a step-by-step PDF build
             guide - everything you need to actually put it together.
           </p>
+          <p style={{ color: colors.textSecondary, fontSize: 14, maxWidth: 560, margin: "0 auto 24px", opacity: 0.85 }}>
+            We&apos;d like to offer a free tier again once we have a better sense of demand - for
+            now, every plan starts paid to keep this sustainable.
+          </p>
 
           {checkoutStatus === "success" && (
             <div
