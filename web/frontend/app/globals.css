@@ -52,6 +52,7 @@ a { color: inherit; }
   .prompt-row { flex-direction: column !important; }
   .nav-links { display: none !important; }
   .nav-menu-toggle { display: flex !important; }
+  .footer-badge { position: static !important; transform: none !important; display: block !important; margin: 16px auto 0 !important; }
 }
 
 @media (min-width: 861px) {

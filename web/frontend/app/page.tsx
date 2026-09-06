@@ -369,34 +369,42 @@ function Footer({ colors }: { colors: ThemeColors }) {
             <FooterLink href="/privacy">Privacy Policy</FooterLink>
           </div>
         </div>
-        <div style={{ gridColumn: "2 / 4", marginTop: 20 }}>
-          <a
-            href="https://www.producthunt.com/products/brickforgerai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-brickforgerai"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "inline-block" }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt="BrickForgerAI - Turn any prompt into a brick set you can actually build | Product Hunt"
-              width={200}
-              height={43}
-              src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1239306&theme=light&t=1788700474913"
-            />
-          </a>
-        </div>
       </div>
       <div
         style={{
-          textAlign: "center",
-          color: colors.textSecondary,
-          fontSize: 14,
-          marginTop: 40,
+          position: "relative",
+          maxWidth: 1100,
+          margin: "40px auto 0",
           paddingTop: 24,
           borderTop: `1px solid ${colors.cardBorder}`,
         }}
       >
-        © 2026 BrickForgerAI. Built with precision.
+        <div style={{ textAlign: "center", color: colors.textSecondary, fontSize: 14 }}>
+          © 2026 BrickForgerAI. Built with precision.
+        </div>
+        {/* Centered under the Product + Support columns above (which together
+            span the right half, x=50%-100%, of this same 1100px-wide box). */}
+        <a
+          className="footer-badge"
+          href="https://www.producthunt.com/products/brickforgerai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-brickforgerai"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            position: "absolute",
+            left: "75%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            display: "inline-block",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="BrickForgerAI - Turn any prompt into a brick set you can actually build | Product Hunt"
+            width={180}
+            height={39}
+            src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1239306&theme=light&t=1788700474913"
+          />
+        </a>
       </div>
     </div>
   );
