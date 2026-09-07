@@ -56,46 +56,67 @@ anything already claimed -- so "prefer a larger slope where one is
 possible" still holds, it just needs an actual tie-break now that two
 tiers share the same kind of source material.
 
-Orientation was verified empirically, not derived from the naming
-convention alone (same discipline as the footprint-axis and origin-anchor
-findings elsewhere in this catalog): at YAW_0, the **45-degree 3-plate**
-family's tall/vertical face is on the -Z side of its own footprint and it
-descends toward +Z -- confirmed via examples/output/slope_orientation_test.ldr
-(a 2x2 brick placed immediately adjacent, in +Z, to a 2x2 slope), opened in
-Studio and visually confirmed flush at the boundary with no step or gap.
-Rotating that relationship through each yaw (via the same Rotation matrix
-already used by rotate_offset) gives the base map below.
+`_DOWNHILL_ROTATION` is a pure, arbitrary pivot table, not a claim about
+any specific real part's rest orientation -- it exists so every family's
+true orientation can be expressed as either "matches this table" or "is
+`_OPPOSITE_ROTATION` of it," with exactly one source of truth
+(`_FLIPPED_PART_IDS`) for which parts need the flip, rather than a second
+(or third, or...) direction-to-rotation table per family.
 
-    downhill +Z -> YAW_0   (tall/uphill face -Z)
-    downhill +X -> YAW_90  (tall/uphill face -X)
-    downhill -Z -> YAW_180 (tall/uphill face +Z)
-    downhill -X -> YAW_270 (tall/uphill face +X)
+    downhill +Z -> YAW_0   (pivot's "tall/uphill face" at -Z)
+    downhill +X -> YAW_90  (pivot's "tall/uphill face" at -X)
+    downhill -Z -> YAW_180 (pivot's "tall/uphill face" at +Z)
+    downhill -X -> YAW_270 (pivot's "tall/uphill face" at +X)
 
-**Two other families face the OPPOSITE way at YAW_0 -- each verified
-independently from raw geometry, never assumed to match the 45-degree
-family just because all three are "slopes" (a real bug the 2-plate tier's
-first version shipped with, caught by the user seeing it placed backwards
-in Studio).** The 2-plate family's 7825 (`s/7825s01.dat`) runs from
-(Z=-10, Y=-4) -- close to this bottom-anchored family's own ground level,
-the THIN/downhill edge -- to (Z=+6, Y=-13.6) -- near full height, the
-TALL/uphill edge: tall face at +Z, descending toward -Z (85984 and 7835
-show the identical pairing). The 33-degree 3-plate family
-(4286/3298/4161/3297) shows the same mirrored pattern despite being
+**Every slope family actually measured in this catalog so far has its
+real tall face at +Z in its own raw, unrotated local geometry -- the
+OPPOSITE of the pivot table above -- so every one of them ends up in
+`_FLIPPED_PART_IDS`.** That includes the upright 45-degree 3-plate family
+itself (3037/3038/3039/3040, and 28192 by its own already-verified exact
+geometric match to 3040): this module used to claim the opposite (tall
+face at -Z, "confirmed via slope_orientation_test.ldr"), and treated it as
+this module's own un-flipped reference family. **That claim was wrong.**
+Caught by the founder seeing 3040 placed backwards in Studio
+(examples/output/slope3040_orientation_test.ldr, the specifically-designed
+non-square regression test -- a square candidate like 3039 can't expose an
+axis-swap bug, but it also can't expose THIS bug, a plain wrong-direction
+error that a square footprint hides just as effectively since rotating a
+square 180 degrees still looks flush at the boundary either way), then
+confirmed independently from 3040b.dat's own raw geometry, not just
+re-trusted: its uncommented "front face" quad (`4 16 10 20 -30 10 0 -10
+-10 0 -10 -10 20 -30`) is the SLOPED RAMP surface itself, not a flat
+vertical wall as previously assumed -- it runs from a thin, near-bottom
+sliver at (Z=-30, Y=20) up to full height at (Z=-10, Y=0). A separate quad
+(`4 16 10 24 10 10 0 10 -10 0 10 -10 24 10`) is a flat vertical wall at
+Z=+10 spanning the part's FULL Y range [0,24] -- that's the real tall
+face. True shape: a full-height block from Z=-10 to +10, ramping down to
+a thin edge at Z=-30. 3039's own raw file (fetched independently, not
+assumed to match 3040 just because an earlier comment here said they
+share "the identical Z/Y ramp pattern") has the identical quad shape
+scaled to its 2x2 footprint -- confirming the whole family was backwards,
+not just 3040.
+
+This means every family independently verified in this catalog agrees
+with every other one on which way is "tall" (+Z, natively), including the
+two that were already correctly flagged before this fix: the 2-plate
+family's 7825 (`s/7825s01.dat`) runs from (Z=-10, Y=-4) -- the THIN/
+downhill edge -- to (Z=+6, Y=-13.6) -- the TALL/uphill edge (85984 and
+7835 show the identical pairing; caught backwards in Studio the first
+time this family shipped too). The 33-degree 3-plate family
+(4286/3298/4161/3297) shows the same +Z-tall pattern despite being
 brick-height like the 45-degree family, not 2-plate-height like the
 family it happens to share a facing convention with: 4286's sloped-face
-quad runs from (Z=-10, Y=0) -- the TALL/uphill edge, full height -- to
-(Z=-50, Y=20) -- near the THIN/downhill edge; tall face at the less-
-negative Z end (mapped to +Z after recentering, see catalog/parts_v1.yaml),
-downhill toward more-negative Z, same mirror-image shape as the 2-plate
-family and the opposite of the 45-degree family's own -Z-tall convention.
-3298/4161/3297 show the identical Z/Y pairing at their respective widths.
-Rather than maintain a second (or third) direction-to-rotation table,
-every part whose real orientation is flipped is listed explicitly in
-`_FLIPPED_PART_IDS`, and `_find_step_edge_rotation` applies
-`_OPPOSITE_ROTATION` only for those -- one source of truth for "which
-direction is which rotation" (the base table), with per-part flips layered
-on top rather than guessed from any shared property (height tier, run
-length, etc.) of the parts involved.
+quad runs from (Z=-10, Y=0) -- the TALL/uphill edge -- to (Z=-50, Y=20)
+-- the THIN/downhill edge; tall face at the less-negative Z end (mapped
+to +Z after recentering, see catalog/parts_v1.yaml). Given this, it would
+be reasonable to guess that a future, not-yet-added slope family will
+also turn out tall-at-+Z -- but this catalog has already been burned once
+by exactly that kind of cross-family assumption (the 2-plate tier's first
+version shipped backwards for guessing it'd match the 45-degree family;
+now the 45-degree family itself turns out to have been the wrong
+reference all along), so a new family should still be measured from its
+own raw geometry before being added to or left out of
+`_FLIPPED_PART_IDS`, not assumed from this pattern.
 
 **Inverted slopes (the underside/overhang case) are now handled too --
 one tier only, mirroring the upright 3-plate swap tier exactly.** A
@@ -226,6 +247,31 @@ _FLIPPED_PART_IDS: frozenset[str] = frozenset(
         # orientation put the thin edge against the uphill support instead of
         # the tall/rounded face. Same fix as the 2-plate flat family above,
         # which had the identical bug the first time it shipped.
+        "3037", "3038", "3039", "3040", "28192",  # UPRIGHT 45-degree 3-plate
+        # family -- this module's own ORIGINAL "un-flipped" reference family,
+        # now found to be flipped too. The module docstring's claim ("tall
+        # face on the -Z side, confirmed via slope_orientation_test.ldr")
+        # was simply wrong -- caught by the founder seeing 3040 placed
+        # backwards in Studio (slope3040_orientation_test.ldr), then
+        # confirmed independently from raw geometry, not just re-trusted:
+        # 3040's own outer part file (3040b.dat) contains the uncommented
+        # "front face" quad "4 16 10 20 -30 10 0 -10 -10 0 -10 -10 20 -30"
+        # -- this is the SLOPED RAMP surface, not a flat vertical wall as
+        # previously assumed, running from (Z=-30, Y=20) a thin, near-bottom
+        # sliver up to (Z=-10, Y=0) full height. A separate quad, "4 16 10
+        # 24 10 10 0 10 -10 0 10 -10 24 10", is a flat vertical wall at
+        # Z=+10 spanning the part's FULL Y range [0,24] -- the real tall
+        # face. So the true shape is: full-height block from Z=-10 to
+        # Z=+10, ramping down to a thin edge at Z=-30 -- tall at +Z, thin
+        # at -Z, the OPPOSITE of what the docstring claimed. 3039's own raw
+        # file (fetched independently, not assumed to match 3040 just
+        # because the docstring says they share "the identical Z/Y ramp
+        # pattern") has the identical quad shape scaled to its 2x2
+        # footprint -- (20,20,-30),(20,0,-10),(-20,0,-10),(-20,20,-30) --
+        # confirming the whole un-flipped family (3037/3038/3039/3040, and
+        # 28192 by the catalog's own already-verified geometric-match
+        # comment) was backwards, not just 3040 specifically. See
+        # tests/test_pipeline_slopes.py's updated rotation assertions.
     }
 )
 

@@ -15,7 +15,8 @@ def catalog():
 def test_step_down_edge_is_substituted_with_matching_upright_slope(catalog):
     # Tall block (2 bricks) at z=[-2,0), a 1-brick-tall block at z=[0,2)
     # (the candidate), open air at z=[2,4) -- a genuine step down in +Z.
-    # Verified orientation: downhill +Z -> YAW_0 (see slopes.py docstring).
+    # Verified orientation: 3039 is in _FLIPPED_PART_IDS (see slopes.py
+    # docstring), so downhill +Z -> YAW_180, not the pivot table's YAW_0.
     model = Model(catalog=catalog)
     model.place("3003", RED, x=0, y=0, z=-2)  # 2x2 brick, uphill
     model.place("3003", RED, x=0, y=3, z=-2)  # second brick on top, 2 bricks tall
@@ -25,7 +26,7 @@ def test_step_down_edge_is_substituted_with_matching_upright_slope(catalog):
 
     candidate = next(b for b in refined if b.pos.z == 0)
     assert candidate.part.id == "3039"  # Slope Brick 45 2 x 2
-    assert candidate.rotation == Rotation.YAW_0
+    assert candidate.rotation == Rotation.YAW_180
     assert candidate.pos == model.bricks[2].pos
 
 
@@ -123,8 +124,9 @@ def test_2plate_step_down_edge_is_merged_into_matching_slope(catalog):
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
     assert candidate.part.id == "85984"  # Slope Brick 31 1 x 2 (perp width 2, run 1)
     # YAW_180, not YAW_0: this family's tall/uphill face sits at +Z at rest,
-    # the mirror image of the 3-plate family -- see slopes.py's module
-    # docstring (a real bug the first version shipped with).
+    # same as every other measured slope family in this catalog -- see
+    # slopes.py's module docstring (a real bug the first version shipped
+    # with, for guessing this family would match the pivot table directly).
     assert candidate.rotation == Rotation.YAW_180
     assert candidate.pos == model.bricks[1].pos  # anchored at the LOWER plate's position
 
@@ -222,11 +224,12 @@ def test_both_tiers_fire_independently_in_the_same_model(catalog):
     assert three_plate_result.part.id == "3039"  # Slope Brick 45 2 x 2
     assert two_plate_result.part.id == "85984"  # Slope Brick 31 1 x 2
     assert len(refined) == len(model) - 1  # only the 2-plate pair merges away a part
-    # Regression pin for a real bug: for the identical downhill direction
-    # (+Z), the two families need opposite rotations, because the 2-plate
-    # family's rest orientation is the mirror image of the 3-plate one's
-    # (verified from raw geometry -- see slopes.py's module docstring).
-    assert three_plate_result.rotation == Rotation.YAW_0
+    # Both families are in _FLIPPED_PART_IDS (verified from raw geometry --
+    # see slopes.py's module docstring), so the identical downhill
+    # direction (+Z) resolves to the SAME rotation for both, not opposite
+    # ones -- every measured family in this catalog agrees on which way is
+    # tall.
+    assert three_plate_result.rotation == Rotation.YAW_180
     assert two_plate_result.rotation == Rotation.YAW_180
 
 
@@ -257,7 +260,7 @@ def test_3plate_stack_step_down_edge_is_merged_into_matching_slope(catalog):
     assert len(refined) == len(model) - 2  # three plates merged into one slope
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
     assert candidate.part.id == "3039"  # Slope Brick 45 2 x 2 -- same part the swap tier uses
-    assert candidate.rotation == Rotation.YAW_0
+    assert candidate.rotation == Rotation.YAW_180
 
 
 def test_3plate_stack_with_something_on_top_is_not_merged(catalog):
@@ -341,11 +344,11 @@ def test_33_degree_slope_fires_for_a_3_stud_run_step_down(catalog):
 
     candidate = next(b for b in refined if b.pos == model.bricks[2].pos)
     assert candidate.part.id == "4286"  # Slope Brick 33 3 x 1 (perp=1, run=3)
-    # YAW_180, not the base table's YAW_0 for a +Z downhill: this family is
-    # in _FLIPPED_PART_IDS, the mirror image of the 45-degree family's own
-    # rest orientation (see slopes.py's module docstring and
-    # catalog/parts_v1.yaml's header on this family for the raw-geometry
-    # evidence).
+    # YAW_180, not the pivot table's YAW_0 for a +Z downhill: this family
+    # is in _FLIPPED_PART_IDS, same as every other measured slope family in
+    # this catalog including the 45-degree family itself (see slopes.py's
+    # module docstring and catalog/parts_v1.yaml's header on this family
+    # for the raw-geometry evidence).
     assert candidate.rotation == Rotation.YAW_180
 
 
@@ -420,7 +423,27 @@ def test_overhang_step_up_edge_is_substituted_with_matching_inverted_slope(catal
     candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
     assert candidate.part.id == "3660"  # Slope Inverted 45 2 x 2
     # 3660 is a FLIPPED part (see _FLIPPED_PART_IDS) -- downhill +Z maps
-    # to the opposite of the upright family's own YAW_0.
+    # to YAW_180, not the pivot table's YAW_0.
+    assert candidate.rotation == Rotation.YAW_180
+
+
+def test_overhang_non_square_candidate_resolves_to_matching_inverted_slope(catalog):
+    # Mirror of test_step_down_edge_is_substituted_with_matching_upright_slope's
+    # own non-square regression -- the existing inverted-tier test above only
+    # ever exercises 3660 (square, 2x2), which can't expose an axis-swap bug
+    # the way a non-square candidate can (this exact class of bug is what
+    # slope3040_test.py/slope3665_test.py were built to catch on the upright
+    # side; this pins the identical case for the inverted side).
+    model = Model(catalog=catalog)
+    model.place("3005", RED, x=0, y=0, z=-1)  # ground-reaching support, 1 brick tall (top=3)
+    model.place("3004", RED, x=0, y=1, z=0, rotation=Rotation.YAW_90)  # floating just 1 plate up, 1x2 along Z
+
+    refined = substitute_staircase_slopes(model).model
+
+    candidate = next(b for b in refined if b.pos == model.bricks[1].pos)
+    assert candidate.part.id == "3665"  # Slope Inverted 45 2 x 1
+    # 3665 is in _FLIPPED_PART_IDS, same as every other measured slope
+    # family in this catalog (see slopes.py's module docstring).
     assert candidate.rotation == Rotation.YAW_180
 
 
