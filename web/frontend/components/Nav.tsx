@@ -135,7 +135,7 @@ export default function Nav({
         }}
       >
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-          <Logo />
+          <Logo size={27} />
           <span
             className="display"
             style={{ fontWeight: 800, fontSize: 22, color: colors.textPrimary }}

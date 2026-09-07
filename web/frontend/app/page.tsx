@@ -340,7 +340,7 @@ function Footer({ colors }: { colors: ThemeColors }) {
             className="display"
             style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 20, color: colors.textPrimary, marginBottom: 14 }}
           >
-            <Logo size={20} />
+            <Logo size={23} />
             BrickForgerAI
           </div>
           <p style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 1.6, maxWidth: 340 }}>
