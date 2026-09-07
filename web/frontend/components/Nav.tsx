@@ -134,8 +134,8 @@ export default function Nav({
           backdropFilter: "blur(6px)",
         }}
       >
-        <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-          <Logo size={27} />
+        <Link href="/" style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
+          <Logo size={31} />
           <span
             className="display"
             style={{ fontWeight: 800, fontSize: 22, color: colors.textPrimary }}
