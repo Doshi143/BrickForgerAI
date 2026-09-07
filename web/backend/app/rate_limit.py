@@ -62,7 +62,21 @@ def check_per_user_rate_limit(user_id: str, plan: str) -> bool:
     """True if this request may proceed. Increments the user's current
     hour bucket regardless of the outcome -- a rejected attempt still
     counts against the window, or repeated retries would be a free way
-    around the limit."""
+    around the limit.
+
+    No hourly limit at all on Starter: a real paying customer hit the
+    old 3/hour floor after only 2 successful generations (a double-click
+    or retry burns a slot from this counter even when it doesn't produce
+    a second job -- see this function's own "regardless of the outcome"
+    note above), which is a worse false-positive than any abuse this
+    tier's cap was meant to prevent. Starter's own monthly credit
+    allowance (3, see auth.PLAN_CREDITS) is already the real limit on
+    how much a Starter account can generate -- consume_credit() still
+    enforces that synchronously either way -- so this tier's hourly
+    throttle was pure downside with no real abuse case it was uniquely
+    stopping."""
+    if plan == "starter":
+        return True
     hour_bucket = datetime.now(timezone.utc).strftime("%Y%m%d%H")
     key = f"ratelimit:user:{user_id}:{hour_bucket}"
     return _check_fixed_window(key, _hourly_limit_for_plan(plan), 3600)
