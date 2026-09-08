@@ -41,6 +41,61 @@ def test_build_steps_on_empty_model(catalog):
     assert build_steps(model) == []
 
 
+def test_build_steps_caps_step_size(catalog):
+    # 20 bricks, all independently grounded (different XZ, same y=0) -- the
+    # old one-step-per-layer version would have dumped every one of these
+    # into a single step, with no ceiling at all.
+    model = Model(catalog=catalog)
+    for x in range(20):
+        model.place("3024", RED, x, 0, 0)
+
+    steps = build_steps(model, max_bricks_per_step=8)
+
+    assert len(steps) == 3  # 8 + 8 + 4
+    assert [len(s.brick_indices) for s in steps] == [8, 8, 4]
+    all_indices = sorted(i for s in steps for i in s.brick_indices)
+    assert all_indices == list(range(20))
+    assert steps[-1].running_total == 20
+
+
+def test_build_steps_grows_a_connected_run_contiguously_not_scattered_by_height(catalog):
+    # Regression for the exact founder-reported complaint: a segment
+    # attached partway up the model must build up in consecutive steps
+    # right after its attachment point, not get interleaved with -- or
+    # deferred behind -- unrelated bricks that merely happen to share a Y
+    # value. Six unrelated, independently-grounded filler plates (never
+    # touching the tower or each other) sit at y=0 alongside the tower's
+    # own base -- a real trap for a pure "one step per Y layer" partition,
+    # since none of the arm's own bricks share a Y with any filler brick.
+    model = Model(catalog=catalog)
+    filler_indices = []
+    for x in range(6):
+        b = model.place("3024", RED, x, 0, 0)
+        filler_indices.append(model.bricks.index(b))
+
+    # 3005 (Brick 1x1) is 3 plates tall, so each next one stacks at +3.
+    tower_base = model.place("3005", BLUE, 10, 0, 0)  # y=0, grounded
+    arm1 = model.place("3005", BLUE, 10, 3, 0)  # rests on tower_base
+    arm2 = model.place("3005", BLUE, 10, 6, 0)  # rests on arm1
+    arm3 = model.place("3005", BLUE, 10, 9, 0)  # rests on arm2
+
+    steps = build_steps(model, max_bricks_per_step=10)
+
+    tower_base_i = model.bricks.index(tower_base)
+    arm1_i, arm2_i, arm3_i = (model.bricks.index(b) for b in (arm1, arm2, arm3))
+
+    # Everything grounded at y=0 (filler + the tower's own base) lands in
+    # step 0 together -- nothing here depends on anything else yet.
+    assert set(steps[0].brick_indices) == set(filler_indices) | {tower_base_i}
+    # The arm then grows in its own consecutive steps, one brick per step
+    # since each only unlocks the next -- no filler brick ever appears in
+    # between, and the arm is never deferred behind unrelated material.
+    assert steps[1].brick_indices == (arm1_i,)
+    assert steps[2].brick_indices == (arm2_i,)
+    assert steps[3].brick_indices == (arm3_i,)
+    assert len(steps) == 4
+
+
 def test_tally_groups_by_part_and_colour(catalog):
     model = Model(catalog=catalog)
     model.place("3024", RED, 0, 0, 0)

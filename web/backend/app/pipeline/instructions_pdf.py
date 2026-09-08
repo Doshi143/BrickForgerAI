@@ -154,6 +154,41 @@ def _columns_for_row_count(n: int) -> int:
     return 2
 
 
+# Real, reported bug: more columns alone still has a ceiling -- a dense
+# model's Full Parts List overran even 4 columns' worth of a single fixed
+# A4 page and the excess was silently clipped by `.page`'s own
+# `overflow: hidden` (see _BOOKLET_CSS), invisible in the final PDF rather
+# than erroring. CSS multi-column flow (`column-count`) has no way to spill
+# onto a second `.page` section by itself -- browsers don't paginate a
+# single container across print pages, they just let it overflow -- so
+# this has to be decided server-side, in Python, before the HTML is ever
+# assembled, the same "more pages" half of the fix _columns_for_row_count
+# above already applied the "more columns" half of.
+#
+# Deliberately conservative rather than computed from exact CSS metrics
+# (chip line-height, page padding, etc.): a chip's `chip-name` span holds
+# both the part name and a nested colour name, which wraps to two lines in
+# a narrower 4-column layout for anything but a short part/colour name --
+# a real effect confirmed by comparing an optimistic single-line estimate
+# against this file's own real rendered output, not assumed. Erring toward
+# more, shorter pages is a much smaller cost than erring toward clipped
+# content again.
+_MAX_ROWS_PER_COLUMN = 18
+
+
+def _paginate_rows(rows: list[PartTally], *, columns: int) -> list[list[PartTally]]:
+    """Splits `rows` into page-sized chunks of at most
+    `columns * _MAX_ROWS_PER_COLUMN` each, preserving order (already sorted
+    by tally() -- descending count, so the most-needed parts stay first
+    regardless of how many pages the list spans). Returns a single chunk
+    (identical to `[rows]`) for anything that fits on one page, so callers
+    never need to special-case the common case."""
+    per_page = max(1, columns * _MAX_ROWS_PER_COLUMN)
+    if not rows:
+        return [[]]
+    return [rows[i:i + per_page] for i in range(0, len(rows), per_page)]
+
+
 def _step_page_html(step_number: int, total_steps: int, screenshot_png: bytes, rows: list[PartTally]) -> str:
     b64 = base64.b64encode(screenshot_png).decode("ascii")
     columns = _columns_for_row_count(len(rows))
@@ -346,13 +381,36 @@ _BOOKLET_CSS = f"""
 """
 
 
+def _bom_pages_html(bom_rows: list[PartTally]) -> str:
+    """One or more `.page.bom` sections covering the whole parts list --
+    see _paginate_rows/_MAX_ROWS_PER_COLUMN for why a single fixed-height
+    page can't always hold it. Column count is chosen once from the full
+    row count (not per page) so every page reads consistently rather than
+    changing layout partway through the list."""
+    columns = _columns_for_row_count(len(bom_rows))
+    pages = _paginate_rows(bom_rows, columns=columns)
+    parts = []
+    for page_num, page_rows in enumerate(pages, start=1):
+        heading = "Full parts list" if len(pages) == 1 else f"Full parts list (page {page_num} of {len(pages)})"
+        parts.append(f"""
+  <section class="page bom">
+    {_scene_svg(prominent=False)}
+    <div class="content">
+      <div class="content-card">
+        <h2>{html.escape(heading)}</h2>
+        {_parts_grid_html(page_rows, columns=columns)}
+      </div>
+    </div>
+  </section>""")
+    return "".join(parts)
+
+
 def _assemble_booklet_html(
     model_name: str,
     part_count: int,
     steps_html: str,
     bom_rows: list[PartTally],
 ) -> str:
-    bom_columns = _columns_for_row_count(len(bom_rows))
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>{_BOOKLET_CSS}</style></head>
 <body>
@@ -369,15 +427,7 @@ def _assemble_booklet_html(
       </div>
     </div>
   </section>
-  <section class="page bom">
-    {_scene_svg(prominent=False)}
-    <div class="content">
-      <div class="content-card">
-        <h2>Full parts list</h2>
-        {_parts_grid_html(bom_rows, columns=bom_columns)}
-      </div>
-    </div>
-  </section>
+  {_bom_pages_html(bom_rows)}
   {steps_html}
 </body></html>"""
 
