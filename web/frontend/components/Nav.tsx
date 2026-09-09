@@ -15,6 +15,33 @@ const NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
 ];
 
+// Feather-style icon glyphs drawn inline (no icon package dependency) --
+// sized to fit inside the 20px knob. Sun uses a stroked circle + rays so it
+// reads distinctly from the moon's solid crescent at this size.
+function SunIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  );
+}
+
+function MoonIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#fff" stroke="none">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
 // 3 knob positions (day/evening/night) while USE_IMAGE_SCENERY is on, same
 // 2-position day/night track otherwise -- reads `sceneryTime` from context
 // directly rather than as a prop so both call sites below (desktop +
@@ -27,6 +54,23 @@ function DarkModeToggle({ colors, dark, onToggleDark }: { colors: ThemeColors; d
     : dark
     ? 22
     : 2;
+  const knobIcon = USE_IMAGE_SCENERY ? (
+    sceneryTime === "day" ? (
+      <SunIcon size={13} />
+    ) : sceneryTime === "night" ? (
+      <MoonIcon size={13} />
+    ) : (
+      // Evening: both sun and moon together, shrunk to share the knob.
+      <>
+        <SunIcon size={8} />
+        <MoonIcon size={8} />
+      </>
+    )
+  ) : dark ? (
+    <MoonIcon size={13} />
+  ) : (
+    <SunIcon size={13} />
+  );
   return (
     <div
       onClick={onToggleDark}
@@ -53,8 +97,14 @@ function DarkModeToggle({ colors, dark, onToggleDark }: { colors: ThemeColors; d
           borderRadius: "50%",
           background: colors.accent,
           transition: "left 0.3s",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1,
         }}
-      />
+      >
+        {knobIcon}
+      </div>
     </div>
   );
 }
