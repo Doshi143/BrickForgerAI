@@ -173,6 +173,26 @@ export const lightColors: ThemeColors = USE_GLASSMORPHISM
     }
   : lightColorsOpaque;
 
+// Day and evening both render with lightColors (only night uses dark) --
+// but evening's own backdrop is busier/brighter behind the card area than
+// day's, and a Reddit commenter caught real text-on-card legibility loss
+// there under the glass cards' shared 0.35 alpha. Rather than raising
+// opacity for day too (undoing the whole point of the glass look where it
+// wasn't a problem), this bumps just the "box surface" tokens for evening
+// specifically -- called from a page with `sceneryTime` in scope, not
+// baked into lightColors itself, since darkColors/lightColors are only
+// ever picked by the 2-state `dark` boolean, not by sceneryTime.
+export function boostForEvening(colors: ThemeColors): ThemeColors {
+  if (!USE_GLASSMORPHISM) return colors;
+  return {
+    ...colors,
+    badgeBg: "rgba(251,228,211,0.65)",
+    cardBg: "rgba(255,255,255,0.55)",
+    cardBorder: "rgba(255,255,255,0.7)",
+    ctaBg: "rgba(255,255,255,0.5)",
+  };
+}
+
 export const clouds = [
   { top: "10%", scale: 1, duration: 55, delay: 0 },
   { top: "24%", scale: 0.75, duration: 70, delay: -20 },

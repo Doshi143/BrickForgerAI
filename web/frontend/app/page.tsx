@@ -11,7 +11,7 @@ import WaitlistForm from "@/components/WaitlistForm";
 import { useActiveJob } from "@/components/ActiveJobProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "./theme";
+import { ThemeColors, boostForEvening, darkColors, glassBlurStyle, lightColors } from "./theme";
 import { ApiError, BuildSize, MAINTENANCE_MODE, SIZE_OPTIONS, startGeneration } from "@/lib/api";
 
 const STEPS = [
@@ -61,7 +61,7 @@ function darken(hex: string, amount: number): string {
 
 export default function Home() {
   const router = useRouter();
-  const { dark, toggleDark } = useTheme();
+  const { dark, toggleDark, sceneryTime } = useTheme();
   const { user, token } = useAuth();
   const { startTracking } = useActiveJob();
   const [prompt, setPrompt] = useState("");
@@ -69,7 +69,10 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const colors = dark ? darkColors : lightColors;
+  const baseColors = dark ? darkColors : lightColors;
+  // Evening's own backdrop makes the glass cards' shared opacity harder to
+  // read against than day's -- see boostForEvening's own comment.
+  const colors = sceneryTime === "evening" ? boostForEvening(baseColors) : baseColors;
 
   // Size defaulted to "medium" on every fresh page load with no way to
   // stick -- confirmed as the real cause behind two separate reports of

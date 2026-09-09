@@ -26,17 +26,17 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function initialSceneryTime(): SceneryTime {
-  if (typeof window === "undefined") return "evening";
+  if (typeof window === "undefined") return "day";
   const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored === "day" || stored === "evening" || stored === "night") return stored;
   // No new-key preference yet -- a returning visitor's OLD boolean choice
   // (light/dark) is honored as the closest match (dark -> night, light ->
-  // day) rather than silently reset to the new "evening" default; only a
-  // genuinely first-time visitor (neither key present) gets "evening".
+  // day) rather than silently reset to the new "day" default; only a
+  // genuinely first-time visitor (neither key present) gets "day".
   const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
   if (legacy === "true") return "night";
   if (legacy === "false") return "day";
-  return "evening";
+  return "day";
 }
 
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
