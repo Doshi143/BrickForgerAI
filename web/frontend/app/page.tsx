@@ -35,6 +35,18 @@ const STEPS = [
   },
 ];
 
+// A darker shade of the accent color for the "bricks" headline's own hard
+// drop-shadow (see the Bungee treatment below) -- computed from colors.accent
+// itself rather than a separate hardcoded hex per theme, so it stays in sync
+// if the accent color ever changes.
+function darken(hex: string, amount: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.round(((n >> 16) & 255) * (1 - amount)));
+  const g = Math.max(0, Math.round(((n >> 8) & 255) * (1 - amount)));
+  const b = Math.max(0, Math.round((n & 255) * (1 - amount)));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 export default function Home() {
   const router = useRouter();
   const { dark, toggleDark } = useTheme();
@@ -129,9 +141,17 @@ export default function Home() {
               margin: 0,
             }}
           >
-            Build anything with
+            <span style={{ fontFamily: "'Rubik', sans-serif", fontWeight: 800 }}>Build anything with</span>
             <br />
-            <span style={{ color: colors.accent }}>bricks</span>
+            <span
+              style={{
+                fontFamily: "'Bungee', sans-serif",
+                color: colors.accent,
+                textShadow: `4px 5px 0 ${darken(colors.accent, 0.35)}`,
+              }}
+            >
+              bricks
+            </span>
           </h1>
           <p
             style={{
