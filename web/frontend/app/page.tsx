@@ -423,7 +423,16 @@ function Footer({ colors }: { colors: ThemeColors }) {
         <div>
           <div
             className="display"
-            style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 800, fontSize: 20, color: colors.textPrimary, marginBottom: 14 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              fontWeight: 800,
+              fontSize: 20,
+              color: colors.textPrimary,
+              marginBottom: 14,
+              fontFamily: "'Poppins', sans-serif",
+            }}
           >
             <Logo size={27} />
             BrickForgerAI

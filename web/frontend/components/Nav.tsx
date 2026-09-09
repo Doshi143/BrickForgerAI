@@ -150,7 +150,10 @@ export default function Nav({
           <Logo size={31} />
           <span
             className="display"
-            style={{ fontWeight: 800, fontSize: 22, color: colors.textPrimary }}
+            // The wordmark keeps its original logo font (Poppins) even
+            // though .display switched to Roboto site-wide -- an inline
+            // override here wins over that shared class rule.
+            style={{ fontWeight: 800, fontSize: 22, color: colors.textPrimary, fontFamily: "'Poppins', sans-serif" }}
           >
             BrickForgerAI
           </span>
