@@ -235,7 +235,15 @@ export default function Home() {
                         padding: "10px 14px",
                         borderRadius: 12,
                         border: `1px solid ${active ? colors.accent : colors.cardBorder}`,
-                        background: active ? colors.badgeBg : colors.cardBg,
+                        // Dark mode's own badgeBg is already a translucent
+                        // rgba tint, which reads as "transparent" -- light
+                        // mode's is a solid opaque swatch instead. Day and
+                        // evening both use the light palette (dark is only
+                        // true for night), so this one translucent override
+                        // covers both at once, matching the look already
+                        // working for night without touching the shared
+                        // badgeBg token other badges/pills also use.
+                        background: active ? (dark ? colors.badgeBg : "rgba(232,129,58,0.15)") : colors.cardBg,
                         color: active ? colors.accent : colors.textSecondary,
                         fontWeight: active ? 700 : 600,
                         fontSize: 14,

@@ -142,8 +142,7 @@ export default function Nav({
           alignItems: "center",
           justifyContent: "space-between",
           padding: "20px 48px",
-          background: colors.navBg,
-          backdropFilter: "blur(6px)",
+          position: "relative",
         }}
       >
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
@@ -155,9 +154,17 @@ export default function Nav({
             BrickForgerAI
           </span>
         </Link>
+
+        {/* Centered independently of the logo/right-side widths via absolute
+            positioning against the row's own relative container -- a plain
+            flex layout can't true-center a middle group when its neighbors
+            are different widths on each side. */}
         <div
           className="nav-links"
           style={{
+            position: "absolute",
+            left: "50%",
+            transform: "translateX(-50%)",
             display: "flex",
             alignItems: "center",
             gap: 32,
@@ -171,6 +178,9 @@ export default function Nav({
               {link.label}
             </Link>
           ))}
+        </div>
+
+        <div className="nav-links" style={{ display: "flex", alignItems: "center", gap: 20 }}>
           {authControl}
           <DarkModeToggle colors={colors} dark={dark} onToggleDark={onToggleDark} />
         </div>

@@ -151,13 +151,20 @@ export const stars = [
   { top: "6%", left: "40%", size: 2.5, duration: 3.6, delay: -2 },
   { top: "20%", left: "55%", size: 1.5, duration: 4.4, delay: -0.5 },
   { top: "10%", left: "68%", size: 2, duration: 3, delay: -1.5 },
-  { top: "25%", left: "80%", size: 1.5, duration: 3.8, delay: -2.5 },
+  // Nothing placed in the moon's own top-right region (roughly top 18-36%,
+  // left 78-95%, matching where night.webp's own moon sits with the
+  // object-position crop Scenery.tsx uses) -- a star drawn on top of the
+  // baked-in moon read as a stray mistake, not a real night-sky detail, and
+  // was reported as such.
   { top: "14%", left: "5%", size: 1.5, duration: 4.2, delay: -3 },
   { top: "30%", left: "35%", size: 2, duration: 3.4, delay: -1.8 },
   { top: "4%", left: "88%", size: 1.5, duration: 3.9, delay: -0.8 },
   { top: "34%", left: "60%", size: 2, duration: 3.3, delay: -2.2 },
-  { top: "18%", left: "92%", size: 1.5, duration: 4.1, delay: -1.2 },
   { top: "28%", left: "15%", size: 1.5, duration: 3.7, delay: -3.4 },
+  { top: "22%", left: "48%", size: 2, duration: 3.5, delay: -1.6 },
+  { top: "9%", left: "58%", size: 1.5, duration: 4.3, delay: -2.8 },
+  { top: "32%", left: "22%", size: 2, duration: 3.1, delay: -0.4 },
+  { top: "6%", left: "75%", size: 1.5, duration: 3.85, delay: -1.9 },
 ];
 
 // peak: 0-100, the % across the mountain's own width where its tip sits --
