@@ -9,7 +9,7 @@ import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import {
   ApiError,
   GalleryDetail,
@@ -187,6 +187,7 @@ function DiscoverItemContent({ params }: { params: Promise<{ jobId: string }> })
                   borderRadius: 20,
                   padding: 8,
                   marginBottom: 16,
+                  ...glassBlurStyle,
                 }}
               >
                 <Viewer3D src={previewUrl(jobId)} />
@@ -283,6 +284,7 @@ function Stat({ colors, label, value }: { colors: ThemeColors; label: string; va
         border: `1px solid ${colors.cardBorder}`,
         borderRadius: 16,
         padding: "20px 22px",
+        ...glassBlurStyle,
       }}
     >
       <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 6 }}>{label}</div>

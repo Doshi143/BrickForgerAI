@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ThemeColors, USE_IMAGE_SCENERY } from "@/app/theme";
+import { ThemeColors, USE_IMAGE_SCENERY, glassBlurStyle } from "@/app/theme";
 import { useAuth } from "./AuthProvider";
 import { useTheme } from "./ThemeProvider";
 import Logo from "./Logo";
@@ -90,6 +90,7 @@ export default function Nav({
           padding: "6px 12px",
           borderRadius: 20,
           whiteSpace: "nowrap",
+          ...glassBlurStyle,
         }}
       >
         {user.credits_remaining} credit{user.credits_remaining === 1 ? "" : "s"}

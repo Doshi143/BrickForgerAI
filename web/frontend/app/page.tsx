@@ -11,7 +11,7 @@ import WaitlistForm from "@/components/WaitlistForm";
 import { useActiveJob } from "@/components/ActiveJobProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "./theme";
+import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "./theme";
 import { ApiError, BuildSize, MAINTENANCE_MODE, SIZE_OPTIONS, startGeneration } from "@/lib/api";
 
 const STEPS = [
@@ -180,6 +180,7 @@ export default function Home() {
                     fontSize: 16,
                     outline: "none",
                     fontFamily: "inherit",
+                    ...glassBlurStyle,
                   }}
                 />
                 <button
@@ -249,6 +250,7 @@ export default function Home() {
                         fontSize: 14,
                         fontFamily: "inherit",
                         cursor: "pointer",
+                        ...glassBlurStyle,
                       }}
                     >
                       {opt.label}
@@ -301,6 +303,7 @@ export default function Home() {
                 padding: "40px 32px",
                 textAlign: "center",
                 border: `1px solid ${colors.cardBorder}`,
+                ...glassBlurStyle,
               }}
             >
               <div

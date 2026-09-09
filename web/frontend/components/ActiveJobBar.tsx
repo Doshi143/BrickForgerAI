@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { useActiveJob } from "@/components/ActiveJobProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { darkColors, lightColors } from "@/app/theme";
+import { darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import { STATUS_LABELS } from "@/lib/api";
 
 /** Floating bar, visible from anywhere in the app, showing progress (or
@@ -43,6 +43,7 @@ export default function ActiveJobBar() {
         padding: "12px 16px 12px 18px",
         boxShadow: "0 8px 30px rgba(0,0,0,0.25)",
         maxWidth: "calc(100vw - 32px)",
+        ...glassBlurStyle,
       }}
     >
       {!done && !failed && (

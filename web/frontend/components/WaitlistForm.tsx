@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { ApiError, joinWaitlist } from "@/lib/api";
-import { ThemeColors } from "@/app/theme";
+import { ThemeColors, USE_GLASSMORPHISM, glassBlurStyle } from "@/app/theme";
 
 /** Shown on the homepage instead of the real generate flow whenever
  * MAINTENANCE_MODE is on (see lib/api.ts) -- the one thing a visitor can
@@ -44,6 +44,7 @@ export default function WaitlistForm({ colors }: { colors: ThemeColors }) {
           borderRadius: 14,
           border: `1px solid ${colors.cardBorder}`,
           background: colors.cardBg,
+          ...glassBlurStyle,
         }}
       >
         <p style={{ color: colors.textPrimary, fontSize: 16, fontWeight: 600, margin: 0 }}>
@@ -64,6 +65,7 @@ export default function WaitlistForm({ colors }: { colors: ThemeColors }) {
           borderRadius: 14,
           border: `1px solid ${colors.cardBorder}`,
           background: colors.cardBg,
+          ...glassBlurStyle,
         }}
       >
         <p style={{ color: colors.textPrimary, fontSize: 17, fontWeight: 700, margin: 0 }}>
@@ -86,11 +88,12 @@ export default function WaitlistForm({ colors }: { colors: ThemeColors }) {
               padding: "14px 16px",
               borderRadius: 12,
               border: `1px solid ${colors.inputBorder}`,
-              background: colors.skyBottom,
+              background: USE_GLASSMORPHISM ? colors.cardBg : colors.skyBottom,
               color: colors.textPrimary,
               fontSize: 15,
               outline: "none",
               fontFamily: "inherit",
+              ...glassBlurStyle,
             }}
           />
           <button

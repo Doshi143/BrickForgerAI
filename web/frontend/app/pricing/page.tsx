@@ -8,7 +8,7 @@ import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import { ApiError, deleteAccount, startBillingPortal, startPlanCheckout, startTopupCheckout } from "@/lib/api";
 
 type Plan = {
@@ -169,6 +169,7 @@ function PricingContent() {
                 padding: "14px 20px",
                 color: colors.textPrimary,
                 maxWidth: 480,
+                ...glassBlurStyle,
                 margin: "0 auto 32px",
                 fontSize: 14,
               }}
@@ -187,6 +188,7 @@ function PricingContent() {
                 color: colors.textSecondary,
                 maxWidth: 480,
                 margin: "0 auto 32px",
+                ...glassBlurStyle,
                 fontSize: 14,
               }}
             >
@@ -202,6 +204,7 @@ function PricingContent() {
                 padding: "14px 20px",
                 color: "#ff8f6b",
                 maxWidth: 480,
+                ...glassBlurStyle,
                 margin: "0 auto 32px",
                 fontSize: 14,
               }}
@@ -229,6 +232,7 @@ function PricingContent() {
                     borderRadius: 24,
                     padding: 36,
                     position: "relative",
+                    ...glassBlurStyle,
                   }}
                 >
                   {plan.badge && (
@@ -326,6 +330,7 @@ function PricingContent() {
                   flex: "1 1 420px",
                   maxWidth: 480,
                   textAlign: "left",
+                  ...glassBlurStyle,
                   display: "flex",
                   flexDirection: "column",
                 }}
@@ -391,6 +396,7 @@ function PricingContent() {
                   flex: "1 1 420px",
                   maxWidth: 480,
                   textAlign: "left",
+                  ...glassBlurStyle,
                   display: "flex",
                   flexDirection: "column",
                 }}

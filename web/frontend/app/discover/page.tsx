@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import { GalleryCard as GalleryCardType, fetchPublicGallery, thumbnailUrl } from "@/lib/api";
 
 // Public -- no auth guard. Deliberately kept simple with local input
@@ -70,6 +70,7 @@ export default function DiscoverPage() {
               outline: "none",
               fontFamily: "inherit",
               marginBottom: 32,
+              ...glassBlurStyle,
               display: "block",
             }}
           />
@@ -82,6 +83,7 @@ export default function DiscoverPage() {
                 borderRadius: 16,
                 padding: 24,
                 color: "#ff8f6b",
+                ...glassBlurStyle,
               }}
             >
               Can&apos;t reach the backend ({error}).
@@ -98,6 +100,7 @@ export default function DiscoverPage() {
                 borderRadius: 16,
                 padding: 40,
                 textAlign: "center",
+                ...glassBlurStyle,
               }}
             >
               <p style={{ color: colors.textSecondary, fontSize: 16, margin: 0 }}>
@@ -137,6 +140,7 @@ function DiscoverCard({ colors, item }: { colors: ThemeColors; item: GalleryCard
         borderRadius: 16,
         overflow: "hidden",
         textDecoration: "none",
+        ...glassBlurStyle,
       }}
     >
       <div

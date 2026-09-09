@@ -13,6 +13,24 @@
 // commit + push, not a dashboard change.
 export const USE_IMAGE_SCENERY = true;
 
+// Same revert pattern as USE_IMAGE_SCENERY above: flip to false any time to
+// instantly restore every card/button/input across the whole site to its
+// exact original opaque color, no other file needs touching. cardBg,
+// cardBorder, inputBorder, ctaBg and badgeBg are shared ThemeColors tokens
+// already used by every "box" on the site (homepage, discover, gallery,
+// pricing, auth forms, generate results, static pages) -- overriding just
+// those 5 values below is what makes the glass look apply everywhere for
+// free. glassBlurStyle is the other half: a spreadable style fragment
+// (`...glassBlurStyle`) added at each of those box's own JSX so the actual
+// frosted blur renders; it collapses to `{}` (a no-op spread) when this
+// flag is off, so turning it off reproduces the original pixels exactly,
+// not just "close enough."
+export const USE_GLASSMORPHISM = true;
+
+export const glassBlurStyle: { backdropFilter?: string; WebkitBackdropFilter?: string } = USE_GLASSMORPHISM
+  ? { backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)" }
+  : {};
+
 // AI-generated backdrops (public/scenery/*.webp), one per time of day --
 // see ThemeProvider.tsx's SceneryTime state. Only meaningful while
 // USE_IMAGE_SCENERY is on.
@@ -57,7 +75,7 @@ export type ThemeColors = {
   heroTextShadow: string;
 };
 
-export const darkColors: ThemeColors = {
+const darkColorsOpaque: ThemeColors = {
   skyTop: "#0b1330",
   skyBottom: "#1a2b52",
   sunFill: "#e8ecf5",
@@ -92,7 +110,7 @@ export const darkColors: ThemeColors = {
   heroTextShadow: "rgba(11,19,48,0.9)",
 };
 
-export const lightColors: ThemeColors = {
+const lightColorsOpaque: ThemeColors = {
   skyTop: "#eaf4fb",
   skyBottom: "#cfe9f7",
   sunFill: "#f5a35c",
@@ -126,6 +144,34 @@ export const lightColors: ThemeColors = {
   toggleBg: "#e4d9cb",
   heroTextShadow: "rgba(255,255,255,0.9)",
 };
+
+// Frosted-glass overrides for the 5 "box surface" tokens only -- every
+// other token (sky/mountain/text/accent colors etc.) is untouched, since
+// this is specifically about card/button/input surfaces, not a full
+// re-theme. Applied on top of the opaque bases above rather than as
+// separate standalone palettes, so a future edit to e.g. `accent` never
+// has to be kept in sync in two places.
+export const darkColors: ThemeColors = USE_GLASSMORPHISM
+  ? {
+      ...darkColorsOpaque,
+      badgeBg: "rgba(239,138,76,0.22)",
+      cardBg: "rgba(20,27,56,0.35)",
+      cardBorder: "rgba(255,255,255,0.22)",
+      inputBorder: "rgba(255,255,255,0.3)",
+      ctaBg: "rgba(14,21,48,0.35)",
+    }
+  : darkColorsOpaque;
+
+export const lightColors: ThemeColors = USE_GLASSMORPHISM
+  ? {
+      ...lightColorsOpaque,
+      badgeBg: "rgba(251,228,211,0.45)",
+      cardBg: "rgba(255,255,255,0.35)",
+      cardBorder: "rgba(255,255,255,0.55)",
+      inputBorder: "rgba(255,255,255,0.6)",
+      ctaBg: "rgba(255,255,255,0.32)",
+    }
+  : lightColorsOpaque;
 
 export const clouds = [
   { top: "10%", scale: 1, duration: 55, delay: 0 },

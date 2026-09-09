@@ -9,7 +9,7 @@ import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import {
   ApiError,
   Job,
@@ -103,6 +103,7 @@ export default function GalleryPage() {
                 borderRadius: 16,
                 padding: 24,
                 color: "#ff8f6b",
+                ...glassBlurStyle,
               }}
             >
               Can&apos;t reach the backend ({error}).
@@ -121,6 +122,7 @@ export default function GalleryPage() {
                 borderRadius: 16,
                 padding: 40,
                 textAlign: "center",
+                ...glassBlurStyle,
               }}
             >
               <p style={{ color: colors.textSecondary, fontSize: 16, margin: 0 }}>
@@ -259,6 +261,7 @@ function GalleryCard({
         border: `1px solid ${colors.cardBorder}`,
         borderRadius: 16,
         overflow: "hidden",
+        ...glassBlurStyle,
       }}
     >
       <Link href={`/generate/${job.job_id}`} style={{ display: "block", textDecoration: "none" }}>
@@ -336,6 +339,7 @@ function GalleryCard({
             padding: 28,
             maxWidth: 380,
             width: "100%",
+            ...glassBlurStyle,
           }}
         >
           <h2 style={{ margin: "0 0 10px", fontSize: 19, fontWeight: 800, color: colors.textPrimary }}>

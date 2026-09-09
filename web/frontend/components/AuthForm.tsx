@@ -8,7 +8,7 @@ import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
-import { darkColors, lightColors } from "@/app/theme";
+import { darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import { ApiError } from "@/lib/api";
 import { inputStyle } from "@/components/authFormStyles";
 
@@ -71,6 +71,7 @@ function AuthFormInner({ mode }: { mode: "signin" | "signup" }) {
               border: `1px solid ${colors.cardBorder}`,
               borderRadius: 20,
               padding: 36,
+              ...glassBlurStyle,
             }}
           >
             <h1 className="display" style={{ fontWeight: 800, fontSize: 26, color: colors.textPrimary, margin: "0 0 8px" }}>

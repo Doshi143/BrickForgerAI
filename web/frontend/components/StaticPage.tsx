@@ -5,7 +5,7 @@ import { createContext, useContext } from "react";
 import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeColors, darkColors, lightColors } from "@/app/theme";
+import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 
 const PageColorContext = createContext<ThemeColors | null>(null);
 
@@ -45,6 +45,7 @@ export default function StaticPage({ title, subtitle, children }: { title: strin
               color: colors.textPrimary,
               lineHeight: 1.7,
               fontSize: 15.5,
+              ...glassBlurStyle,
             }}
           >
             <PageColorContext.Provider value={colors}>{children}</PageColorContext.Provider>
