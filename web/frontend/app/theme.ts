@@ -186,10 +186,11 @@ export const birds = [
   { top: "23%", duration: 24, delay: -3 },
 ];
 
-// Night-only twinkling stars (ImageScenery), layered on top of the static
-// stars already baked into night.webp -- a handful of real animated points
-// so the sky isn't purely static, without trying to replace the image's
-// own starfield. Fixed positions/timings (not Math.random()) so server and
+// Twinkling stars (ImageScenery), shown on night and evening -- both have
+// a dark-enough upper sky band with a static starfield already baked in;
+// day doesn't. Layered on top as a handful of real animated points so the
+// sky isn't purely static, without trying to replace the image's own
+// starfield. Fixed positions/timings (not Math.random()) so server and
 // client render identically and hydration never mismatches.
 export const stars = [
   { top: "8%", left: "12%", size: 2, duration: 3.2, delay: 0 },

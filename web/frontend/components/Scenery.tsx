@@ -123,7 +123,7 @@ function ImageScenery({
           }}
         />
 
-        {sceneryTime === "night" &&
+        {(sceneryTime === "night" || sceneryTime === "evening") &&
           stars.map((s, i) => (
             <div
               key={`star-${i}`}
