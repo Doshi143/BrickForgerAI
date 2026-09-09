@@ -41,6 +41,23 @@ export default function HelpCenterPage() {
           <code>.ldr</code> file in BrickLink Studio for its own inventory check.
         </p>
       </Section>
+      <Section title="What's actually in the brick library?">
+        <p>
+          Generations are built from a 55-part real, purchasable brick library - bricks, plates,
+          tiles, and a wide range of slope angles and curves for smoother, less blocky surfaces.
+          It&apos;s growing all the time: we&apos;re constantly improving stability and
+          connectivity, and adding new building techniques, including sideways building (also
+          known as SNOT - &ldquo;Studs Not On Top&rdquo;) for more detailed, less boxy shapes.
+        </p>
+      </Section>
+      <Section title="What kinds of prompts work best?">
+        <p>
+          Right now it&apos;s strongest on organic shapes - animals, plants, and sculptural forms
+          in particular. The more specific your prompt, the better the result: describing pose,
+          proportions, or distinctive features gives the generator more to work with than a
+          one-word prompt.
+        </p>
+      </Section>
       <Section title="Will my model actually be physically stable?">
         <p>
           We can&apos;t guarantee that every generated model will be very physically stable -

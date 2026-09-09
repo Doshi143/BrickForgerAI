@@ -319,13 +319,16 @@ export default function Home() {
           <div
             style={{
               display: "flex",
-              flexWrap: "wrap",
+              flexWrap: "nowrap",
               justifyContent: "center",
               gap: 10,
               marginTop: 20,
-              maxWidth: 620,
-              marginLeft: "auto",
-              marginRight: "auto",
+              // Wide enough to hold all 4 chips in one row on a normal
+              // desktop width; overflowX is a fallback for anything
+              // narrower rather than letting them wrap or clip.
+              maxWidth: "100%",
+              overflowX: "auto",
+              paddingBottom: 4,
             }}
           >
             {CAPABILITY_STATS.map((stat) => (
@@ -343,6 +346,7 @@ export default function Home() {
                   fontSize: 13,
                   fontWeight: 600,
                   whiteSpace: "nowrap",
+                  flexShrink: 0,
                   ...glassBlurStyle,
                 }}
               >
