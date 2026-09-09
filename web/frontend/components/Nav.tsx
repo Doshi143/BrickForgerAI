@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ThemeColors, USE_IMAGE_SCENERY, glassBlurStyle } from "@/app/theme";
+import { ThemeColors, USE_GLASSMORPHISM, USE_IMAGE_SCENERY, glassBlurStyle } from "@/app/theme";
 import { useAuth } from "./AuthProvider";
 import { useTheme } from "./ThemeProvider";
 import Logo from "./Logo";
@@ -247,9 +247,15 @@ export default function Nav({
             flexDirection: "column",
             gap: 4,
             padding: "8px 24px 20px",
-            background: colors.navBg,
-            backdropFilter: "blur(6px)",
+            // Same glass-card tokens/blur as the rest of the site when the
+            // flag is on; flag off reproduces the dropdown's own original
+            // navBg + 6px blur exactly (that pairing predates the
+            // glassmorphism feature and isn't part of what it reverts).
+            background: USE_GLASSMORPHISM ? colors.cardBg : colors.navBg,
             borderTop: `1px solid ${colors.cardBorder}`,
+            ...(USE_GLASSMORPHISM
+              ? glassBlurStyle
+              : { backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" }),
           }}
         >
           {NAV_LINKS.map((link) => (
