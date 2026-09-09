@@ -35,6 +35,18 @@ const STEPS = [
   },
 ];
 
+// The old capability paragraph's own facts, distilled into scannable
+// icon+label chips instead of one dense sentence -- same underlying
+// claims (real part count, structural checking, best-fit use case,
+// prompt tips), just packaged to be read at a glance rather than parsed
+// as prose.
+const CAPABILITY_STATS = [
+  { icon: "🧱", label: "55-part real brick library" },
+  { icon: "🔗", label: "100% connectivity checked" },
+  { icon: "🌿", label: "Best on organic shapes" },
+  { icon: "✍️", label: "More detail = better results" },
+];
+
 // A darker shade of the accent color for the "bricks" headline's own hard
 // drop-shadow (see the Bungee treatment below) -- computed from colors.accent
 // itself rather than a separate hardcoded hex per theme, so it stays in sync
@@ -285,22 +297,60 @@ export default function Home() {
                 Build size - {SIZE_OPTIONS.find((s) => s.id === size)!.hint}
               </p>
 
-              <p style={{ color: colors.textSecondary, marginTop: 20, fontSize: 15 }}>
+              <p
+                style={{
+                  display: "inline-block",
+                  color: colors.textSecondary,
+                  marginTop: 20,
+                  fontSize: 15,
+                  padding: "8px 20px",
+                  borderRadius: 999,
+                  background: colors.cardBg,
+                  border: `1px solid ${colors.cardBorder}`,
+                  ...glassBlurStyle,
+                }}
+              >
                 {user
                   ? `${user.credits_remaining} credit${user.credits_remaining === 1 ? "" : "s"} left this month`
                   : "£1.50/month: 3 generations, with the .ldr file and instructions included"}
               </p>
             </>
           )}
-          <p style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13, maxWidth: 560, marginLeft: "auto", marginRight: "auto", opacity: 0.8 }}>
-            Built from a 55-part real, purchasable brick library - including a wide range of slope
-            angles and curves for smoother surfaces - growing all the time. We&apos;re
-            constantly improving stability, connectivity, and adding new building techniques
-            (including sideways building, aka SNOT). Most generated models come out with 100%
-            connectivity and few flagged issues on BrickLink Studio&apos;s stability checker.
-            Right now it&apos;s strongest on organic shapes (animals, plants, sculptural forms) -
-            and the more specific your prompt, the better the result.
-          </p>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              gap: 10,
+              marginTop: 20,
+              maxWidth: 620,
+              marginLeft: "auto",
+              marginRight: "auto",
+            }}
+          >
+            {CAPABILITY_STATS.map((stat) => (
+              <div
+                key={stat.label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 14px",
+                  borderRadius: 999,
+                  background: colors.cardBg,
+                  border: `1px solid ${colors.cardBorder}`,
+                  color: colors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  ...glassBlurStyle,
+                }}
+              >
+                <span style={{ fontSize: 15 }}>{stat.icon}</span>
+                {stat.label}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div
