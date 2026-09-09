@@ -47,11 +47,16 @@
 
 body {
   margin: 0;
-  font-family: "Nunito", sans-serif;
+  font-family: "Roboto", sans-serif;
 }
 
+/* The landing-page hero title ("Build anything with" / "bricks") sets its
+   own explicit fontFamily (Rubik / Bungee) inline on each span, which wins
+   over this tag-selector rule regardless -- so switching h1's own default
+   here doesn't touch that title, only every other heading/.display text
+   that doesn't override it. */
 h1, h2, h3, .display {
-  font-family: "Poppins", sans-serif;
+  font-family: "Roboto", sans-serif;
 }
 
 button:disabled {
