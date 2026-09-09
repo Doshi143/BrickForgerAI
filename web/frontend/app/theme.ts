@@ -4,6 +4,24 @@
  * exactly rather than being re-invented by eye.
  */
 
+// Off by default is the SAFE state to ship as -- flip to false any time to
+// instantly revert Scenery.tsx (and the nav/footer toggle) to the exact
+// original CSS-drawn voxel backdrop and plain 2-state light/dark toggle,
+// no other code changes needed. A plain code constant rather than an env
+// var, matching this project's own established "commit-driven toggle"
+// pattern (see MAINTENANCE_MODE in lib/api.ts) -- flipping it is just a
+// commit + push, not a dashboard change.
+export const USE_IMAGE_SCENERY = true;
+
+// AI-generated backdrops (public/scenery/*.webp), one per time of day --
+// see ThemeProvider.tsx's SceneryTime state. Only meaningful while
+// USE_IMAGE_SCENERY is on.
+export const SCENERY_IMAGES: Record<"day" | "evening" | "night", string> = {
+  day: "/scenery/day.webp",
+  evening: "/scenery/evening.webp",
+  night: "/scenery/night.webp",
+};
+
 export type ThemeColors = {
   skyTop: string;
   skyBottom: string;

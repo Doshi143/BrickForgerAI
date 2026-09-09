@@ -1,12 +1,34 @@
 "use client";
 
 /**
- * The animated pixel-art backdrop (sun/moon, clouds, birds, mountains,
- * hills, trees) plus the grid overlay, ported from the design mockup so
- * every page sits on the same scene.
+ * The scene backdrop every page sits on. Two implementations live here
+ * side by side, switched by app/theme.ts's USE_IMAGE_SCENERY flag:
+ *
+ * - ImageScenery (flag on, current default): the founder's own
+ *   AI-generated day/evening/night landscapes (public/scenery/*.webp) as
+ *   a static, object-fit:cover backdrop, with the birds/clouds below kept
+ *   as real animated overlay layers on top -- motion doesn't need to be
+ *   baked into the image, only the (now static) sky/mountains/hills do.
+ * - LegacyScenery (flag off): the original animated pixel-art backdrop
+ *   (sun/moon, clouds, birds, mountains, hills, trees) ported from the
+ *   design mockup, byte-identical to what shipped before this change.
+ *
+ * Both are kept in full, not one deleted in favor of the other, so
+ * reverting is exactly one constant flip + redeploy, never a code rewrite.
  */
 
-import { ThemeColors, birds, clouds, mountains, mountainsFar, shrubs, trees } from "@/app/theme";
+import { SceneryTime, useTheme } from "./ThemeProvider";
+import {
+  SCENERY_IMAGES,
+  ThemeColors,
+  USE_IMAGE_SCENERY,
+  birds,
+  clouds,
+  mountains,
+  mountainsFar,
+  shrubs,
+  trees,
+} from "@/app/theme";
 
 export default function Scenery({
   colors,
@@ -16,6 +38,151 @@ export default function Scenery({
   colors: ThemeColors;
   dark: boolean;
   prominence?: number;
+}) {
+  return USE_IMAGE_SCENERY ? (
+    <ImageScenery colors={colors} dark={dark} prominence={prominence} />
+  ) : (
+    <LegacyScenery colors={colors} dark={dark} prominence={prominence} />
+  );
+}
+
+// Birds and clouds read from `dark` (2 states), not `sceneryTime` (3) --
+// day and evening both still read as "bright enough for the light-styled
+// silhouettes" (dark navy birds, near-white clouds), which holds up fine
+// against the warm evening sky too; only night needs the light-colored
+// birds/pale-blue clouds the dark palette already provides. Reusing the
+// existing 2-value tokens here deliberately avoids inventing a 3rd color
+// palette for a distinction that doesn't actually need one.
+function ImageScenery({
+  colors,
+  dark,
+  prominence,
+}: {
+  colors: ThemeColors;
+  dark: boolean;
+  prominence: number;
+}) {
+  const { sceneryTime } = useTheme();
+  // The illustrated landscapes are far busier than the flat CSS scenery
+  // they replace -- real page copy (headings especially) lost contrast
+  // sitting directly on top, most noticeably the accent-orange "bricks"
+  // span nearly disappearing into the evening image's own orange sky.
+  // A soft radial scrim over the upper-middle band (where hero text
+  // actually sits) fixes this the standard hero-image way: brighten
+  // toward white for dark text (day/evening), darken toward black for
+  // light text (night) -- same `dark` split birds/clouds already use.
+  const scrimRgb = dark ? "11,19,48" : "255,255,255";
+  // Secondary pages (sign-in, static pages, the generate results page) pass
+  // a much lower prominence (0.35 vs. the homepage's ~0.5-1) specifically
+  // to fade the scene behind form content -- the legacy CSS scenery did
+  // this by fading every hand-drawn shape's own opacity, which has no
+  // equivalent for a single flat photo. A full-coverage wash toward the
+  // same scrim color, scaling inversely with prominence, reproduces the
+  // same "less scene, more focus on the content" effect: none of it at
+  // prominence=1 (the hero image stays fully vivid), a strong fade at
+  // prominence=0.35 (matching how washed-out the old scenery got there).
+  const prominenceWash = Math.max(0, (1 - prominence) * 0.75);
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, zIndex: 0, overflow: "hidden" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          key={sceneryTime}
+          src={SCENERY_IMAGES[sceneryTime as SceneryTime]}
+          alt=""
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            // Biased toward the lower half so the horizon/mountain band
+            // (where all 3 images concentrate their real content) stays in
+            // frame on both a wide desktop crop and a tall mobile crop --
+            // "cover" alone can just as easily center-crop into empty sky.
+            objectPosition: "center 62%",
+          }}
+        />
+
+        {prominenceWash > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `rgba(${scrimRgb},${prominenceWash})`,
+            }}
+          />
+        )}
+
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: `radial-gradient(ellipse 70% 55% at 50% 32%, rgba(${scrimRgb},0.55) 0%, rgba(${scrimRgb},0.22) 55%, rgba(${scrimRgb},0) 100%)`,
+          }}
+        />
+
+        {birds.map((b, i) => (
+          <div
+            key={`bird-${i}`}
+            style={{
+              position: "absolute",
+              top: b.top,
+              left: 0,
+              animation: `birdFly ${b.duration}s linear infinite`,
+              animationDelay: `${b.delay}s`,
+              opacity: prominence * 0.5,
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 5px)",
+              gridTemplateRows: "repeat(3, 5px)",
+            }}
+          >
+            <div style={{ background: colors.birdColor, transformOrigin: "bottom", animation: "wingFlapL 0.7s ease-in-out infinite" }} />
+            <div /><div /><div />
+            <div style={{ background: colors.birdColor, transformOrigin: "bottom", animation: "wingFlapR 0.7s ease-in-out infinite" }} />
+            <div />
+            <div style={{ background: colors.birdColor }} />
+            <div />
+            <div style={{ background: colors.birdColor }} />
+            <div /><div /><div />
+            <div style={{ background: colors.birdColor }} />
+            <div /><div />
+          </div>
+        ))}
+
+        {clouds.map((c, i) => (
+          <div
+            key={`cloud-${i}`}
+            style={{
+              position: "absolute",
+              top: c.top,
+              left: 0,
+              transform: `scale(${c.scale})`,
+              animation: `cloudDrift ${c.duration}s linear infinite`,
+              animationDelay: `${c.delay}s`,
+              opacity: prominence * 0.8,
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 15px)", gridTemplateRows: "repeat(3, 15px)" }}>
+              {CLOUD_MASK.map((on, j) => (
+                <div key={j} style={on ? { background: colors.cloudColor } : undefined} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function LegacyScenery({
+  colors,
+  dark,
+  prominence,
+}: {
+  colors: ThemeColors;
+  dark: boolean;
+  prominence: number;
 }) {
   return (
     <>

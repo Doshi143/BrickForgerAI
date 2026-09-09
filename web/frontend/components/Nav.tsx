@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ThemeColors } from "@/app/theme";
+import { ThemeColors, USE_IMAGE_SCENERY } from "@/app/theme";
 import { useAuth } from "./AuthProvider";
+import { useTheme } from "./ThemeProvider";
 import Logo from "./Logo";
 
 const NAV_LINKS = [
@@ -14,20 +15,31 @@ const NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
 ];
 
+// 3 knob positions (day/evening/night) while USE_IMAGE_SCENERY is on, same
+// 2-position day/night track otherwise -- reads `sceneryTime` from context
+// directly rather than as a prop so both call sites below (desktop +
+// mobile menu) pick this up for free with no prop-drilling changes.
 function DarkModeToggle({ colors, dark, onToggleDark }: { colors: ThemeColors; dark: boolean; onToggleDark: () => void }) {
+  const { sceneryTime } = useTheme();
+  const trackWidth = USE_IMAGE_SCENERY ? 60 : 44;
+  const knobLeft = USE_IMAGE_SCENERY
+    ? { day: 2, evening: 20, night: 38 }[sceneryTime]
+    : dark
+    ? 22
+    : 2;
   return (
     <div
       onClick={onToggleDark}
       role="button"
-      aria-label="Toggle dark mode"
+      aria-label={USE_IMAGE_SCENERY ? "Cycle day / evening / night scenery" : "Toggle dark mode"}
       style={{
         cursor: "pointer",
-        width: 44,
+        width: trackWidth,
         height: 24,
         borderRadius: 12,
         background: colors.toggleBg,
         position: "relative",
-        transition: "background 0.3s",
+        transition: "background 0.3s, width 0.3s",
         flexShrink: 0,
       }}
     >
@@ -35,7 +47,7 @@ function DarkModeToggle({ colors, dark, onToggleDark }: { colors: ThemeColors; d
         style={{
           position: "absolute",
           top: 2,
-          left: dark ? 22 : 2,
+          left: knobLeft,
           width: 20,
           height: 20,
           borderRadius: "50%",
