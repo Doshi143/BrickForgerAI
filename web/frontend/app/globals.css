@@ -21,6 +21,24 @@
   0%, 100% { transform: scaleY(1) translateY(0); }
   50% { transform: scaleY(0.3) translateY(3px); }
 }
+/* Smooth-bird variant (ImageScenery only, see Scenery.tsx) -- a curved
+   wing rotating about its own root, not a blocky pixel-grid squash, so it
+   reads as a distant bird silhouette against the illustrated backdrops
+   instead of the legacy voxel scenery's pixel-art flap. */
+@keyframes wingFlapSmoothL {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-20deg); }
+}
+@keyframes wingFlapSmoothR {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(20deg); }
+}
+/* Night-only twinkling stars (ImageScenery) -- layered on top of the
+   static starfield already baked into night.webp. */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

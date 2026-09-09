@@ -140,6 +140,26 @@ export const birds = [
   { top: "23%", duration: 24, delay: -3 },
 ];
 
+// Night-only twinkling stars (ImageScenery), layered on top of the static
+// stars already baked into night.webp -- a handful of real animated points
+// so the sky isn't purely static, without trying to replace the image's
+// own starfield. Fixed positions/timings (not Math.random()) so server and
+// client render identically and hydration never mismatches.
+export const stars = [
+  { top: "8%", left: "12%", size: 2, duration: 3.2, delay: 0 },
+  { top: "15%", left: "25%", size: 1.5, duration: 4, delay: -1 },
+  { top: "6%", left: "40%", size: 2.5, duration: 3.6, delay: -2 },
+  { top: "20%", left: "55%", size: 1.5, duration: 4.4, delay: -0.5 },
+  { top: "10%", left: "68%", size: 2, duration: 3, delay: -1.5 },
+  { top: "25%", left: "80%", size: 1.5, duration: 3.8, delay: -2.5 },
+  { top: "14%", left: "5%", size: 1.5, duration: 4.2, delay: -3 },
+  { top: "30%", left: "35%", size: 2, duration: 3.4, delay: -1.8 },
+  { top: "4%", left: "88%", size: 1.5, duration: 3.9, delay: -0.8 },
+  { top: "34%", left: "60%", size: 2, duration: 3.3, delay: -2.2 },
+  { top: "18%", left: "92%", size: 1.5, duration: 4.1, delay: -1.2 },
+  { top: "28%", left: "15%", size: 1.5, duration: 3.7, delay: -3.4 },
+];
+
 // peak: 0-100, the % across the mountain's own width where its tip sits --
 // varied per mountain (not always 50%) so the ridge line reads as a real,
 // irregular range rather than a row of identical symmetric triangles.

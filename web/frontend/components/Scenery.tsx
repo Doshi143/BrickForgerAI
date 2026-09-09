@@ -27,6 +27,7 @@ import {
   mountains,
   mountainsFar,
   shrubs,
+  stars,
   trees,
 } from "@/app/theme";
 
@@ -122,6 +123,26 @@ function ImageScenery({
           }}
         />
 
+        {sceneryTime === "night" &&
+          stars.map((s, i) => (
+            <div
+              key={`star-${i}`}
+              style={{
+                position: "absolute",
+                top: s.top,
+                left: s.left,
+                width: s.size,
+                height: s.size,
+                borderRadius: "50%",
+                background: "#ffffff",
+                boxShadow: "0 0 4px 1px rgba(255,255,255,0.8)",
+                animation: `twinkle ${s.duration}s ease-in-out infinite`,
+                animationDelay: `${s.delay}s`,
+                opacity: prominence,
+              }}
+            />
+          ))}
+
         {birds.map((b, i) => (
           <div
             key={`bird-${i}`}
@@ -131,22 +152,10 @@ function ImageScenery({
               left: 0,
               animation: `birdFly ${b.duration}s linear infinite`,
               animationDelay: `${b.delay}s`,
-              opacity: prominence * 0.5,
-              display: "grid",
-              gridTemplateColumns: "repeat(5, 5px)",
-              gridTemplateRows: "repeat(3, 5px)",
+              opacity: prominence * 0.6,
             }}
           >
-            <div style={{ background: colors.birdColor, transformOrigin: "bottom", animation: "wingFlapL 0.7s ease-in-out infinite" }} />
-            <div /><div /><div />
-            <div style={{ background: colors.birdColor, transformOrigin: "bottom", animation: "wingFlapR 0.7s ease-in-out infinite" }} />
-            <div />
-            <div style={{ background: colors.birdColor }} />
-            <div />
-            <div style={{ background: colors.birdColor }} />
-            <div /><div /><div />
-            <div style={{ background: colors.birdColor }} />
-            <div /><div />
+            <SmoothBird color={colors.birdColor} />
           </div>
         ))}
 
@@ -160,18 +169,91 @@ function ImageScenery({
               transform: `scale(${c.scale})`,
               animation: `cloudDrift ${c.duration}s linear infinite`,
               animationDelay: `${c.delay}s`,
-              opacity: prominence * 0.8,
+              opacity: prominence * 0.85,
             }}
           >
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 15px)", gridTemplateRows: "repeat(3, 15px)" }}>
-              {CLOUD_MASK.map((on, j) => (
-                <div key={j} style={on ? { background: colors.cloudColor } : undefined} />
-              ))}
-            </div>
+            <SmoothCloud dark={dark} variant={i % CLOUD_VARIANTS.length} />
           </div>
         ))}
       </div>
     </>
+  );
+}
+
+// Slight per-instance stretch/tilt (applied to the same base silhouette
+// below via a wrapping <g> transform) so a row of clouds doesn't read as
+// the same puff copy-pasted three times -- "some slight variation in the
+// clouds" -- without needing several hand-drawn path variants.
+const CLOUD_VARIANTS = [
+  { scaleX: 1, scaleY: 1, rotate: 0 },
+  { scaleX: 1.14, scaleY: 0.88, rotate: -3 },
+  { scaleX: 0.88, scaleY: 1.12, rotate: 3 },
+];
+
+const CLOUD_PATH =
+  "M25,50 C11,50 0,39 0,29 C0,18 9,10 20,10 C23,4 30,0 39,0 C50,0 59,7 62,17 C74,15 85,23 85,35 C85,44 76,50 66,50 Z";
+
+// A puffy, multi-lobed flat-illustration cloud (SVG, not the legacy pixel
+// grid) with a real light-top/shadow-bottom gradient inside the shape --
+// "add the shadows that are on the clouds" from the reference images,
+// literally, rather than a flat single-color fill. Two fixed gradient
+// pairs (not derived from colors.cloudColor) since that token is only
+// ever a plain white/pale-blue fill with no shadow tone baked in for
+// either theme -- these are new, deliberately chosen to read as "lit
+// cream top, soft blue-gray shadow underside" against either sky. A second,
+// darker copy of the same silhouette sits behind the main shape, offset
+// down-right and scaled slightly smaller, so it peeks out along the
+// bottom/trailing edge as a real cast-shadow silhouette -- not just the
+// gradient's own internal shading.
+function SmoothCloud({ dark, variant = 0 }: { dark: boolean; variant?: number }) {
+  const gradId = `cloudGrad${dark ? "Dark" : "Light"}${variant}`;
+  const [topStop, bottomStop] = dark
+    ? ["rgba(226,232,248,0.65)", "rgba(138,152,188,0.4)"]
+    : ["rgba(255,255,255,0.97)", "rgba(196,210,232,0.65)"];
+  const shadowColor = dark ? "rgba(60,72,112,0.45)" : "rgba(146,166,196,0.4)";
+  const v = CLOUD_VARIANTS[variant % CLOUD_VARIANTS.length];
+  return (
+    <svg width={100} height={60} viewBox="0 0 100 60" style={{ display: "block", overflow: "visible" }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={topStop} />
+          <stop offset="100%" stopColor={bottomStop} />
+        </linearGradient>
+      </defs>
+      <g transform={`translate(42,25) scale(${v.scaleX},${v.scaleY}) rotate(${v.rotate}) translate(-42,-25)`}>
+        <path d={CLOUD_PATH} transform="translate(3,5) scale(0.94)" fill={shadowColor} />
+        <path d={CLOUD_PATH} fill={`url(#${gradId})`} />
+      </g>
+    </svg>
+  );
+}
+
+// A distant bird as two curved wing strokes meeting at a shared root,
+// each independently rotating about that root (wingFlapSmoothL/R) --
+// reads as a soft "M" silhouette in flight rather than the legacy
+// blocky pixel-grid bird, appropriately simple for something this far
+// away (real feather/body detail would be invisible at this scale
+// regardless of how the shape itself is drawn).
+function SmoothBird({ color }: { color: string }) {
+  return (
+    <svg width={20} height={12} viewBox="0 0 20 12" style={{ display: "block", overflow: "visible" }}>
+      <path
+        d="M10,10 Q5,4 0,6"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        style={{ transformOrigin: "10px 10px", animation: "wingFlapSmoothL 0.9s ease-in-out infinite" }}
+      />
+      <path
+        d="M10,10 Q15,4 20,6"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        style={{ transformOrigin: "10px 10px", animation: "wingFlapSmoothR 0.9s ease-in-out infinite" }}
+      />
+    </svg>
   );
 }
 
