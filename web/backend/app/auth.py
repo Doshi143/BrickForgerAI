@@ -190,6 +190,14 @@ OFFER_FREE_TIER_TO_NEW_SIGNUPS = False
 # that's a brand new signup or a later cancellation.
 _FREE_TIER_GRANDFATHER_CUTOFF = "2026-09-06T00:00:00+00:00"
 
+# The founder's own account predates the cutoff above but doesn't need (or
+# want) the grandfathered monthly safety net -- it generates against
+# manually-granted dev credits, and the free monthly credit was just
+# quietly getting spent ahead of those instead of doing anything useful
+# (see the instructions-unlock fix this same account hit). Keyed by user
+# id, not email, so it survives an email change.
+_FREE_TIER_GRANDFATHER_EXCLUDED_USER_IDS = {"50180243-1f8e-4d6e-b4c4-c9b69485d67c"}
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -348,7 +356,14 @@ def _row_to_user(row: sqlite3.Row) -> "User":
             # whole point. Grandfathered by signup date instead of a schema
             # migration: an account created before the cutoff keeps 3/month;
             # one created on or after it resets to 0 until it subscribes.
-            user.credits_remaining = PLAN_CREDITS["free"] if user.created_at < _FREE_TIER_GRANDFATHER_CUTOFF else 0
+            # _FREE_TIER_GRANDFATHER_EXCLUDED_USER_IDS opts specific
+            # accounts out of the grandfather clause regardless of signup
+            # date -- see its own comment above.
+            is_grandfathered = (
+                user.created_at < _FREE_TIER_GRANDFATHER_CUTOFF
+                and user.id not in _FREE_TIER_GRANDFATHER_EXCLUDED_USER_IDS
+            )
+            user.credits_remaining = PLAN_CREDITS["free"] if is_grandfathered else 0
         else:
             user.credits_remaining = PLAN_CREDITS[user.plan]
         user.credits_reset_month = this_month
