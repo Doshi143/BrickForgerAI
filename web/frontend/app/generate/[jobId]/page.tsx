@@ -254,15 +254,16 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                     onClick={handleUnlock}
                     disabled={unlocking}
                     style={{
-                      background: "none",
-                      border: `2px solid ${colors.accent}`,
-                      color: colors.accent,
-                      padding: "14px 26px",
+                      background: colors.accent,
+                      border: "none",
+                      color: "#fff",
+                      padding: "16px 28px",
                       borderRadius: 14,
                       fontWeight: 700,
                       fontSize: 16,
                       cursor: "pointer",
                       fontFamily: "inherit",
+                      opacity: unlocking ? 0.6 : 1,
                     }}
                   >
                     {unlocking

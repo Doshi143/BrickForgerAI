@@ -249,7 +249,19 @@ def generate(
         # sold to anyone); a "topup" credit never auto-unlocks, even on a
         # paid plan (it IS real, tracked revenue) -- see consume_credit's
         # own docstring for the full reasoning behind all three sources.
+        #
+        # user.dev_credits_remaining > 0 (checked in addition to
+        # credit_source == "dev") covers the case consume_credit spends
+        # monthly first: an account still holding dev credits can have a
+        # generation draw from its (small, plan-included) monthly pool
+        # instead, which used to fall through to the paid-plan-only check
+        # below and demand payment -- wrong for an account that was
+        # explicitly given dev credits for free/unrestricted testing.
+        # Holding any dev credits at all marks the account as a dev/test
+        # account for this purpose, regardless of which pool this specific
+        # generation happened to draw from.
         instructions_unlocked=credit_source == "dev"
+        or user.dev_credits_remaining > 0
         or (credit_source == "monthly" and user.plan in ("starter", "builder", "pro")),
     )
     save_job_meta(job)
