@@ -177,26 +177,14 @@ PLAN_CREDITS = {"free": 3, "starter": 3, "builder": 12, "pro": 30}
 # -- see create_user's own comment for where this is actually checked.
 OFFER_FREE_TIER_TO_NEW_SIGNUPS = False
 
-# Grandfathers accounts that existed before free stopped being offered,
-# by signup date rather than a schema migration -- see the monthly-reset
-# logic below (get_user_by_id's own docstring), the actual place this is
-# checked. Anyone whose account predates this keeps the free plan's
-# original 3-credits-a-month safety net forever, INCLUDING if they later
-# cancel a paid plan and land back on "free" -- deliberate: an early user
-# who trusted this site enough to sign up under the old terms keeps that
-# deal even if their circumstances change later, rather than this being
-# scoped to "only if they were on free specifically". Anyone whose account
-# is created on or after this resets to 0 on "free" instead, whether
-# that's a brand new signup or a later cancellation.
-_FREE_TIER_GRANDFATHER_CUTOFF = "2026-09-06T00:00:00+00:00"
-
-# The founder's own account predates the cutoff above but doesn't need (or
-# want) the grandfathered monthly safety net -- it generates against
-# manually-granted dev credits, and the free monthly credit was just
-# quietly getting spent ahead of those instead of doing anything useful
-# (see the instructions-unlock fix this same account hit). Keyed by user
-# id, not email, so it survives an email change.
-_FREE_TIER_GRANDFATHER_EXCLUDED_USER_IDS = {"50180243-1f8e-4d6e-b4c4-c9b69485d67c"}
+# A grandfather clause used to live here: accounts created before
+# 2026-09-06 kept the free plan's original 3-credits-a-month safety net
+# forever, including after cancelling a paid plan. Removed at the
+# founder's explicit request -- every free-plan account now resets to 0
+# credits monthly (see the reset logic below), regardless of when it was
+# created. No account is special-cased any more, including the founder's
+# own (previously excluded separately from the grandfather clause --
+# that exclusion is now redundant and was removed with it).
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -346,24 +334,15 @@ def _row_to_user(row: sqlite3.Row) -> "User":
     this_month = _current_month()
     if user.credits_reset_month != this_month:
         if user.plan == "free":
-            # PLAN_CREDITS["free"] (3) is kept only so users who were
-            # already on the free plan before OFFER_FREE_TIER_TO_NEW_SIGNUPS
-            # went off keep their existing 3/month forever -- a plain
-            # `PLAN_CREDITS[user.plan]` reset would otherwise silently hand
-            # every FUTURE free-plan user (a new 0-credit signup, or anyone
-            # who cancels a paid plan) 3 free credits again the moment
-            # their very first monthly rollover hits, quietly undoing the
-            # whole point. Grandfathered by signup date instead of a schema
-            # migration: an account created before the cutoff keeps 3/month;
-            # one created on or after it resets to 0 until it subscribes.
-            # _FREE_TIER_GRANDFATHER_EXCLUDED_USER_IDS opts specific
-            # accounts out of the grandfather clause regardless of signup
-            # date -- see its own comment above.
-            is_grandfathered = (
-                user.created_at < _FREE_TIER_GRANDFATHER_CUTOFF
-                and user.id not in _FREE_TIER_GRANDFATHER_EXCLUDED_USER_IDS
-            )
-            user.credits_remaining = PLAN_CREDITS["free"] if is_grandfathered else 0
+            # No grandfather clause any more (removed at the founder's
+            # request -- see this constant's own comment above): every
+            # free-plan account resets to 0 here, whether it's a brand new
+            # 0-credit signup or an account that cancelled a paid plan and
+            # landed back on "free". A plain `PLAN_CREDITS[user.plan]`
+            # reset would hand every free-plan account 3 credits again the
+            # moment its next monthly rollover hits, so this stays an
+            # explicit 0 rather than falling through to that lookup.
+            user.credits_remaining = 0
         else:
             user.credits_remaining = PLAN_CREDITS[user.plan]
         user.credits_reset_month = this_month
