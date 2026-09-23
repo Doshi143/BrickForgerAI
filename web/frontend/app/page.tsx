@@ -241,6 +241,11 @@ export default function Home() {
                 </button>
               </div>
 
+              <p style={{ color: colors.textSecondary, marginTop: 12, fontSize: 13, maxWidth: 640, marginInline: "auto" }}>
+                Describe the subject, not the bricks - the shape and colors are generated from your
+                description, so brick types, part counts, and building techniques can&apos;t be requested.
+              </p>
+
               {error && (
                 <p style={{ color: "#ff8f6b", marginTop: 18, fontSize: 15, maxWidth: 640, marginInline: "auto" }}>
                   {error}

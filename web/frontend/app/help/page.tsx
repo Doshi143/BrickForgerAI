@@ -58,6 +58,18 @@ export default function HelpCenterPage() {
           one-word prompt.
         </p>
       </Section>
+      <Section title="Can I ask for specific bricks, slopes, or a part count in my prompt?">
+        <p>
+          No - your prompt only describes what to build. It&apos;s turned into an image, then a
+          3D shape, and only after that does the brick builder run, so instructions like
+          &ldquo;use curved slopes&rdquo;, &ldquo;avoid 1x1 plates&rdquo;, or &ldquo;150 to 300
+          parts&rdquo; are ignored. The builder picks parts on its own, and slopes and sideways
+          (SNOT) pieces only appear where the shape has a suitable step or flat wall, so smooth
+          curves on things like a bird&apos;s back or neck will still come out slightly stepped.
+          Spend your prompt on the subject instead: pose, proportions, colors, and distinctive
+          features. Pick a Small, Medium, or Large size to control how detailed the build is.
+        </p>
+      </Section>
       <Section title="Will my model actually be physically stable?">
         <p>
           We can&apos;t guarantee that every generated model will be very physically stable -
