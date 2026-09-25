@@ -124,10 +124,91 @@ def color(tok):
 
 
 def pick(cols, x, z, seed=0):
+    if isinstance(cols, dict):               # a precomputed field (gradient): cell -> colour
+        return cols[(x, z)]
     if len(cols) == 1:
         return cols[0]
     h = (x * 374761393 + z * 668265263 + seed * 1442695041) & 0xFFFFFF
     return cols[(h >> 8) % len(cols)]
+
+
+def hash01(*v):
+    """Deterministic noise in [0, 1) for integer coordinates."""
+    h = 2166136261
+    for a in v:
+        h = ((h ^ (a & 0xFFFFFFFF)) * 16777619) & 0xFFFFFFFF
+        h ^= h >> 15
+        h = (h * 2246822519) & 0xFFFFFFFF
+        h ^= h >> 13
+    return (h & 0xFFFFFF) / float(1 << 24)
+
+
+GRADIENT_AXES = ("x", "y", "z", "-x", "-y", "-z")
+
+
+def color_stops(tok):
+    """`a>b>c`: gradient stops, each a colour or a mix (`a|b`); at most 6."""
+    stops = [color(s) for s in tok.split(">")]
+    if len(stops) > 6:
+        raise SpecError("a gradient has at most 6 colours")
+    return stops
+
+
+def gradient(stops, cells, pos, blend=0.6, seed=0):
+    """Colour per cell for a gradient: `pos(cell)` is the cell's coordinate
+    along the gradient; stops are spread evenly from the lowest to the
+    highest.  Between two stops the middle `blend` fraction mixes them with
+    shifting odds (builders' 80/20 ... 20/80 feathering, by seeded noise),
+    so bands read as a natural transition, not stripes."""
+    cells = list(cells)
+    if len(stops) == 1:
+        return {c: pick(stops[0], c[0], c[-1], seed) for c in cells}
+    ps = {c: pos(c) for c in cells}
+    lo, hi = min(ps.values(), default=0), max(ps.values(), default=0)
+    k = len(stops) - 1
+    out = {}
+    for c in cells:
+        t = (ps[c] - lo) / (hi - lo) if hi > lo else 0.0
+        s = min(int(t * k), k - 1)
+        u = t * k - s
+        p = min(1.0, max(0.0, (u - (1 - blend) / 2) / blend)) if blend > 0 else float(u >= 0.5)
+        stop = stops[s + 1] if hash01(*c, seed) < p else stops[s]
+        out[c] = pick(stop, c[0], c[-1], seed + 7)
+    return out
+
+
+def recolour(D, n0, field, hidden=frozenset()):
+    """Gradient cells are tiled as "any colour" so dithering never splits the
+    tiling into small, badly-interlocked pieces; afterwards every part placed
+    since `n0` that covers only gradient (or hidden) cells takes the majority
+    colour of its cells in `field` -- choosing the pieces first and colouring
+    each to follow the gradient, as a builder would."""
+    cols = defaultdict(list)
+    mixed = set()
+    for c, i in D.occ.items():
+        if i < n0:
+            continue
+        if c in field:
+            cols[i].append(field[c])
+        elif c not in hidden:
+            mixed.add(i)
+    for i, cs in cols.items():
+        if i in mixed:
+            continue
+        counts = defaultdict(int)
+        for col in cs:
+            counts[col] += 1
+        best = max(counts.values())
+        tied = sorted(col for col, n in counts.items() if n == best)
+        D.parts[i].color = tied[int(hash01(i, len(cs)) * len(tied))]
+
+
+def axis_pos(axis, dims="xyz"):
+    """pos(cell) along `axis` for cells shaped like `dims` ("xyz" or "xz")."""
+    if axis not in GRADIENT_AXES or axis.lstrip("-") not in dims:
+        raise SpecError(f"gradient axis must be one of {', '.join(a for a in GRADIENT_AXES if a.lstrip('-') in dims)}")
+    i, sign = dims.index(axis.lstrip("-")), -1 if axis.startswith("-") else 1
+    return lambda c: sign * c[i]
 
 
 def split_kw(toks):
@@ -408,6 +489,7 @@ class Interp:
         self.repairs = []
         self.nasm = 0
         self.cells_used = 0    # across every sculpt, see LIMITS["total_cells"]
+        self.stage = []        # cell sets of baseplates/bases: where land is (see water)
 
     # ---------------------------------------------------------- click-on support
     def expose_studs(self, bottom):
@@ -456,15 +538,24 @@ class Interp:
     def fill(self, kind, L, cols, cells, prefer="x", courses=1, asm=None):
         D = self.D
         self.expose_studs({(c[0], L, c[1]) for c in cells})
+        soft = isinstance(cols, dict)             # a gradient: tile as any colour, then recolour
+        n0 = len(D.parts)
+        field = {}
         if kind in ("tiles", "plates"):
             sizes = self.flat if kind == "tiles" else PLATES
-            tile_level(D, {c: pick(cols, *c) for c in cells if (c[0], L, c[1]) not in D.occ}, L, sizes, prefer, asm=asm)
-            return
-        for n in range(courses):
-            lvl = L + 3 * n
-            free = {c: pick(cols, *c) for c in cells if all((c[0], lvl + l, c[1]) not in D.occ for l in range(3))}
-            pr = prefer if n % 2 == 0 else ("z" if prefer == "x" else "x")
-            tile_level(D, free, lvl, [], pr, three={c: {col} for c, col in free.items()}, bricks=BRICKS, asm=asm)
+            free = {c: pick(cols, *c) for c in cells if (c[0], L, c[1]) not in D.occ}
+            field = {(x, L, z): col for (x, z), col in free.items()}
+            tile_level(D, {c: None for c in free} if soft else free, L, sizes, prefer, asm=asm)
+        else:
+            for n in range(courses):
+                lvl = L + 3 * n
+                free = {c: pick(cols, *c) for c in cells if all((c[0], lvl + l, c[1]) not in D.occ for l in range(3))}
+                field.update({(x, lvl + l, z): col for (x, z), col in free.items() for l in range(3)})
+                pr = prefer if n % 2 == 0 else ("z" if prefer == "x" else "x")
+                tile_level(D, {c: None for c in free} if soft else free, lvl, [], pr,
+                           three={c: set() if soft else {col} for c, col in free.items()}, bricks=BRICKS, asm=asm)
+        if soft:
+            recolour(D, n0, field)
 
     def slab(self, cells, L, cols, second):
         """Two crossed layers at L and L+1 (plates, then `second`: PLATES or a
@@ -491,6 +582,64 @@ class Interp:
         t = verified(D, attempt, tries=12)
         if t:
             self.repairs.append(("slab", t))
+
+    def water(self, cells, L, bed, surface, foam, ripples):
+        """Water (TECHNIQUES.md item 2): a bed of plates at L whose colour
+        deepens with distance from the shore, a smooth transparent surface of
+        tiles at L+1 (clear-ish at the shore), a few exposed transparent round
+        studs as ripples and white round plates as foam along the shore.
+        Shore = a neighbouring cell on the stage (baseplate/base) or already
+        built at this height; an edge that runs off the stage is open water."""
+        D = self.D
+        self.expose_studs({(c[0], L, c[1]) for c in cells})
+        stage = set().union(*self.stage) if self.stage else set()
+
+        def land(c):
+            return c in stage or any((c[0], L + l, c[1]) in D.occ for l in (0, 1))
+        nb4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+        dist, dq = {}, deque()
+        for c in cells:
+            if any((c[0] + a, c[1] + b) not in cells and land((c[0] + a, c[1] + b)) for a, b in nb4):
+                dist[c] = 0
+                dq.append(c)
+        while dq:
+            c = dq.popleft()
+            for a, b in nb4:
+                n = (c[0] + a, c[1] + b)
+                if n in cells and n not in dist:
+                    dist[n] = dist[c] + 1
+                    dq.append(n)
+        if dist:
+            depth = lambda c: dist.get(c, max(dist.values()) + 1)
+        else:                                     # no shore anywhere: open water, mid depth
+            depth = lambda c: 0
+            bed = bed[len(bed) // 2:len(bed) // 2 + 1]
+        seed = D.src or 0
+        free = sorted(c for c in cells if (c[0], L, c[1]) not in D.occ and (c[0], L + 1, c[1]) not in D.occ)
+        bed_cols = gradient(bed, free, depth, seed=seed)
+        top_cols = gradient(surface, free, depth, blend=1.0, seed=seed + 1)
+        shore = {c for c in free if dist and depth(c) == 0}
+        dots = {}
+        for c in free:
+            h = hash01(c[0], c[1], seed + 2)
+            if foam is not None and c in shore and h < 0.35:
+                dots[c] = foam
+            elif c not in shore and h < ripples:
+                dots[c] = top_cols[c]
+
+        def attempt(r, mirror, flip):
+            tile_level(D, {c: None for c in free}, L, PLATES, "z" if flip else "x", rng=r, mirror=mirror, tag="water")
+            for (x, z), col in dots.items():
+                D.place("4073", col, x, L + 1, z, tag="water")
+            tile_level(D, {c: None for c in free if c not in dots}, L + 1, TILES, "x" if flip else "z", rng=r,
+                       mirror=mirror, tag="water")
+        n0 = len(D.parts)
+        t = verified(D, attempt)
+        if t:
+            self.repairs.append(("water", t))
+        field = {(x, L, z): col for (x, z), col in bed_cols.items()}
+        field.update({(x, L + 1, z): col for (x, z), col in top_cols.items() if (x, z) not in dots})
+        recolour(D, n0, field)
 
     def blocked(self, cell, L):
         return any(cell in cells and L < L1 and L + 3 > L0 for cells, L0, L1 in self.openings)
@@ -826,16 +975,25 @@ class Interp:
                     core[(x, S + y, z)] = default
                 else:
                     core.pop((x, S + y, z), None)
-        for col, kind, data in spec["paint"]:
+        soft = {}                                 # gradient-coloured cells (see recolour)
+        if spec.get("grad"):
+            stops, axis = spec["grad"]
+            soft = gradient(stops, core, axis_pos(axis), seed=S)
+            core.update(soft)
+        for n, (col, kind, data) in enumerate(spec["paint"]):
             if kind == "set":
-                for (x, y, z) in data:
-                    if (x, S + y, z) in core:
-                        core[(x, S + y, z)] = col
+                targets = [(x, S + y, z) for (x, y, z) in data if (x, S + y, z) in core]
             else:
                 xs, ys, zs = data
-                for (x, L, z) in core:
-                    if x in xs and (L - S) in ys and (zs is None or z in zs):
-                        core[(x, L, z)] = col
+                targets = [(x, L, z) for (x, L, z) in core if x in xs and (L - S) in ys and (zs is None or z in zs)]
+            if isinstance(col, tuple):
+                g = gradient(col[0], targets, axis_pos(col[1]), seed=S + 31 * (n + 1))
+                core.update(g)
+                soft.update(g)
+            else:
+                for c in targets:
+                    core[c] = col
+                    soft.pop(c, None)
         # a sculpt that overlaps something already built (a tail resting on a
         # rock, a head sunk into a body built earlier) merges into it: the cells
         # already taken keep what is there
@@ -1035,7 +1193,8 @@ class Interp:
         for L, cells in by_level.items():
             tile_level(D, cells, L, self.flat, "x", tag="top")
 
-        fill_cells = {c: (None if c in flex else col) for c, col in core.items() if c not in reserved}
+        soft = {c: col for c, col in soft.items() if core.get(c) == col and c not in reserved}
+        fill_cells = {c: (None if c in flex or c in soft else col) for c, col in core.items() if c not in reserved}
 
         def fill(r, mirror, flip):
             taken = set()
@@ -1059,8 +1218,11 @@ class Interp:
                 taken |= {(x, L, z) for (x, z) in free}
                 taken |= {(x, L + l, z) for (x, z) in tall for l in (1, 2)}
         D.new_step()
+        n_fill = len(D.parts)
         fill_ok = verified(D, fill, standalone=D.default_asm != "main")
         self.repairs.append(("sculpt fill", fill_ok))
+        if soft:
+            recolour(D, n_fill, soft, hidden=flex)
 
         # ---- panels, then surface eyes' pupils
         D.new_step()
@@ -1199,7 +1361,13 @@ class Interp:
 
     def parse_sculpt(self, args, block):
         pos, kw = split_kw(args)
-        spec = dict(base=int(kw.get("base", 0)), color=color(kw.get("color", "black"))[0],
+        ctok = kw.get("color", "black")
+        # color=a>b: a gradient over the whole sculpt (along=y by default); the
+        # first colour stands in wherever one colour is needed (panels, skin)
+        grad = (color_stops(ctok), kw.get("along", "y")) if ">" in ctok else None
+        if grad:
+            axis_pos(grad[1])                     # validate now: report the bad axis on this line
+        spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
                     hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"),
                     shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None)
         for ln, raw in block:
@@ -1213,7 +1381,11 @@ class Interp:
                 elif t[0] == "cut":
                     spec["shapes"].append(("cut", shape_cells(p[0], p[1:])))
                 elif t[0] == "paint":
-                    c = color(p[0])[0]
+                    if ">" in p[0]:                   # gradient paint: (stops, axis)
+                        c = (color_stops(p[0]), k.get("along", "y"))
+                        axis_pos(c[1])
+                    else:
+                        c = color(p[0])[0]
                     if p[1] in ("box", "ball", "cyl", "col"):
                         spec["paint"].append((c, "set", shape_cells(p[1], p[2:])))
                     else:
@@ -1240,6 +1412,13 @@ class Interp:
                 self.errors.append(f"line {ln}: {e}")
         return spec
 
+    def colours(self, tok, cells, kw):
+        """A fill's colours: a colour or mix (`a|b`), or a gradient (`a>b>c`)
+        along `along=x|z|-x|-z` (default x) over the region's cells."""
+        if ">" not in tok:
+            return color(tok)
+        return gradient(color_stops(tok), cells, axis_pos(kw.get("along", "x"), "xz"), seed=self.D.src or 0)
+
     def command(self, cmd, args):
         D = self.D
         p, kw = split_kw(args)
@@ -1249,9 +1428,11 @@ class Interp:
             D.new_step()
         elif cmd == "baseplate":
             D.add(D.make("3811", color(p[2])[0], int(p[0]), 0, int(p[1])))
+            self.stage.append({(int(p[0]) + a, int(p[1]) + c) for a in range(32) for c in range(32)})
         elif cmd in ("plates", "tiles", "bricks"):
             courses = _bounded(int(kw.get("courses", 1)), LIMITS["courses"], "courses")
-            self.fill(cmd, _bounded(int(p[0]), LIMITS["coord"], "level"), color(p[1]), region_terms(p[2:]),
+            cells = region_terms(p[2:])
+            self.fill(cmd, _bounded(int(p[0]), LIMITS["coord"], "level"), self.colours(p[1], cells, kw), cells,
                       kw.get("prefer", "x"), courses)
         elif cmd == "part":
             self.expose_for_part(p[0], int(p[2]), int(p[4]), int(p[3]), rot_(kw))
@@ -1270,11 +1451,21 @@ class Interp:
                 self.expose_for_part(pid, x + a * dx, L, z + a * dz, rot_(kw))
                 D.place(pid, col, x + a * dx, L, z + a * dz, yaw=rot_(kw))
         elif cmd == "base":
-            self.base(rect(p[0]), color(p[1]), color(kw["top"]) if "top" in kw else None,
+            cells = rect(p[0])
+            self.stage.append(cells)
+            self.base(cells, self.colours(p[1], cells, kw), self.colours(kw["top"], cells, kw) if "top" in kw else None,
                       color(kw["rim"])[0] if "rim" in kw else None)
         elif cmd == "scatter":
             self.scatter(p[0], color(p[1]), region_terms(p[2:-1]), int(p[-1]), int(kw.get("every", 0)),
                          int(kw.get("shift", 0)), float(kw.get("density", 0.3)), int(kw.get("seed", 0)))
+        elif cmd == "water":
+            ripples = float(kw.get("ripples", 0.06))
+            if not 0 <= ripples <= 0.5:
+                raise SpecError("ripples must be between 0 and 0.5")
+            self.water(region_terms(p[1:]), _bounded(int(p[0]), LIMITS["coord"], "level"),
+                       color_stops(kw.get("bed", "medium_azure>blue>dark_blue")),
+                       color_stops(kw.get("surface", "trans_clear|trans_light_blue>trans_light_blue>trans_medium_blue")),
+                       None if kw.get("foam") == "none" else color(kw.get("foam", "white"))[0], ripples)
         elif cmd == "walls":
             cells = rect(p[0])
             xs, zs = sorted({c[0] for c in cells}), sorted({c[1] for c in cells})

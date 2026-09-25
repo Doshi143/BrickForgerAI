@@ -467,3 +467,76 @@ def test_region_terms_may_be_joined_or_spaced():
 def test_a_bad_region_error_says_how_to_write_one():
     _, problems, _ = run(BASE + "plates 0 red 8..8,2..6/10..10,2..6\n")
     assert any("then optional +x0..x1,z0..z1" in p for p in problems), problems
+
+
+# ---------------------------------------------------------------- gradients and water (TECHNIQUES.md 1-2)
+def _band(D, src, lo, hi, axis=2):
+    return Counter(q.color for q in D.parts if q.src == src and lo * 20 <= q.box[axis][0] < hi * 20)
+
+
+def test_a_fill_gradient_runs_along_its_axis_without_extra_parts():
+    grad, problems, _ = run(BASE + "plates 0 dark_green>green>bright_green 0..31,0..15 along=z\n")
+    plain, _, _ = run(BASE + "plates 0 green 0..31,0..15\n")
+    assert problems == []
+    near, far = _band(grad, 3, 0, 4), _band(grad, 3, 12, 16)
+    assert near.most_common(1)[0][0] == 288 and far.most_common(1)[0][0] == 10, (near, far)
+    # tiled as any colour, then each part coloured from the gradient: no fragmentation
+    assert len(grad.parts) <= len(plain.parts) + 4
+
+
+def test_a_sculpt_colour_gradient_runs_bottom_to_top():
+    text = BASE + "sculpt base=0 color=dark_bluish_gray>white\n  box 4..11 0..29 4..11\nend\n"
+    D, problems, _ = run(text)
+    assert problems == [], problems
+    by_level = lambda lo, hi: Counter(q.color for q in D.parts if q.src == 3 and q.color != 0
+                                      and lo <= -q.box[1][1] / 8 < hi)
+    assert by_level(0, 6).most_common(1)[0][0] == 72 and by_level(24, 31).most_common(1)[0][0] == 15
+
+
+def test_a_gradient_paint_only_changes_its_own_cells():
+    text = BASE + ("sculpt base=0 color=red\n  box 4..11 0..11 4..11\n"
+                   "  paint yellow>orange 4..11 6..11 along=y\nend\n")
+    D, problems, _ = run(text)
+    assert problems == [], problems
+    low = {q.color for q in D.parts if q.src == 3 and q.box[1][0] > -8 * 5}
+    assert low <= {4, 0}, low                              # the lower half stays red (hidden cells: any)
+    assert {14, 25} & {q.color for q in D.parts}
+
+
+def test_gradient_errors_are_reported():
+    _, problems, _ = run(BASE + "plates 0 red>blue 0..3,0..3 along=q\n")
+    assert any("gradient axis" in p for p in problems), problems
+    _, problems, _ = run(BASE + "plates 0 " + ">".join(["red"] * 7) + " 0..3,0..3\n")
+    assert any("at most 6" in p for p in problems), problems
+
+
+POND = BASE + "water 0 8..23,8..23\n"
+
+
+def test_water_is_one_piece_with_a_smooth_surface_and_foam_at_the_shore():
+    D, problems, stats = run(POND)
+    assert problems == [] and stats["components"] == 1, problems
+    top = [q for q in D.parts if q.tag == "water" and abs(q.box[1][1] + 8) < 1]
+    assert top and all(q.pid in TILE_IDS or q.pid == "4073" for q in top)
+    shore = lambda q: min(q.box[0][0], q.box[2][0]) < 9 * 20 or max(q.box[0][1], q.box[2][1]) > 23 * 20
+    foam = [q for q in top if q.pid == "4073" and q.color == 15]
+    assert foam and all(shore(q) for q in foam)
+
+
+def test_water_deepens_away_from_the_shore_and_open_edges_are_not_shore():
+    # a beach: sand on z 0..9, sea z 10..31 running off the baseplate's far edge
+    D, problems, _ = run(BASE + "tiles 0 tan 0..31,0..9\nwater 0 0..31,10..31\n")
+    assert problems == [], problems
+    bed = [q for q in D.parts if q.tag == "water" and abs(q.box[1][1]) < 1]
+    near = Counter(q.color for q in bed if q.box[2][0] < 14 * 20)
+    far = Counter(q.color for q in bed if q.box[2][0] >= 26 * 20)
+    assert near.most_common(1)[0][0] == 322 and far.most_common(1)[0][0] == 272, (near, far)
+    white = [q for q in D.parts if q.pid == "4073" and q.color == 15]
+    assert white and all(q.box[2][0] < 12 * 20 for q in white)        # foam only along the beach
+
+
+def test_water_options_are_bounded():
+    _, problems, _ = run(BASE + "water 0 0..3,0..3 ripples=5\n")
+    assert any("ripples" in p for p in problems), problems
+    _, problems, _ = run(BASE + "water 0 0..70,0..70\n")
+    assert any("too big" in p for p in problems), problems

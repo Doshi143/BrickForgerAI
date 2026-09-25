@@ -33,11 +33,14 @@ shapes. The prompt wins where they disagree.
   With no base, L 0 is the table.
 - Ranges are inclusive: `3..7`. A rectangle is `x0..x1,z0..z1`. A region is a
   rectangle followed by `+rect` (add) or `-rect` (remove) terms.
-- Colours: black white red yellow orange bright_light_orange dark_orange blue
-  medium_azure dark_azure green bright_green dark_green lime yellowish_green
-  sand_green sand_blue tan dark_tan medium_nougat reddish_brown dark_brown brown
-  light_bluish_gray dark_bluish_gray dark_red pink magenta trans_clear
-  trans_light_blue trans_red trans_brown. `a|b` mixes colours per cell.
+- Colours: black white red yellow bright_light_yellow orange bright_light_orange
+  dark_orange blue dark_blue medium_blue medium_azure dark_azure green bright_green
+  dark_green lime yellowish_green olive_green sand_green sand_blue tan dark_tan
+  medium_nougat reddish_brown dark_brown brown light_bluish_gray dark_bluish_gray
+  dark_red pink magenta trans_clear trans_light_blue trans_medium_blue trans_dark_blue
+  trans_red trans_brown. `a|b` mixes colours per cell. `a>b>c` is a gradient (natural
+  blends: grass, rock, fur, a snowy peak) along `along=x|z|-x|-z` in fills (default x)
+  or `along=y|x|z|-y..` in `sculpt color=` and `paint` (default y, bottom to top).
 - Minifig scale: a door is 4 wide by 18 plates, a storey 15-18 plates, a car 4 wide.
 
 ## General commands
@@ -54,6 +57,8 @@ part PID COLOUR X Z L [rot=0|90|180|270]
 stack PID COLOUR X Z L N               # N of a part on top of each other (3941 = 2x2 round brick: stands, trunks)
 row PID COLOUR X Z L N [dx=1] [dz=0] [rot=]
 scatter PID COLOURS REGION L [every=N shift=K | density=0.3 seed=S]   # optional decorations
+water L REGION [bed=GRADIENT] [surface=GRADIENT] [foam=white|none] [ripples=0.06]
+                                       # ponds, rivers, sea: 2 plates, deepens away from the shore
 tree X Z L COLOUR [trunk=COLOUR]       # pyramid tree, 3x3 canopy around X,Z
 stump X Z L0 L1 COLOUR [band=COLOUR bands=0,4]   # 4x4 round-brick column
 roots X Z L COLOUR                     # curved roots around a 4x4 footprint at X,Z

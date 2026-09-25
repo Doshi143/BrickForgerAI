@@ -64,6 +64,12 @@ COLOR_TABLE = {
     378: ("Sand Green", "#708E7C", False),
     379: ("Sand Blue", "#70819A", False),
     484: ("Dark Orange", "#91501C", False),
+    272: ("Dark Blue", "#19325A", False),
+    73: ("Medium Blue", "#7396C8", False),
+    330: ("Olive Green", "#77774E", False),
+    226: ("Bright Light Yellow", "#FFEC6C", False),
+    33: ("Trans Dark Blue", "#0020A0", True),
+    41: ("Trans Medium Blue", "#559AB7", True),
 }
 assert set(COLOR_TABLE) == set(COLORS.values()), "COLOR_TABLE must cover every designer colour"
 

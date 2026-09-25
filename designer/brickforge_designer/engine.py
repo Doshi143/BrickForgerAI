@@ -70,6 +70,9 @@ COLORS = {
     "dark_green": 288, "dark_brown": 308, "sand_green": 378, "sand_blue": 379, "medium_azure": 322,
     "dark_azure": 321, "yellowish_green": 326, "trans_clear": 47, "trans_light_blue": 43,
     "trans_red": 36, "trans_brown": 40,
+    # gradient families (water, grass, foliage, sky): TECHNIQUES.md item 1
+    "dark_blue": 272, "medium_blue": 73, "olive_green": 330, "bright_light_yellow": 226,
+    "trans_dark_blue": 33, "trans_medium_blue": 41,
 }
 
 
