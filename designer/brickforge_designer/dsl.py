@@ -898,17 +898,67 @@ class Interp:
                 self.slab({(x, z) for x in range(x0, x1 + 1) for z in range(z0, z1 + 1)}, L, [trim], PLATES)
                 L += 2
         roof = kw.get("roof", "gable")
+        rstyle = kw.get("roofstyle", "smooth")
+        if rstyle not in ("smooth", "slope"):
+            raise SpecError("roofstyle must be smooth or slope")
         self.roof(x0, x1, z0, z1, L, roof, kw.get("ridge", "x"),
                   color(kw.get("roofcolor", "dark_bluish_gray"))[0],
-                  color(kw.get("gable", kw.get("color", "white")))[0], int(kw.get("overhang", 1)))
+                  color(kw.get("gable", kw.get("color", "white")))[0], int(kw.get("overhang", 1)), rstyle)
 
-    def roof(self, x0, x1, z0, z1, L, kind, ridge, rcol, gcol, o=1):
+    def slope_roof(self, X0, X1, Z0, Z1, L, ridge, rcol, gcol):
+        """A gable roof of real 45-degree slope bricks, as in official sets
+        (TECHNIQUES.md item 9): a slab ties the walls together, then brick
+        courses step in one stud per course, each eave row a 2x2/2x1 slope
+        (3039/3040b) facing out, the gable-coloured core between them, and
+        double slopes (3043/3044b) along the ridge.  An odd span gets one
+        extra row of overhang on the far side so the ridge closes evenly."""
+        D = self.D
+        if ridge == "x":
+            A0, A1, B0, B1 = X0, X1, Z0, Z1
+            at = lambda a, b: (a, b)
+            down = lambda s: yaw_pointing(MAIN, (0, 0, s), local=(0, 0, -1))
+            dbl = 0
+        else:
+            A0, A1, B0, B1 = Z0, Z1, X0, X1
+            at = lambda a, b: (b, a)
+            down = lambda s: yaw_pointing(MAIN, (s, 0, 0), local=(0, 0, -1))
+            dbl = 90
+        if (B1 - B0 + 1) % 2:
+            B1 += 1
+        self.slab({at(a, b) for a in range(A0, A1 + 1) for b in range(B0, B1 + 1)}, L, [rcol], PLATES)
+        lvl, b0, b1 = L + 2, B0, B1
+        while b1 - b0 + 1 >= 4:
+            for bs, s in ((b0, -1), (b1, 1)):
+                bmin = min(bs, bs - s)
+                a = A0
+                while a <= A1:
+                    n = 2 if a + 1 <= A1 else 1
+                    x, z = at(a, bmin) if ridge == "x" else at(a, bmin)
+                    D.place("3039" if n == 2 else "3040b", rcol, x, lvl, z, yaw=down(s), tag="roof")
+                    a += n
+            core = {at(a, b): (gcol if a in (A0, A1) else None) for a in range(A0, A1 + 1)
+                    for b in range(b0 + 2, b1 - 1)}
+            if core:
+                tile_level(D, core, lvl, [], "x" if ridge == "z" else "z",
+                           three={c: set() if col is None else {col} for c, col in core.items()}, bricks=BRICKS)
+            lvl, b0, b1 = lvl + 3, b0 + 1, b1 - 1
+        a = A0
+        while a <= A1:                                   # the ridge: double slopes over the last two rows
+            n = 2 if a + 1 <= A1 else 1
+            x, z = at(a, b0)
+            D.place("3043" if n == 2 else "3044b", rcol, x, lvl, z, yaw=dbl, tag="roof")
+            a += n
+
+    def roof(self, x0, x1, z0, z1, L, kind, ridge, rcol, gcol, o=1, style="smooth"):
         X0, X1, Z0, Z1 = x0 - o, x1 + o, z0 - o, z1 + o
         area = {(x, z) for x in range(X0, X1 + 1) for z in range(Z0, Z1 + 1)}
         if kind == "none":
             return
         if kind == "flat":
             self.slab(area, L, [rcol], self.flat)
+            return
+        if style == "slope" and kind == "gable":
+            self.slope_roof(X0, X1, Z0, Z1, L, ridge, rcol, gcol)
             return
         cells, heights = set(), {}
         for (x, z) in area:
@@ -1956,9 +2006,12 @@ class Interp:
         elif cmd == "roof":
             cells = rect(p[0])
             xs, zs = sorted({c[0] for c in cells}), sorted({c[1] for c in cells})
+            rstyle = kw.get("style", "smooth")
+            if rstyle not in ("smooth", "slope"):
+                raise SpecError("roof style must be smooth or slope")
             self.roof(xs[0], xs[-1], zs[0], zs[-1], int(p[1]), kw.get("type", "gable"), kw.get("ridge", "x"),
                       color(kw.get("color", "dark_bluish_gray"))[0], color(kw.get("gable", "white"))[0],
-                      int(kw.get("overhang", 1)))
+                      _bounded(int(kw.get("overhang", 1)), 4, "overhang"), rstyle)
         elif cmd == "stump":
             bands = [int(b) for b in kw.get("bands", "").split(",") if b]
             self.stump(int(p[0]), int(p[1]), int(p[2]), int(p[3]), color(p[4])[0],

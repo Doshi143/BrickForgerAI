@@ -39,6 +39,8 @@ PARTS = [
     "4032",
     # facades: textured 1x2 bricks, 1x2 windows + glass, arch over a window
     "98283", "30136", "60592", "60601", "60593", "60602", "3659",
+    # slope-brick roofs: 45 degree 2x1 / 2x2 slopes and double (ridge) slopes
+    "3040b", "3039", "3044b", "3043",
 ]
 # Parts whose plan-view shape isn't their bounding rectangle: store the top
 # face's outline (convex hull of the geometry at local y=0, as (x, z) LDU) so

@@ -786,3 +786,23 @@ def test_window_types():
             assert c["3659"] == c[frame]
     _, problems, _ = _house("wintype=round")
     assert any("wintype" in p for p in problems)
+
+
+# ---------------------------------------------------------------- slope-brick roofs (TECHNIQUES.md item 9)
+@pytest.mark.parametrize("ridge", ["x", "z"])
+def test_a_slope_brick_roof_faces_out_and_closes_with_a_ridge(ridge):
+    D, problems, stats = run(BASE + f"building 6..21,8..19 0 floors=1 color=white roof=gable ridge={ridge} "
+                                    f"roofstyle=slope roofcolor=dark_red\n")
+    assert problems == [] and stats["components"] == 1, problems
+    slopes = [q for q in D.parts if q.pid in ("3039", "3040b")]
+    ridge_parts = [q for q in D.parts if q.pid in ("3043", "3044b")]
+    assert slopes and ridge_parts
+    top = min(q.box[1][0] for q in D.parts)
+    assert all(abs(q.box[1][0] - top) < 1 for q in ridge_parts)          # the ridge is the highest row
+    # every slope's low (sloped) side faces away from the ridge line
+    axis = 2 if ridge == "x" else 0
+    mid = (min(q.box[axis][0] for q in ridge_parts) + max(q.box[axis][1] for q in ridge_parts)) / 2
+    for q in slopes:
+        stud = next(p for p, d in q.studs if d == (0, -1, 0))
+        centre = (q.box[axis][0] + q.box[axis][1]) / 2
+        assert (stud[axis] - centre) * (centre - mid) < 0, (q.pos, stud)   # the stud row is on the ridge side
