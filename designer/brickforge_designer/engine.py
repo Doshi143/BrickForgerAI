@@ -124,7 +124,9 @@ class PartDef:
             return BODY_BOX[self.pid]
         if self.pid in FULL_BOX:
             (x0, x1), (y0, y1), (z0, z1) = self.bbox
-            return ((x0, x1), (max(y0, -200), y1), (z0, z1))
+            # a flat part's bbox tops out at its studs (-4): what clicks onto it
+            # sits there, so the studs are not body (a tall part keeps its height)
+            return ((x0, x1), (0 if y0 >= -4 else max(y0, -200), y1), (z0, z1))
         y = (-8 * self.h, 0) if self.bottom else (0, 8 * self.h)
         return ((self.cx - 10 * self.w, self.cx + 10 * self.w), y, (self.cz - 10 * self.d, self.cz + 10 * self.d))
 

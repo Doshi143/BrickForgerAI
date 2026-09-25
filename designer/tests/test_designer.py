@@ -806,3 +806,19 @@ def test_a_slope_brick_roof_faces_out_and_closes_with_a_ridge(ridge):
         stud = next(p for p, d in q.studs if d == (0, -1, 0))
         centre = (q.box[axis][0] + q.box[axis][1]) / 2
         assert (stud[axis] - centre) * (centre - mid) < 0, (q.pos, stud)   # the stud row is on the ridge side
+
+
+# ---------------------------------------------------------------- trees (TECHNIQUES.md item 3)
+@pytest.mark.parametrize("style,part", [("round", "2417"), ("bush", "2423"), ("pine", "2435")])
+def test_tree_styles_build_as_one_piece(style, part):
+    D, problems, stats = run(BASE + f"tree 10 10 0 dark_green|green style={style}\n")
+    assert problems == [] and stats["components"] == 1, problems
+    assert any(q.pid == part for q in D.parts)
+
+
+def test_a_round_tree_threads_its_leaves_on_the_trunk_at_quarter_turns():
+    D, problems, _ = run(BASE + "tree 10 10 0 green style=round height=2 layers=3\n")
+    assert problems == [], problems
+    leaves = sorted((q for q in D.parts if q.pid == "2417"), key=lambda q: -q.pos[1])
+    assert len(leaves) == 3 and len({q.mat for q in leaves}) == 3
+    assert sum(q.pid == "3062b" for q in D.parts) == 4          # 2 trunk + one between each leaf pair

@@ -772,11 +772,34 @@ class Interp:
         self.D.attach("60623", lcol, f, (-31, 0, 5), tag="door leaf")
         return cells
 
-    def tree(self, x, z, L, col, trunk):
-        self.expose_studs({(x, L, z)})
-        self.D.place("3062b", trunk, x, L, z)
-        self.D.place("3062b", trunk, x, L + 3, z)
-        self.D.place("2435", col, x, L + 6, z, tag="tree")
+    def tree(self, x, z, L, cols, trunk, style="pine", height=2, layers=3):
+        """Trees (TECHNIQUES.md item 3).  pine: the pyramid part on a round
+        trunk.  round: a 1x1 round-brick trunk with 6x5 leaf layers threaded
+        on it, each turned a quarter (the leaf's attachment point carries a
+        stud, measured, so the trunk continues through it), capped with a
+        leafy plate.  bush: a 2x2 round brick with leaf sprays on opposite
+        studs.  Leaf colours can be a mix (dark
+        inside, lighter outside reads as depth)."""
+        D = self.D
+        self.expose_studs({(x, L, z)} if style != "bush" else {(x + a, L, z + b) for a in (0, 1) for b in (0, 1)})
+        if style == "bush":
+            D.place("3941", pick(cols, x, z), x, L, z, tag="tree")
+            D.place("2423", pick(cols, x, z, 1), x, L + 3, z, yaw=0, tag="tree")
+            D.place("2423", pick(cols, x, z, 2), x + 1, L + 3, z + 1, yaw=180, tag="tree")
+            return
+        for n in range(height):
+            D.place("3062b", trunk, x, L + 3 * n, z)
+        lv = L + 3 * height
+        if style == "pine":
+            D.place("2435", pick(cols, x, z), x, lv, z, tag="tree")
+            return
+        for k in range(layers):
+            D.place("2417", pick(cols, x, z, k), x, lv, z, yaw=(0, 180, 90, 270)[k % 4], tag="tree")
+            lv += 1
+            if k < layers - 1:
+                D.place("3062b", trunk, x, lv, z)
+                lv += 3
+        D.place("32607", pick(cols, x, z, 9), x, lv, z, tag="tree")
 
     def stump(self, x, z, L0, L1, col, band, bands):
         self.expose_for_part("87081", x, L0, z)
@@ -1989,7 +2012,11 @@ class Interp:
             self.door(int(p[0]), int(p[1]), p[2], int(p[3]), color(kw.get("frame", "black"))[0],
                       color(kw.get("leaf", "reddish_brown"))[0])
         elif cmd == "tree":
-            self.tree(int(p[0]), int(p[1]), int(p[2]), color(p[3])[0], color(kw.get("trunk", "reddish_brown"))[0])
+            style = kw.get("style", "pine")
+            if style not in ("pine", "round", "bush"):
+                raise SpecError("tree style must be pine, round or bush")
+            self.tree(int(p[0]), int(p[1]), int(p[2]), color(p[3]), color(kw.get("trunk", "reddish_brown"))[0], style,
+                      _bounded(int(kw.get("height", 2)), 8, "height"), _bounded(int(kw.get("layers", 3)), 6, "layers"))
         elif cmd == "car":
             self.vehicle(int(p[0]), int(p[1]), "car", 10, color(kw.get("color", "red"))[0], None, int(kw.get("on", 1)))
         elif cmd == "vehicle":
