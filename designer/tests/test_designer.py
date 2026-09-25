@@ -848,3 +848,67 @@ def test_thin_vertical_cylinders_are_built_from_round_bricks():
                              "  cyl y 0..8 4 -1 1\n  cyl y 0..8 8 1 1\nend\n")
     assert problems == [] and stats["components"] == 1, problems
     assert sum(q.pid == "3941" for q in D.parts) == 6            # 9 plates per leg = 3 round bricks each
+
+
+# ---------------------------------------------------------------- limbs: ball-joint chains (TECHNIQUES.md item 17)
+LIMBED = """model t
+base 0..25,-12..12 dark_bluish_gray
+sculpt base=2 color=red hollow=2
+  box 6..15 0..11 -3..3
+  limb 15 6 0 24 1 8{opts}
+end
+"""
+
+
+def _links(D):
+    return [q for q in D.parts if q.pid == "14419"]
+
+
+def test_a_limb_is_a_chain_of_ball_joint_plates_joined_ball_to_socket():
+    from brickforge_designer.engine import mul
+    D, problems, stats = run(LIMBED.format(opts=""))
+    assert problems == [] and stats["components"] == 1, problems
+    links = _links(D)
+    assert len(links) >= 2 and sum(q.pid == "14417" for q in D.parts) == 1
+    for q in links:
+        h = D.parts[q.host]
+        ball = pdef(h.pid).balls[0]
+        bw = [h.pos[i] + mul(h.mat, ball)[i] for i in range(3)]
+        sock = pdef("14419").sockets[0][0]
+        sw = [q.pos[i] + mul(q.mat, sock)[i] for i in range(3)]
+        assert max(abs(a - b) for a, b in zip(bw, sw)) < 0.01          # the socket sits on the previous ball
+
+
+def test_limb_joints_turn_at_most_40_degrees():
+    import math
+    D, _, _ = run(LIMBED.format(opts=" bend=60"))
+    dirs = [(-q.mat[0], -q.mat[3], -q.mat[6]) for q in _links(D)]        # each link's axis (local -x)
+    for a, b in zip(dirs, dirs[1:]):
+        cos = sum(x * y for x, y in zip(a, b))
+        assert math.degrees(math.acos(max(-1, min(1, cos)))) <= 40.5
+
+
+def test_limb_parts_are_in_the_instructions():
+    from brickforge_designer.instructions import build_steps
+    D, _, _ = run(LIMBED.format(opts=""))
+    assert sorted(i for s in build_steps(D) for i in s.part_indices) == list(range(len(D.parts)))
+
+
+def test_a_limb_with_no_room_is_reported_and_limbs_are_bounded():
+    _, problems, _ = run(BASE + "sculpt base=0 color=red\n  box 0..31 0..3 0..31\n  limb 5 1 5 5 1 20\nend\n")
+    assert any("limb from" in p for p in problems), problems
+    _, problems, _ = run(BASE + "sculpt base=0 color=red\n  box 0..3 0..3 0..3\n" + "  limb 3 1 1 9 1 1\n" * 13 + "end\n")
+    assert any("at most 12 limbs" in p for p in problems), problems
+
+
+def test_turned_parts_collide_by_their_oriented_boxes():
+    import math
+    from brickforge_designer.engine import Design, pdef as P
+    D = Design()
+    c, s = math.cos(math.radians(45)), math.sin(math.radians(45))
+    M = (c, 0, s, 0, 1, 0, -s, 0, c)                                  # 45 degrees about y
+    a = D._finish(P("3023"), 4, (0, 0, 0), M, "", "main")
+    far = D._finish(P("3023"), 4, (24, 0, 24), M, "", "main")          # beside it along the diagonal
+    near = D._finish(P("3023"), 4, (5, 0, -5), M, "", "main")          # overlapping it
+    assert D._overlap(a.box, far.box) and not D._collide(a, far)       # bounding boxes touch, parts don't
+    assert D._collide(a, near)

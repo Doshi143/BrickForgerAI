@@ -185,7 +185,11 @@ def build_steps(D, max_per_step=DEFAULT_MAX_PER_STEP):
                 remaining.discard(i)
                 available.discard(i)
                 step_parts.append(i)
-                step_parts += children.get(i, [])
+                stack = list(children.get(i, []))
+                while stack:                    # details on details too (a chain of joint links)
+                    c = stack.pop(0)
+                    step_parts.append(c)
+                    stack += children.get(c, [])
             for i in chunk:
                 for m in adj[i]:
                     if m in remaining:

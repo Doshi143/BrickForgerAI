@@ -12,7 +12,7 @@ import math
 import re
 from collections import defaultdict, deque
 
-from .engine import (BRICKS, COLORS, HIDDEN_COLOR, I3, MAIN, PLATES, TILES, YAW, Design, Frame, mul, tile_level,
+from .engine import (BRICKS, COLORS, HIDDEN_COLOR, I3, MAIN, PLATES, TILES, YAW, Design, Frame, mm, mul, tile_level,
                      verified, yaw_pointing, pdef)
 
 
@@ -1317,6 +1317,114 @@ class Interp:
                     return pid, i, k, yaw
         return None
 
+    def plan_limb_anchor(self, core, reserved, lb, S):
+        """Where a limb leaves the body: 2 exposed body cells side by side at
+        the start point's level, on the face (+-x / +-z) that points most
+        toward the tip, for a 1x2 plate whose ball (14417, measured: 10 LDU
+        past its long edge) sticks out of that face."""
+        (sx, sy, sz), (tx, ty, tz) = lb["start"], lb["end"]
+        L = S + int(math.floor(sy))
+        dx, dz = tx - sx, tz - sz
+        if abs(dx) < 1e-6 and abs(dz) < 1e-6:
+            dx, dz = 1.0, 0.0
+        faces = sorted(((1, 0), (-1, 0), (0, 1), (0, -1)), key=lambda f: -(f[0] * dx + f[1] * dz))
+        taken = lambda c: c in core or c in self.D.occ
+        for L in (L0, L0 + 1, L0 - 1, L0 + 2, L0 - 2) if (L0 := L) is not None else ():
+            for fx, fz in faces[:2]:
+                best = None
+                for (x, l, z) in core:
+                    if l != L:
+                        continue
+                    pair = [(x, z), (x, z + 1)] if fx else [(x, z), (x + 1, z)]
+                    # the plate's 2 cells on the surface, and room outward (a link is 3 studs
+                    # long and reaches a plate above and below its joint) for the first link
+                    ok = all((px, L, pz) in core and (px, L, pz) not in reserved
+                             and not any(taken((px + k * fx, L + dl, pz + k * fz)) for k in (1, 2, 3) for dl in (-1, 0, 1))
+                             for px, pz in pair)
+                    if not ok:
+                        continue
+                    cx, cz = (x + (0.5 if fz else 0) + 0.5, z + (0.5 if fx else 0) + 0.5)
+                    dist = (cx - sx) ** 2 + (cz - sz) ** 2
+                    if best is None or dist < best[0]:
+                        cells = {(px, L, pz) for px, pz in pair}
+                        best = (dist, ((x, L, z), yaw_pointing(MAIN, (fx, 0, fz), local=(0, 0, -1)), cells, (fx, fz)))
+                if best and best[0] <= 9:                  # within 3 studs of the asked point
+                    return best[1]
+        return None
+
+    def grow_limb(self, anchor, lb, face, S, default):
+        """A chain of ball-and-socket plates (14419) from the anchor's ball to
+        the tip (TECHNIQUES.md item 17): each link's socket clicks onto the
+        previous ball (measured: socket at local (30, 4, 0) opening +x, ball at
+        (-30, 4, 0), 60 LDU apart), its axis follows a curve that leaves the
+        body level along the face and ends at the tip, turning at most 40
+        degrees per joint, studs kept as close to up as the turn allows.  A
+        link that would hit anything, or go under the table, ends the limb
+        there (reported as a repair, not an error)."""
+        D = self.D
+        P = pdef("14419")
+        (Sx, Sy, Sz), _ = P.sockets[0]
+        Bx, By, Bz = P.balls[0]
+        ball = mul(anchor.mat, pdef("14417").balls[0])
+        J = (anchor.pos[0] + ball[0], anchor.pos[1] + ball[1], anchor.pos[2] + ball[2])
+        tx, ty, tz = lb["end"]
+        T = (20 * tx, -8 * (S + ty), 20 * tz)
+        f = (face[0], 0.0, face[1])
+        dist = sum((T[i] - J[i]) ** 2 for i in range(3)) ** 0.5
+        C = tuple(J[i] + f[i] * dist * 0.4 for i in range(3))
+        bend = math.radians(lb["bend"])
+        n = max(1, min(24, round(dist / 60)))
+        col = lb["color"] if lb["color"] is not None else default
+        host, prev = anchor, f
+        unit = lambda v: (lambda m: tuple(c / m for c in v) if m > 1e-9 else (1.0, 0.0, 0.0))(sum(c * c for c in v) ** 0.5)
+        dot = lambda a, b: sum(x * y for x, y in zip(a, b))
+        cross = lambda a, b: (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+        placed = 0
+        for i in range(n):
+            s = (i + 1) / n
+            aim = tuple((1 - s) ** 2 * J[k] + 2 * (1 - s) * s * C[k] + s * s * T[k] for k in range(3)) \
+                if i < n - 1 else T
+            d = f if i == 0 else unit(tuple(aim[k] - J[k] for k in range(3)))    # first link: straight out
+            if bend and i >= n // 2:                        # curl the tip over (downward in LDraw = +y)
+                d = unit((d[0] * math.cos(bend), d[1] * math.cos(bend) + math.sin(bend), d[2] * math.cos(bend)))
+            cosang = max(-1.0, min(1.0, dot(prev, d)))
+            if cosang < math.cos(math.radians(40)):         # a Joint-8 ball turns about 40 degrees
+                axis = unit(cross(prev, d))
+                th = math.radians(40)
+                # rotate prev toward d by 40 degrees (Rodrigues)
+                d = unit(tuple(prev[k] * math.cos(th) + cross(axis, prev)[k] * math.sin(th)
+                               + axis[k] * dot(axis, prev) * (1 - math.cos(th)) for k in range(3)))
+            up = (0.0, -1.0, 0.0)
+            u = tuple(up[k] - dot(up, d) * d[k] for k in range(3))
+            if sum(c * c for c in u) < 1e-6:
+                u = (1.0, 0.0, 0.0) if abs(d[0]) < 0.9 else (0.0, 0.0, 1.0)
+            u = unit(u)
+            cx, cy = tuple(-c for c in d), tuple(-c for c in u)        # local +x -> -d, local +y -> -u
+            cz = cross(cx, cy)
+            M = (cx[0], cy[0], cz[0], cx[1], cy[1], cz[1], cx[2], cy[2], cz[2])
+            so = mul(M, (Sx, Sy, Sz))
+            pos = (J[0] - so[0], J[1] - so[1], J[2] - so[2])
+            q = D._finish(P, col, pos, M, "limb", host.asm, host=D.parts.index(host))
+            clash = any(D._collide(q, D.parts[m]) for key in D._buckets(q.box) for m in D._hash.get(key, ())
+                        if D.parts[m] is not host and D.parts[m].host != D.parts.index(host))
+            if clash or q.box[1][1] > 1:
+                break
+            idx = D.add(q)
+            D.links.append((D.parts.index(host), idx))
+            if lb.get("thick"):
+                # a 1x2 curved slope on the link's two studs rounds the limb out
+                # (11477 is 2 long along its local z: turned a quarter to lie along the link)
+                cap = D._finish(pdef("11477"), col, pos, mm(M, YAW[90]), "limb", q.asm, host=idx)
+                if not any(D._collide(cap, D.parts[m]) for key in D._buckets(cap.box) for m in D._hash.get(key, ())
+                           if m != idx and D.parts[m].host != idx and m != D.parts.index(host)):
+                    D.links.append((idx, D.add(cap)))
+            bo = mul(M, (Bx, By, Bz))
+            J = (pos[0] + bo[0], pos[1] + bo[1], pos[2] + bo[2])
+            host, prev = q, d
+            placed += 1
+        if placed < n:
+            self.repairs.append(("limb shortened", n - placed))
+
     def plan_large_eye(self, core, reserved, e, side, S):
         """A flat, exposed patch 2 studs wide and 3 plates tall on the flank at
         the eye's height (for two side-stud bricks), with nothing sticking out
@@ -1780,6 +1888,19 @@ class Interp:
                     placements.append(("4070", core[(X, Lc + 1, z)], X, Lc, z,
                                        yaw_pointing(MAIN, (sign, 0, 0), local=(0, 0, -1)), "light", cells))
 
+        # ---- limbs: a ball plate built into the body's edge for each
+        limb_plan = []
+        for lb in spec.get("limbs", ()):
+            anchor = self.plan_limb_anchor(core, reserved, lb, S)
+            if anchor is None:
+                self.errors.append(f"limb from {lb['start']}: no free edge of the body near that point for its ball plate "
+                                   f"(it needs 2 exposed cells side by side on the face toward the tip)")
+                continue
+            (x, L, z), yaw, cells, face = anchor
+            reserved |= cells
+            placements.append(("14417", core[(x, L, z)], x, L, z, yaw, "limb", cells))
+            limb_plan.append((lb, (x, L, z), face))
+
         # ---- place fixed parts, then fill the rest (self-repairing)
         D.new_step()
         n_sculpt = len(D.parts)
@@ -1844,6 +1965,9 @@ class Interp:
             self.rescue_loose(n_sculpt, flex | set(soft))
         if soft:
             recolour(D, n_fill, soft, hidden=flex)
+        # limbs last, so each link is checked against the finished body
+        for lb, (x, L, z), face in limb_plan:
+            self.grow_limb(D.parts[D.occ[(x, L, z)]], lb, face, S, spec["color"])
 
         # ---- panels, then surface eyes' pupils
         D.new_step()
@@ -2008,7 +2132,7 @@ class Interp:
         spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
                     texture=texture, mix=None if grad else color(ctok),
                     hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"), wedges=kw.get("wedges", "1") != "0",
-                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[])
+                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[], limbs=[])
         for ln, raw in block:
             if not raw:
                 continue
@@ -2041,6 +2165,16 @@ class Interp:
                 elif t[0] == "ppaint":
                     ys = rng_(p[2])
                     spec["ppaint"].append((color(p[0])[0], rng_(p[1]), ys.start, ys.stop - 1))
+                elif t[0] == "limb":
+                    vals = [_bounded(float(v), LIMITS["coord"], "limb point") for v in p[:6]]
+                    if len(vals) != 6:
+                        raise SpecError("limb needs X Y Z TX TY TZ")
+                    bend = _bounded(float(k.get("bend", 0)), 90, "bend")
+                    spec["limbs"].append(dict(start=tuple(vals[:3]), end=tuple(vals[3:]), bend=bend,
+                                              color=color(k["color"])[0] if "color" in k else None,
+                                              thick=k.get("thick", "0") == "1"))
+                    if len(spec["limbs"]) > 12:
+                        raise SpecError("at most 12 limbs per sculpt")
                 elif t[0] == "wheels":
                     size = k.get("size", "small")
                     if size not in WHEELS:

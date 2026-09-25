@@ -113,6 +113,45 @@ def _walk(name: str, depth: int = 0):
     return pts, tuple(uniq.keys())
 
 
+BALL_PRIMS = {"joint8ball.dat"}                 # a Joint-8 ball: its centre is the primitive's origin
+SOCKET_PRIMS = {"joint8socket1.dat"}            # a Joint-8 socket: the ball's centre is its origin; it opens
+                                                # toward the primitive's -z (measured: its body spans z -5..10)
+
+
+def joints(name: str, depth: int = 0, M=(1, 0, 0, 0, 1, 0, 0, 0, 1), O=(0.0, 0.0, 0.0)):
+    """Ball-joint connectors in the file's own frame: (balls, sockets) where a
+    ball is its centre (a joint8ball primitive, or an 8-8sphe sphere of radius
+    8 -- the Joint-8 ball size) and a socket is (centre, opening direction)."""
+    balls, sockets = [], []
+    try:
+        txt = fetch(name)
+    except FileNotFoundError:
+        return balls, sockets
+    for line in txt.splitlines():
+        t = line.split()
+        if len(t) < 15 or t[0] != "1":
+            continue
+        off = tuple(map(float, t[2:5]))
+        m = tuple(map(float, t[5:14]))
+        sub = " ".join(t[14:]).replace("\\", "/").lower()
+        base = sub.split("/")[-1]
+        wo = _mul(M, off)
+        pos = (O[0] + wo[0], O[1] + wo[1], O[2] + wo[2])
+        MM = _mm(M, m)
+        radius = (m[0] ** 2 + m[3] ** 2 + m[6] ** 2) ** 0.5          # the sphere's scale, however rotated
+        if base in BALL_PRIMS or (base == "8-8sphe.dat" and abs(radius - 8) < 0.01):
+            balls.append(tuple(round(c, 2) for c in pos))
+        elif base in SOCKET_PRIMS:
+            d = _mul(MM, (0.0, 0.0, -1.0))
+            n = max(abs(c) for c in d) or 1.0
+            sockets.append((tuple(round(c, 2) for c in pos), tuple(round(c / n, 3) for c in d)))
+        elif depth < 4 and not base.startswith(("stud", "4-4", "8-8", "1-4", "2-4", "3-4", "box", "rect")):
+            b2, s2 = joints(sub, depth + 1, MM, pos)
+            balls += b2
+            sockets += s2
+    return balls, sockets
+
+
 def bbox(pid: str):
     pts, _ = _walk(pid + ".dat")
     xs, ys, zs = zip(*pts)

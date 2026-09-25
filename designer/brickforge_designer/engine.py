@@ -39,14 +39,20 @@ def mm(a, b):
 FOOTPRINT = {"30414": (4, 1, 0, 0), "87087": (1, 1, 0, 0), "4600": (2, 2, 0, 0), "4079": (2, 2, 0, 0),
              # tooth plates: the plate is the footprint, the tooth sticks out (measured:
              # 49668 reaches a stud past its -z edge, 15208 half a stud, 15070 hangs 2 plates down)
-             "49668": (1, 1, 0, 0), "15070": (1, 1, 0, 0), "15208": (2, 1, 0, 0)}
-HEIGHT_OVERRIDE = {"32607": 1, "2417": 1, "2435": 1, "4079": 1, "3829c01": 1, "3811": 0, "15070": 1}
+             "49668": (1, 1, 0, 0), "15070": (1, 1, 0, 0), "15208": (2, 1, 0, 0),
+             # ball-joint plates: a 1x2 plate; ball and socket stick out past it (measured)
+             "14417": (2, 1, 0, 0), "14418": (2, 1, 0, 0), "14419": (2, 1, 0, 0)}
+HEIGHT_OVERRIDE = {"32607": 1, "2417": 1, "2435": 1, "4079": 1, "3829c01": 1, "3811": 0, "15070": 1,
+                   "14417": 1, "14418": 1, "14419": 1}
 ORIGIN_PARTS = {"2423", "2417", "32607", "2435"}          # placed by their attachment stud
-FULL_BOX = ORIGIN_PARTS | {"4079", "3829c01", "49668", "15070", "15208"}   # collide with their whole geometry
+FULL_BOX = ORIGIN_PARTS | {"4079", "3829c01", "49668", "15070", "15208", "14418", "14419"}   # collide with their whole geometry
 # Collision body where it differs from the footprint box.  4070's front is
 # recessed 4 LDU (measured: its side stud's base is at z=-6, the face at -10),
 # so whatever clicks onto that stud sits in the recess, not in the brick.
-BODY_BOX = {"4070": ((-10, 10), (0, 24), (-6, 10))}
+BODY_BOX = {"4070": ((-10, 10), (0, 24), (-6, 10)),
+            # a limb anchor is built into the body: its body is the plate; the ball
+            # sticks out into space the anchor search keeps clear
+            "14417": ((-20, 20), (0, 8), (-10, 10))}
 RECV = {"24201": [(0, 1)], "13547": [(0, 3)],
         "87081": [(a, b) for a in range(4) for b in range(4) if not (a in (0, 3) and b in (0, 3))],
         "3811": []}
@@ -108,6 +114,9 @@ class PartDef:
         self.studs = [((s[0], s[1], s[2]), (round(s[3]), round(s[4]), round(s[5]))) for s in t["studs"]]
         # plan-view shape for parts that aren't rectangles (wedge plates), local (x, z) LDU
         self.outline = [tuple(p) for p in t["outline"]] if "outline" in t else None
+        # ball-joint connectors (local LDU): ball centres, and sockets as (centre, opening direction)
+        self.balls = [tuple(b) for b in t.get("balls", ())]
+        self.sockets = [(tuple(s[:3]), tuple(s[3:])) for s in t.get("sockets", ())]
         cells = RECV.get(pid)
         if cells is None and self.outline:
             # a wedge grips only under its studded, full-width column, not under the taper
@@ -151,7 +160,8 @@ MAIN = Frame()
 
 
 class Placed:
-    __slots__ = ("pid", "color", "pos", "mat", "box", "studs", "recv", "tag", "step", "asm", "host", "src")
+    __slots__ = ("pid", "color", "pos", "mat", "box", "studs", "recv", "tag", "step", "asm", "host", "src",
+                 "obb")                     # (centre, axes, half extents) when turned off the grid, else None
 
 
 def yaw_pointing(frame, want_world, local=(0, 0, 1)):
@@ -202,6 +212,15 @@ class Design:
         q.pid, q.color, q.pos, q.mat, q.tag, q.step, q.asm, q.host = P.pid, color, pos, M, tag, self.step, asm, host
         q.src = self.src
         q.box = tuple((min(c[a] for c in corners) + pos[a], max(c[a] for c in corners) + pos[a]) for a in range(3))
+        # a part turned off the grid (a hinge or ball-joint link) also keeps its
+        # oriented box: its axis-aligned bounds would swell and report false collisions
+        if all(abs(v) < 1e-6 or abs(abs(v) - 1) < 1e-6 for v in M):
+            q.obb = None
+        else:
+            c = mul(M, ((bx0 + bx1) / 2, (by0 + by1) / 2, (bz0 + bz1) / 2))
+            q.obb = ((pos[0] + c[0], pos[1] + c[1], pos[2] + c[2]),
+                     ((M[0], M[3], M[6]), (M[1], M[4], M[7]), (M[2], M[5], M[8])),
+                     ((bx1 - bx0) / 2, (by1 - by0) / 2, (bz1 - bz0) / 2))
         r1 = lambda v: (round(v[0], 1), round(v[1], 1), round(v[2], 1))
         q.studs = []
         for sp, sd in P.studs:
@@ -261,13 +280,48 @@ class Design:
     def _overlap(b, c, tol=0.6):
         return all(min(b[a][1], c[a][1]) - max(b[a][0], c[a][0]) > tol for a in range(3))
 
+    @staticmethod
+    def _obb(q):
+        if q.obb is not None:
+            return q.obb
+        (x0, x1), (y0, y1), (z0, z1) = q.box
+        return (((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+                ((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2))
+
+    @classmethod
+    def _collide(cls, p, q, tol=0.6):
+        """Do two parts' bodies overlap by more than tol?  Boxes on the grid
+        compare as boxes; if either is turned off the grid, a separating-axis
+        test on the oriented boxes (their axis-aligned bounds are only the
+        cheap first filter)."""
+        if not cls._overlap(p.box, q.box, tol):
+            return False
+        if p.obb is None and q.obb is None:
+            return True
+        (ca, A, ha), (cb, B, hb) = cls._obb(p), cls._obb(q)
+        d = (cb[0] - ca[0], cb[1] - ca[1], cb[2] - ca[2])
+        dot = lambda u, v: u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+        axes = list(A) + list(B)
+        for u in A:
+            for v in B:
+                w = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+                n = dot(w, w) ** 0.5
+                if n > 1e-6:
+                    axes.append((w[0] / n, w[1] / n, w[2] / n))
+        for L in axes:
+            ra = sum(h * abs(dot(ax, L)) for h, ax in zip(ha, A))
+            rb = sum(h * abs(dot(ax, L)) for h, ax in zip(hb, B))
+            if abs(dot(d, L)) > ra + rb - tol:
+                return False
+        return True
+
     def fits(self, q):
         seen = set()
         for key in self._buckets(q.box):
             for m in self._hash.get(key, ()):
                 if m not in seen:
                     seen.add(m)
-                    if self._overlap(q.box, self.parts[m].box):
+                    if self._collide(q, self.parts[m]):
                         return False
         return True
 
@@ -325,7 +379,7 @@ class Design:
                     if p.host == n or q.host == m or (p.host is not None and p.host == q.host):
                         continue     # a detail vs its own host, or two details on one host (rim + tyre)
                     tol = 2.0 if (p.host is not None or q.host is not None) else 0.6   # hinge / pin play
-                    if self._overlap(p.box, q.box, tol):
+                    if self._collide(p, q, tol):
                         hits.append((m, n))
         return hits
 

@@ -9,7 +9,7 @@ import re
 import subprocess
 import time
 
-from ldraw_geometry import MISSING, _walk, bbox, studs, title
+from ldraw_geometry import MISSING, _walk, bbox, joints, studs, title
 
 MIRROR = "https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/complete/ldraw/parts/"
 
@@ -41,7 +41,10 @@ PARTS = [
     "98283", "30136", "60592", "60601", "60593", "60602", "3659",
     # slope-brick roofs: 45 degree 2x1 / 2x2 slopes and double (ridge) slopes
     "3040b", "3039", "3044b", "3043",
+    # ball-joint chains (limbs): ball on side, socket, socket + ball (the chain link)
+    "14417", "14418", "14419",
 ]
+JOINTS = {"14417", "14418", "14419"}           # store measured ball centres and sockets
 # Parts whose plan-view shape isn't their bounding rectangle: store the top
 # face's outline (convex hull of the geometry at local y=0, as (x, z) LDU) so
 # the engine can fit them to a diagonal edge by their real shape.
@@ -76,6 +79,10 @@ if __name__ == "__main__":
                       "studs": [[*p, *d] for p, d in studs(pid)]}
         if pid in OUTLINE:
             table[pid]["outline"] = top_outline(pid)
+        if pid in JOINTS:
+            balls, sockets = joints(pid + ".dat")
+            table[pid]["balls"] = [list(c) for c in balls]
+            table[pid]["sockets"] = [[*c, *d] for c, d in sockets]
         print(f"{pid:8s} {table[pid]['title'][:40]:40s} studs={len(table[pid]['studs'])}")
     # Sanity: every stud-bearing part's body must reach a whole plate below its top.
     # A short body means geometry was dropped, which would seat the part too low.

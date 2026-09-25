@@ -137,6 +137,10 @@ sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z] [texture=rock|greeble]
   eye X Y [pupil=] [ring=] [skin=] [size=small|large] [look=+x|-x]
                                         # eye on both sides at column X, height Y; large = a
                                         # 2x2 round eye (ring) with the pupil looking forward
+  limb X Y Z TX TY TZ [bend=0..90] [thick=1] [color=]
+                                        # a curving ball-jointed chain from the body surface
+                                        # near X,Y,Z to the tip TX,TY,TZ: tentacles, trunks, tails,
+                                        # necks; bend curls the tip down; thick=1 rounds it out
   wheels X1,X2,... [size=small|large] [front=+x|-x] [lights=1|0]
                                         # real wheels: one axle per X, under x=X..X+1
 end
@@ -178,12 +182,12 @@ Quadruped (elephant-ish, faces +x, stands on the table):
 ```
 sculpt base=0 color=light_bluish_gray hollow=2
   ball 8 14 0 6 10 3.5          # body
-  cyl y 0..8 4 -2 1.3           # four legs
+  cyl y 0..8 4 -2 1.3           # four legs (radius ~1 on whole numbers: round bricks)
   cyl y 0..8 4 2 1.3
   cyl y 0..8 11 -2 1.3
   cyl y 0..8 11 2 1.3
   ball 15 20 0 3 8 2.5          # head
-  cyl x 17..21 16 0 1.2 0.6     # trunk
+  limb 17 16 0 23 4 0 bend=40 thick=1   # trunk
   eye 16 22 pupil=black ring=white
 end
 ```
