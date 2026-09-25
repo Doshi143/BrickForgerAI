@@ -23,3 +23,7 @@ core/examples/output/
 
 web/frontend/.next/
 web/frontend/out/
+
+# Designer demo/eval outputs and the LDraw download cache (build-time only)
+designer/out/
+designer/.ldraw_cache/

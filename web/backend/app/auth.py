@@ -452,8 +452,13 @@ def delete_user(user_id: str) -> None:
         conn.execute(_ph("DELETE FROM users WHERE id = ?"), (user_id,))
 
 
-def consume_credit(user_id: str) -> tuple[User, str]:
-    """Decrements one credit and returns (user, credit_source), where
+def consume_credit(user_id: str, cost: int = 1) -> tuple[User, str]:
+    """Decrements `cost` credits (1 for Voxel, 2 for Detailed) and returns
+    (user, credit_source).  For cost > 1 each credit is drawn in the order
+    below and credit_source lists them comma-separated (e.g.
+    "monthly,topup"), so refund_credit can put each one back in the pool it
+    came from.  For cost == 1 the behaviour and return value are exactly
+    what they have always been.  credit_source is one of
     credit_source is one of "monthly" | "dev" | "topup" -- the caller
     (POST /generate) uses this, not just plan, to decide whether this
     generation's instructions download is free:
@@ -479,6 +484,8 @@ def consume_credit(user_id: str) -> tuple[User, str]:
         raise ValueError("User not found")
     if user.credits_remaining <= 0 and user.dev_credits_remaining <= 0 and user.topup_credits_remaining <= 0:
         raise ValueError("No credits remaining this month")
+    if cost > 1:
+        return _consume_credits(user, cost)
 
     with _connect() as conn:
         if user.credits_remaining > 0:
@@ -508,6 +515,33 @@ _CREDIT_SOURCE_COLUMN = {
     "dev": "dev_credits_remaining",
     "topup": "topup_credits_remaining",
 }
+_CREDIT_SOURCE_ATTR = {
+    "monthly": "credits_remaining",
+    "dev": "dev_credits_remaining",
+    "topup": "topup_credits_remaining",
+}
+
+
+def _consume_credits(user: User, cost: int) -> tuple[User, str]:
+    """consume_credit for cost > 1: all-or-nothing (a user with fewer than
+    `cost` credits in total is charged nothing), same spend order as a
+    single credit, applied one credit at a time."""
+    total = user.credits_remaining + user.dev_credits_remaining + user.topup_credits_remaining
+    if total < cost:
+        raise ValueError(f"This needs {cost} credits and you have {total}.")
+    sources = []
+    for _ in range(cost):
+        for source in ("monthly", "dev", "topup"):
+            attr = _CREDIT_SOURCE_ATTR[source]
+            if getattr(user, attr) > 0:
+                setattr(user, attr, getattr(user, attr) - 1)
+                sources.append(source)
+                break
+    with _connect() as conn:
+        for source, n in {s: sources.count(s) for s in sources}.items():
+            column = _CREDIT_SOURCE_COLUMN[source]
+            conn.execute(_ph(f"UPDATE users SET {column} = {column} - ? WHERE id = ?"), (n, user.id))
+    return user, ",".join(sources)
 
 
 def refund_credit(user_id: str, credit_source: str) -> None:
@@ -519,9 +553,11 @@ def refund_credit(user_id: str, credit_source: str) -> None:
     just credits_remaining -- refunding a spent topup credit into the
     monthly pool would let it expire at the next reset instead of staying
     available the way a real topup credit should."""
-    column = _CREDIT_SOURCE_COLUMN[credit_source]
+    sources = credit_source.split(",")         # "monthly" or, for a 2-credit job, e.g. "monthly,topup"
     with _connect() as conn:
-        conn.execute(_ph(f"UPDATE users SET {column} = {column} + 1 WHERE id = ?"), (user_id,))
+        for source, n in {s: sources.count(s) for s in sources}.items():
+            column = _CREDIT_SOURCE_COLUMN[source]
+            conn.execute(_ph(f"UPDATE users SET {column} = {column} + ? WHERE id = ?"), (n, user_id))
 
 
 def get_user_by_stripe_customer_id(customer_id: str) -> User | None:

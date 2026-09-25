@@ -43,12 +43,12 @@ def build_image_prompt(user_description: str) -> str:
 
 class ImageGenClient(ABC):
     @abstractmethod
-    def generate(self, prompt: str, out_path: str) -> str:
+    def generate(self, prompt: str, out_path: str, quality: str | None = None) -> str:
         raise NotImplementedError
 
 
 class StubImageGenClient(ImageGenClient):
-    def generate(self, prompt: str, out_path: str) -> str:
+    def generate(self, prompt: str, out_path: str, quality: str | None = None) -> str:
         raise NotImplementedError(
             "No image generation provider configured. Set IMAGE_GEN_PROVIDER "
             "and the matching API key env var."
@@ -77,7 +77,10 @@ class OpenAIImageClient(ImageGenClient):
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    def generate(self, prompt: str, out_path: str) -> str:
+    def generate(self, prompt: str, out_path: str, quality: str | None = None) -> str:
+        """`quality` ("low" | "medium" | "high"): omitted -> the API's own
+        default (what the Voxel pipeline has always used); Detailed mode's
+        reference image passes "medium"."""
         import base64
         import time
 
@@ -92,6 +95,7 @@ class OpenAIImageClient(ImageGenClient):
                     "prompt": prompt,
                     "size": "1024x1024",
                     "n": 1,
+                    **({"quality": quality} if quality else {}),
                 },
                 timeout=120,
             )

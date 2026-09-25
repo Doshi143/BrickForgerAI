@@ -109,8 +109,15 @@ def _render_step_screenshots(stepped_text: str, num_steps: int) -> list[bytes]:
         thread.join(timeout=5)
 
 
-def _swatch_style(color_code: int) -> str:
-    r, g, b = CATALOG_RGB.get(color_code, (128, 128, 128))
+def _swatch_style(row) -> str:
+    """Colour chip for a parts row.  Rows from the Detailed (designer)
+    pipeline carry their own `rgb` / `transparent` (its palette includes
+    see-through colours the core palette doesn't); core rows use CATALOG_RGB."""
+    r, g, b = getattr(row, "rgb", None) or CATALOG_RGB.get(row.color_code, (128, 128, 128))
+    if getattr(row, "transparent", False):
+        # tint over a light checkerboard so a clear/translucent part reads as see-through
+        return (f"background: linear-gradient(rgba({r},{g},{b},0.55), rgba({r},{g},{b},0.55)), "
+                "repeating-conic-gradient(#d4d4d4 0% 25%, #ffffff 0% 50%) 50% / 6px 6px;")
     return f"background: rgb({r},{g},{b});"
 
 
@@ -130,7 +137,7 @@ def _swatch_style(color_code: int) -> str:
 def _parts_chip_html(row: PartTally) -> str:
     return (
         '<div class="chip">'
-        f'<span class="swatch" style="{_swatch_style(row.color_code)}"></span>'
+        f'<span class="swatch" style="{_swatch_style(row)}"></span>'
         f'<span class="chip-name">{html.escape(row.part_name)} '
         f'<span class="chip-color">{html.escape(row.color_name.replace("_", " "))}</span></span>'
         f'<span class="chip-qty">&times;{row.count}</span>'
@@ -189,15 +196,17 @@ def _paginate_rows(rows: list[PartTally], *, columns: int) -> list[list[PartTall
     return [rows[i:i + per_page] for i in range(0, len(rows), per_page)]
 
 
-def _step_page_html(step_number: int, total_steps: int, screenshot_png: bytes, rows: list[PartTally]) -> str:
+def _step_page_html(step_number: int, total_steps: int, screenshot_png: bytes, rows: list[PartTally],
+                    section: str | None = None) -> str:
     b64 = base64.b64encode(screenshot_png).decode("ascii")
     columns = _columns_for_row_count(len(rows))
+    label = f" &middot; {html.escape(section)}" if section else ""
     return f"""
     <section class="page step-page">
       {_scene_svg(prominent=False)}
       <div class="content">
         <div class="content-card">
-          <div class="step-header">Step {step_number} of {total_steps}</div>
+          <div class="step-header">Step {step_number} of {total_steps}{label}</div>
           <div class="step-render-frame">
             <img class="step-render" src="data:image/png;base64,{b64}" />
           </div>
@@ -454,20 +463,64 @@ def render_instructions_pdf(
     steps = build_steps(model)
     if not steps:
         raise ValueError("model has no bricks to generate instructions for")
+    return _render_booklet_pdf(
+        stepped_text=stepped_ldr_text(model, steps, model_name),
+        step_rows=[tally(model, step.brick_indices) for step in steps],
+        step_sections=[None] * len(steps),
+        bom_rows=bill_of_materials(model),
+        part_count=len(model),
+        model_name=model_name,
+        out_pdf_path=out_pdf_path,
+    )
 
-    stepped_text = stepped_ldr_text(model, steps, model_name)
-    screenshots = _render_step_screenshots(stepped_text, len(steps))
+
+def render_designer_instructions_pdf(design, out_pdf_path: str, model_name: str) -> dict:
+    """The same booklet for a Detailed-mode model (a brickforge_designer
+    `Design`): its own build order and parts tallies, with sub-builds
+    (vehicles, separate standing pieces) named on their step pages, rendered
+    and laid out exactly like the voxel pipeline's."""
+    from brickforge_designer import instructions as di
+
+    steps = di.build_steps(design)
+    if not steps:
+        raise ValueError("model has no parts to generate instructions for")
+    sections = list(dict.fromkeys(s.section for s in steps))
+    # Each section (main model, each vehicle, each separate piece) is rendered
+    # on its own, so a sub-build isn't hidden behind the main model while it
+    # is being built -- e.g. a car parked behind a house.
+    screenshots = []
+    for sec in sections:
+        sec_steps = [s for s in steps if s.section == sec]
+        screenshots += _render_step_screenshots(di.stepped_ldr(design, sec_steps, model_name), len(sec_steps))
+    return _render_booklet_pdf(
+        stepped_text="",
+        step_rows=[di.tally(design, s.part_indices) for s in steps],
+        step_sections=[s.section if len(sections) > 1 else None for s in steps],
+        bom_rows=di.bill_of_materials(design),
+        part_count=len(design.parts),
+        model_name=model_name,
+        out_pdf_path=out_pdf_path,
+        screenshots=screenshots,
+    )
+
+
+def _render_booklet_pdf(*, stepped_text: str, step_rows: list, step_sections: list, bom_rows: list,
+                        part_count: int, model_name: str, out_pdf_path: str, screenshots: list | None = None) -> dict:
+    """Shared by both pipelines: one screenshot per step (rendered here from
+    `stepped_text` unless the caller already has them), then cover + parts
+    list + step pages printed to PDF."""
+    if screenshots is None:
+        screenshots = _render_step_screenshots(stepped_text, len(step_rows))
 
     steps_html_parts = []
-    for step, screenshot in zip(steps, screenshots):
-        rows = tally(model, step.brick_indices)
-        steps_html_parts.append(_step_page_html(step.index + 1, len(steps), screenshot, rows))
+    for n, (rows, section, screenshot) in enumerate(zip(step_rows, step_sections, screenshots)):
+        steps_html_parts.append(_step_page_html(n + 1, len(step_rows), screenshot, rows, section))
 
     booklet_html = _assemble_booklet_html(
         model_name=model_name,
-        part_count=len(model),
+        part_count=part_count,
         steps_html="\n".join(steps_html_parts),
-        bom_rows=bill_of_materials(model),
+        bom_rows=bom_rows,
     )
 
     from playwright.sync_api import sync_playwright
@@ -481,4 +534,4 @@ def render_instructions_pdf(
         finally:
             browser.close()
 
-    return {"step_count": len(steps), "part_count": len(model)}
+    return {"step_count": len(step_rows), "part_count": part_count}

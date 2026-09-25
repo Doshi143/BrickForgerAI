@@ -30,6 +30,7 @@ from . import auth
 from .clients.image_gen import build_image_prompt, get_image_client
 from .clients.mesh_gen import get_mesh_client
 from .pipeline.brickforge_bridge import mesh_to_ldr
+from .pipeline import designer_bridge
 from .storage import R2Storage, get_storage
 
 JOBS_DIR = os.path.join(os.path.dirname(__file__), "..", "jobs")
@@ -67,6 +68,12 @@ def _init_job_index() -> None:
         # rather than pulling every published job's full meta.json out of
         # R2 just to filter by prompt text.
         auth._add_column_if_missing(conn, "ALTER TABLE job_index ADD COLUMN prompt TEXT", "prompt")
+        # Which pipeline made the job ("voxel" / "detailed"; NULL = voxel, from
+        # before Detailed mode existed) and, for Detailed jobs, what it cost in
+        # API spend -- denormalized here so a daily check can total real cost
+        # with one query instead of reading every job's meta.json.
+        auth._add_column_if_missing(conn, "ALTER TABLE job_index ADD COLUMN mode TEXT", "mode")
+        auth._add_column_if_missing(conn, "ALTER TABLE job_index ADD COLUMN cost_usd REAL", "cost_usd")
         # is_published/published_at, not a separate table -- a job's
         # gallery status is 1:1 with the job itself, same relationship as
         # status/created_at already have here. Uses the shared
@@ -109,7 +116,8 @@ _init_job_index()
 _INDEX_WRITE_TIMEOUT = 5.0
 
 
-def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, prompt: str | None = None) -> None:
+def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, prompt: str | None = None,
+                      mode: str | None = None, cost_usd: float | None = None) -> None:
     """Upsert, not insert -- called on every save_job_meta, so a job's
     entry here tracks its latest status exactly as reliably as meta.json
     itself does (same call site, always in lockstep).
@@ -143,11 +151,14 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, p
                 conn.execute(
                     auth._ph(
                         """
-                        INSERT INTO job_index (job_id, user_id, status, created_at, prompt) VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT (job_id) DO UPDATE SET status = excluded.status, prompt = excluded.prompt
+                        INSERT INTO job_index (job_id, user_id, status, created_at, prompt, mode, cost_usd)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (job_id) DO UPDATE SET status = excluded.status, prompt = excluded.prompt,
+                            mode = COALESCE(excluded.mode, job_index.mode),
+                            cost_usd = COALESCE(excluded.cost_usd, job_index.cost_usd)
                         """
                     ),
-                    (job_id, user_id, status, created_at, prompt),
+                    (job_id, user_id, status, created_at, prompt, mode, cost_usd),
                 )
             return
         except Exception:
@@ -318,6 +329,7 @@ class JobStatus(str, Enum):
     GENERATING_IMAGE = "generating_image"
     GENERATING_MESH = "generating_mesh"
     BUILDING_BRICKS = "building_bricks"  # voxelize -> shell -> quantize -> legalize -> repair -> refine
+    DESIGNING = "designing"  # Detailed mode only: Claude writes the design (and fixes it if the checks fail)
     DONE = "done"
     FAILED = "failed"
 
@@ -350,6 +362,15 @@ class Job:
     still_critical_count: int | None = None
     is_single_piece: bool | None = None
     symmetrized: bool | None = None
+    # Detailed mode.  mode is "voxel" for every job made before it existed.
+    mode: str = "voxel"
+    finish: str | None = None        # "tiled" | "studs"
+    sideways: str | None = None      # "off" | "auto" | "more"
+    piece_count: int | None = None   # main model + separate sub-builds (e.g. a car)
+    # Internal-only (stripped from client responses like credit_source):
+    # real API spend and token usage, for cost monitoring.
+    cost_usd: float | None = None
+    design_usage: dict | None = None
 
 
 def _job_dir(job_id: str) -> str:
@@ -395,6 +416,12 @@ def _job_to_dict(job: Job) -> dict:
         "still_critical_count": job.still_critical_count,
         "is_single_piece": job.is_single_piece,
         "symmetrized": job.symmetrized,
+        "mode": job.mode,
+        "finish": job.finish,
+        "sideways": job.sideways,
+        "piece_count": job.piece_count,
+        "cost_usd": job.cost_usd,
+        "design_usage": job.design_usage,
         "ldr_download_url": f"/generate/{job.id}/download" if job.ldr_path else None,
         # None (not just missing/false) when generation succeeded but the
         # PDF render itself failed -- see mesh_to_ldr's own docstring for
@@ -418,7 +445,8 @@ def _write_job_meta_dict(job_id: str, data: dict) -> None:
     # this is the one choke point every write -- from either process --
     # actually goes through.
     if data.get("user_id") and data.get("status") and data.get("created_at"):
-        _record_job_index(job_id, data["user_id"], data["status"], data["created_at"], data.get("prompt"))
+        _record_job_index(job_id, data["user_id"], data["status"], data["created_at"], data.get("prompt"),
+                          data.get("mode"), data.get("cost_usd"))
 
 
 def save_job_meta(job: Job) -> None:
@@ -462,6 +490,12 @@ def load_job_meta(job_id: str) -> dict | None:
     # freshly-backfilled render would never be reflected here and the
     # gallery would keep re-rendering a job that already has a thumbnail.
     data["has_render"] = STORAGE.exists(job_id, "render.png")
+    # Detailed jobs have no reference photo to fall back on (by design), so
+    # their thumbnail exists exactly when a real render of the build does --
+    # the gallery's hidden-viewer backfill captures one for any finished job
+    # that lacks it.
+    if data.get("mode") == "detailed":
+        data["thumbnail_url"] = f"/generate/{job_id}/thumbnail" if data["has_render"] else None
     return data
 
 
@@ -721,3 +755,113 @@ def process_job(
     except Exception as exc:  # noqa: BLE001
         job.error = f"{exc}\n{traceback.format_exc()}"
         _set_status(job, JobStatus.FAILED)
+
+
+def process_designer_job(
+    job_id: str,
+    prompt: str,
+    target_size_studs: int,
+    user_id: str,
+    instructions_unlocked: bool,
+    created_at: str,
+    credit_source: str,
+    finish: str,
+    sideways: str,
+) -> None:
+    """Detailed mode: (optional reference image) -> Claude designs -> engine
+    builds and checks -> model.ldr + instructions PDF.  Same plain-primitive
+    arguments as process_job (RQ pickles them; enqueue them positionally).
+
+    Unlike process_job, a failure here refunds the credits it cost: the
+    founder's rule for Detailed mode is "refund and fail" when no design
+    passes the checks, and the same applies to any other error.  The job is
+    marked FAILED *before* the refund so the orphan-recovery sweep can never
+    refund it a second time."""
+    job = Job(
+        id=job_id,
+        prompt=prompt,
+        target_size_studs=target_size_studs,
+        created_at=created_at,
+        user_id=user_id,
+        instructions_unlocked=instructions_unlocked,
+        credit_source=credit_source,
+        mode="detailed",
+        finish=finish,
+        sideways=sideways,
+    )
+    jdir = _job_dir(job.id)
+    image_cost = 0.0
+    try:
+        # The reference picture is always part of a Detailed generation (founder
+        # decision): users never see or choose it, and it has no progress step of
+        # its own -- it is shown as part of "designing".
+        _set_status(job, JobStatus.DESIGNING)
+        # Stored as design_reference.png, NOT reference.png, and not as
+        # job.image_path: it is only an input for the designer.  The founder
+        # wants Detailed thumbnails to be a render of the actual build, never
+        # this picture (see load_job_meta).
+        image_path = os.path.join(jdir, "design_reference.png")
+        try:
+            get_image_client().generate(
+                designer_bridge.REFERENCE_IMAGE_PROMPT.format(subject=job.prompt.strip()),
+                image_path,
+                quality="medium",
+            )
+            image_cost = designer_bridge.REFERENCE_IMAGE_COST_USD
+            STORAGE.put(job.id, "design_reference.png", image_path)
+        except Exception:  # noqa: BLE001 -- the picture only helps; design without it rather than fail
+            logger.warning("reference image failed for detailed job %s; designing without it", job.id,
+                           exc_info=True)
+            image_path = None
+
+        def on_phase(phase: str) -> None:
+            if phase == "building" and job.status != JobStatus.BUILDING_BRICKS:
+                _set_status(job, JobStatus.BUILDING_BRICKS)
+            elif phase == "fixing" and job.status != JobStatus.DESIGNING:
+                _set_status(job, JobStatus.DESIGNING)
+
+        ldr_path = os.path.join(jdir, "model.ldr")
+        pdf_path = os.path.join(jdir, "instructions.pdf")
+        stats = designer_bridge.design_to_ldr(
+            job.prompt,
+            ldr_path,
+            target_studs=target_size_studs,
+            finish=finish,
+            sideways=sideways,
+            model_name=job.prompt[:40],
+            pdf_out_path=pdf_path,
+            reference_image_path=image_path,
+            on_phase=on_phase,
+        )
+        job.ldr_path = ldr_path
+        STORAGE.put(job.id, "model.ldr", ldr_path)
+        spec_path = os.path.join(jdir, "design.bfd")
+        with open(spec_path, "w", encoding="utf-8") as f:
+            f.write(stats["spec"])
+        STORAGE.put(job.id, "design.bfd", spec_path)
+        if stats.get("pdf_generated"):
+            job.pdf_path = pdf_path
+            STORAGE.put(job.id, "instructions.pdf", pdf_path)
+        for key in ("part_count", "slope_count", "tile_count", "color_count", "color_source", "was_repaired",
+                    "still_critical_count", "is_single_piece", "symmetrized", "piece_count"):
+            setattr(job, key, stats[key])
+        job.design_usage = stats["design_usage"]
+        job.cost_usd = designer_bridge.log_usage(job.id, job.design_usage, image_cost)
+        _set_status(job, JobStatus.DONE)
+
+    except Exception as exc:  # noqa: BLE001
+        usage = getattr(exc, "usage", None)
+        if usage:
+            job.design_usage = usage
+            job.cost_usd = designer_bridge.log_usage(job.id, usage, image_cost)
+        user_message = getattr(exc, "user_message", None) or "Something went wrong while designing your model."
+        n = len(credit_source.split(",")) if credit_source else 0
+        job.error = f"{user_message} Your {n} credit{'s' if n != 1 else ''} for this generation " \
+                    f"{'have' if n != 1 else 'has'} been refunded."
+        logger.error("detailed job %s failed: %s\n%s", job.id, exc, traceback.format_exc())
+        _set_status(job, JobStatus.FAILED)
+        if credit_source:
+            try:
+                auth.refund_credit(user_id, credit_source)
+            except Exception:  # noqa: BLE001
+                logger.exception("detailed job %s: refund of %s failed", job.id, credit_source)

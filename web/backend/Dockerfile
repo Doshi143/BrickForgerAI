@@ -50,6 +50,13 @@ RUN pip install --no-cache-dir -r /app/web/backend/requirements.txt
 # not an oversight.
 RUN python -m playwright install --with-deps chromium
 
+# Detailed mode's designer engine (brickforge_designer), installed editable
+# like core/.  After requirements.txt so its pinned `anthropic` is already
+# satisfied, and after the slow Playwright layer so an engine-only change
+# doesn't rebuild Chromium.
+COPY designer/ /app/designer/
+RUN pip install --no-cache-dir -e /app/designer
+
 COPY web/backend/ /app/web/backend/
 WORKDIR /app/web/backend
 

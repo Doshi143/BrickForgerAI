@@ -21,10 +21,12 @@ import sentry_sdk
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from . import auth, billing, content_filter, rate_limit, waitlist
 from .storage import R2Storage
+from .pipeline import designer_bridge
 from .jobs import (
     JOB_TIMEOUT_S,
     JOBS_DIR,
@@ -41,6 +43,7 @@ from .jobs import (
     list_gallery_jobs,
     list_job_ids_for_user,
     load_job_meta,
+    process_designer_job,
     process_job,
     record_gallery_purchase,
     save_job_meta,
@@ -159,6 +162,44 @@ async def _security_headers(request: Request, call_next):
 class GenerateRequest(BaseModel):
     prompt: str
     target_size_studs: int = 32
+    # "voxel" is the original pipeline (and the default, so older clients are
+    # unaffected); "detailed" is the designer pipeline, behind a flag.
+    mode: str = "voxel"
+    finish: str = "tiled"      # detailed only: "tiled" | "studs"
+    sideways: str = "auto"     # detailed only: "off" | "auto" | "more"
+
+
+# Credits one generation costs, per mode (founder decision 2026-09-24).
+CREDIT_COST = {"voxel": 1, "detailed": 2}
+# Build size bounds per mode.  Voxel's are deliberately wide (the frontend
+# offers far less); Detailed models sit on a 32x32 baseplate.
+SIZE_BOUNDS = {"voxel": (8, 40), "detailed": (designer_bridge.MIN_SIZE, designer_bridge.MAX_SIZE)}
+
+
+def _validate_generate_request(req: "GenerateRequest") -> None:
+    if req.mode not in CREDIT_COST:
+        raise HTTPException(400, "mode must be 'voxel' or 'detailed'")
+    lo, hi = SIZE_BOUNDS[req.mode]
+    if not lo <= req.target_size_studs <= hi:
+        raise HTTPException(400, f"Size must be between {lo} and {hi} studs for this mode.")
+    if req.mode == "detailed":
+        if req.finish not in ("tiled", "studs"):
+            raise HTTPException(400, "finish must be 'tiled' or 'studs'")
+        if req.sideways not in ("off", "auto", "more"):
+            raise HTTPException(400, "sideways must be 'off', 'auto' or 'more'")
+
+
+def _instructions_unlocked(user: "auth.User", credit_source: str) -> bool:
+    """A "dev" credit always unlocks the download; a plan's own "monthly"
+    credit unlocks it on a paid plan; a "topup" credit never does.  For a
+    2-credit Detailed job every credit it drew must qualify (credit_source
+    lists them, e.g. "monthly,topup")."""
+    sources = set(credit_source.split(","))
+    return (
+        user.dev_credits_remaining > 0
+        or sources == {"dev"}
+        or (sources <= {"dev", "monthly"} and user.plan in ("starter", "builder", "pro"))
+    )
 
 
 class GenerateResponse(BaseModel):
@@ -196,7 +237,30 @@ def _strip_internal_fields(data: dict) -> dict:
     into the right pool if this job never finishes -- neither belongs in a
     client-facing response. Every endpoint that returns job data to a
     client must strip both here first."""
-    return {k: v for k, v in data.items() if k not in ("user_id", "credit_source")}
+    return {k: v for k, v in data.items() if k not in ("user_id", "credit_source", "cost_usd", "design_usage")}
+
+
+@app.get("/features")
+def features(creds: HTTPAuthorizationCredentials | None = Depends(auth._bearer)) -> dict:
+    """What the frontend may offer.  Signed in: whether Detailed mode is on
+    for this account (flag + optional allowlist).  Signed out: whether it
+    is on for everyone (flag on, no allowlist) -- so the landing page can
+    show it before sign-in without revealing who is allowlisted."""
+    email = None
+    if creds is not None:
+        try:
+            email = auth.get_current_user(creds).email
+        except HTTPException:
+            email = None
+    if email is None:
+        on = designer_bridge.detailed_enabled_for(None) and not os.environ.get("DETAILED_MODE_ALLOWLIST", "").strip()
+    else:
+        on = designer_bridge.detailed_enabled_for(email)
+    return {
+        "detailed_mode": on,
+        "credit_cost": CREDIT_COST,
+        "size_bounds": {m: {"min": lo, "max": hi} for m, (lo, hi) in SIZE_BOUNDS.items()},
+    }
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -207,10 +271,13 @@ def generate(
 ) -> GenerateResponse:
     if not req.prompt.strip():
         raise HTTPException(400, "prompt must not be empty")
+    _validate_generate_request(req)
 
     # Checked first, before anything else costs a request cycle -- see
     # GENERATION_ALLOWLIST's own docstring above.
     _check_generation_allowlist(user)
+    if req.mode == "detailed" and not designer_bridge.detailed_enabled_for(user.email):
+        raise HTTPException(403, "Detailed mode isn't available on your account yet.")
 
     # Runs before rate limiting/credits too -- rejecting a copyrighted-
     # character prompt should never cost the user a credit or count
@@ -230,7 +297,7 @@ def generate(
         raise HTTPException(503, "Daily generation limit reached -- try again tomorrow.")
 
     try:
-        user, credit_source = auth.consume_credit(user.id)
+        user, credit_source = auth.consume_credit(user.id, CREDIT_COST[req.mode])
     except ValueError as exc:
         raise HTTPException(402, str(exc)) from exc
 
@@ -260,9 +327,10 @@ def generate(
         # Holding any dev credits at all marks the account as a dev/test
         # account for this purpose, regardless of which pool this specific
         # generation happened to draw from.
-        instructions_unlocked=credit_source == "dev"
-        or user.dev_credits_remaining > 0
-        or (credit_source == "monthly" and user.plan in ("starter", "builder", "pro")),
+        instructions_unlocked=_instructions_unlocked(user, credit_source),
+        mode=req.mode,
+        finish=req.finish if req.mode == "detailed" else None,
+        sideways=req.sideways if req.mode == "detailed" else None,
     )
     save_job_meta(job)
 
@@ -284,16 +352,31 @@ def generate(
         # by RQ upstream from a plain "timeout" for exactly this collision
         # reason) and is safe to pass as a keyword.
         try:
-            QUEUE.enqueue(
-                process_job,
-                job.id,
-                job.prompt,
-                job.target_size_studs,
-                job.user_id,
-                job.instructions_unlocked,
-                job.created_at,
-                job_timeout=JOB_TIMEOUT_S,
-            )
+            if job.mode == "detailed":
+                QUEUE.enqueue(
+                    process_designer_job,
+                    job.id,
+                    job.prompt,
+                    job.target_size_studs,
+                    job.user_id,
+                    job.instructions_unlocked,
+                    job.created_at,
+                    credit_source,
+                    job.finish,
+                    job.sideways,
+                    job_timeout=JOB_TIMEOUT_S,
+                )
+            else:
+                QUEUE.enqueue(
+                    process_job,
+                    job.id,
+                    job.prompt,
+                    job.target_size_studs,
+                    job.user_id,
+                    job.instructions_unlocked,
+                    job.created_at,
+                    job_timeout=JOB_TIMEOUT_S,
+                )
         except Exception as exc:
             # consume_credit() above already spent a real credit for a job
             # that never actually made it onto the queue -- confirmed as a
@@ -311,6 +394,19 @@ def generate(
             raise HTTPException(
                 503, "Couldn't start your generation right now -- please try again. You have not been charged a credit."
             ) from exc
+    elif job.mode == "detailed":
+        background_tasks.add_task(
+            process_designer_job,
+            job.id,
+            job.prompt,
+            job.target_size_studs,
+            job.user_id,
+            job.instructions_unlocked,
+            job.created_at,
+            credit_source,
+            job.finish,
+            job.sideways,
+        )
     else:
         background_tasks.add_task(
             process_job,
