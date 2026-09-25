@@ -560,3 +560,76 @@ def test_small_loose_groups_on_a_hollow_ball_are_rescued():
     assert problems == [], problems
     assert any(r[0] == "loose rescued" for r in stats["engine_repairs"])
     assert stats["components"] == 1
+
+
+# ---------------------------------------------------------------- vehicle lights (TECHNIQUES.md item 4)
+CAR_BODY = """model car
+sculpt base=0 color=red
+  box 0..13 0..5 -2..1
+  box 4..10 6..10 -2..1
+  wheels 2,10 size=large{opts}
+end
+"""
+
+
+def test_a_wheeled_sculpt_gets_headlights_a_grille_and_tail_lights():
+    D, problems, stats = run(CAR_BODY.format(opts=""))
+    assert problems == [], problems
+    c = Counter((q.pid, q.tag, q.color) for q in D.parts)
+    assert c[("4070", "light", 4)] == 8                      # 4 across each end, in the body colour
+    assert c[("98138", "lamp", 47)] == 2 and c[("98138", "lamp", 36)] == 2
+    assert c[("2412b", "grille", 0)] == 1
+    # the front (+x) lamps are clear, the back ones red
+    front = [q for q in D.parts if q.tag == "lamp" and q.pos[0] > 140]
+    assert front and all(q.color == 47 for q in front)
+    assert stats["components"] == 1
+
+
+def test_lamps_sit_in_the_headlight_brick_recess():
+    D, _, _ = run(CAR_BODY.format(opts=""))
+    for q in D.parts:
+        if q.tag == "lamp" and q.host is not None:
+            b = D.parts[q.host]
+            front = q.pos[0] > b.pos[0]
+            face = b.box[0][1] if front else b.box[0][0]          # 4 LDU inside the brick's outer face
+            outer = b.pos[0] + (10 if front else -10)
+            lamp_back = q.box[0][0] if front else q.box[0][1]
+            assert abs(face - (outer - (4 if front else -4))) < 0.1
+            assert abs(lamp_back - face) < 0.1                     # its underside rests on the recessed face
+
+
+def test_lights_follow_the_front_option_and_can_be_switched_off():
+    D, _, _ = run(CAR_BODY.format(opts=" front=-x"))
+    front = [q for q in D.parts if q.tag == "lamp" and q.color == 47]
+    assert front and all(q.pos[0] < 140 for q in front)
+    D, problems, _ = run(CAR_BODY.format(opts=" lights=0"))
+    assert problems == [] and not any(q.pid == "4070" for q in D.parts)
+    D, problems, _ = run(CAR_BODY.format(opts=""), sideways="off")
+    assert problems == [] and not any(q.pid == "4070" for q in D.parts)
+
+
+def test_lights_go_on_the_nose_and_tail_not_on_a_cabin_further_back():
+    D, _, _ = run(CAR_BODY.format(opts=""))
+    body = [q for q in D.parts if q.asm == "vehicle1" and q.host is None and q.pid != "4600"]
+    lo, hi = min(q.box[0][0] for q in body), max(q.box[0][1] for q in body)
+    for q in D.parts:
+        if q.tag == "light":                      # by grid cell: the brick's box is recessed at its face
+            cell = int(q.pos[0] // 20)
+            assert cell in (lo // 20, hi // 20 - 1), (cell, lo, hi)
+
+
+def test_lights_that_would_split_the_body_are_dropped_not_failed():
+    # a tail whose only flat patch sits over a notch (the real spec that showed it)
+    text = """model car
+sculpt base=0 color=red hollow=2
+  box 1..22 0..4 -4..3
+  box 0..23 0..3 -4..3
+  box 0..6 5..7 -4..3
+  box 1..6 4..5 -4..3
+  box 0..1 7..8 -4..3
+  wheels 4,18 size=large
+end
+"""
+    D, problems, stats = run(text)
+    assert problems == [], problems
+    assert stats["components"] == 1

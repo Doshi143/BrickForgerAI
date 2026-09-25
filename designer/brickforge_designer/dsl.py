@@ -12,7 +12,7 @@ import math
 import re
 from collections import defaultdict, deque
 
-from .engine import (BRICKS, COLORS, HIDDEN_COLOR, I3, MAIN, PLATES, TILES, YAW, Design, Frame, tile_level,
+from .engine import (BRICKS, COLORS, HIDDEN_COLOR, I3, MAIN, PLATES, TILES, YAW, Design, Frame, mul, tile_level,
                      verified, yaw_pointing, pdef)
 
 
@@ -377,6 +377,9 @@ SLOPE3 = {3: ("50950", "24309"), 4: ("61678", "93606")}
 BRICK_RUN = {6: "3009", 4: "3010", 3: "3622", 2: "3004", 1: "3005"}
 L_FRAME = (1, 0, 0, 0, 0, -1, 0, 1, 0)      # SNOT frame on a -z face (studs point -z)
 R_FRAME = (-1, 0, 0, 0, 0, -1, 0, -1, 0)    # SNOT frame on a +z face
+# A tile/plate clicked onto a side stud pointing along the host's local -z: its
+# up (-y) turns to -z, its x stays x (a proper rotation).
+SIDE_STUD_REL = (1, 0, 0, 0, 0, -1, 0, 1, 0)
 
 
 # Wheels for `wheels` in a sculpt, all on a 2x2 plate with wheel pins (4600).
@@ -952,6 +955,74 @@ class Interp:
                 D.attach(w["rim"], 71, plate, (side * w["rim_x"], 5, 0), rel, tag="rim")
                 D.attach(w["tyre"], 0, plate, (side * w["tyre_x"], 5, 0), rel, tag="tyre")
 
+    def plan_lights(self, core, reserved, front):
+        """Where a wheeled sculpt's front and back faces are flat and exposed
+        for one brick course (3 plates) across at least 2 studs: returns
+        [(sign, z run, level, face x)] for the highest such course at each end
+        (sign +1 = the +x end), i.e. just under the bonnet's rounded edge.
+        Rounded noses with no flat patch get none."""
+        out = []
+        levels = sorted({c[1] for c in core})
+        for sign in (1, -1):
+            best = None
+            tip = max(c[0] for c in core) if sign > 0 else min(c[0] for c in core)
+            for Lc in reversed(levels):              # highest first: lights sit just under the bonnet
+                if any(Lc + l not in levels for l in range(3)):
+                    continue
+                ext = {}
+                for (x, L, z) in core:
+                    if Lc <= L < Lc + 3:
+                        k = (L, z)
+                        ext[k] = x if k not in ext else (max(ext[k], x) if sign > 0 else min(ext[k], x))
+                if not ext:
+                    continue
+                X = max(ext.values()) if sign > 0 else min(ext.values())
+                if abs(X - tip) > 1:
+                    continue                          # the nose or tail itself, not a cabin further back
+                # a flat, exposed face with body behind it and something to sit on
+                ok = sorted(z for z in {k[1] for k in ext}
+                            if all(ext.get((Lc + l, z)) == X and (X, Lc + l, z) not in reserved
+                                   and (X + sign, Lc + l, z) not in self.D.occ and (X - sign, Lc + l, z) in core
+                                   for l in range(3))
+                            and (Lc == levels[0] or (X, Lc - 1, z) in core))
+                runs, cur = [], []
+                for z in ok:
+                    if cur and z != cur[-1] + 1:
+                        runs.append(cur)
+                        cur = []
+                    cur.append(z)
+                if cur:
+                    runs.append(cur)
+                run = max(runs, key=len, default=[])
+                if 2 <= len(run):
+                    best = (sign, run[:8], Lc, X)
+                    break
+            if best:
+                out.append(best)
+        return out
+
+    def dress_lights(self, sign, run, Lc, X, front):
+        """Round lamps on the outer headlight bricks (clear at the front, red
+        at the back) and 1x2 tiles across the inner pairs (a black grille at
+        the front, body-coloured at the back).  Each clicks onto its brick's
+        side stud, which sits 4 LDU inside the brick's face (measured)."""
+        D = self.D
+        host = {z: D.parts[D.occ[(X, Lc, z)]] for z in run}
+        lamp = COLORS["trans_clear"] if front else COLORS["trans_red"]
+        for z in (run[0], run[-1]):
+            D.attach("98138", lamp, host[z], (0, 10, -14), SIDE_STUD_REL, tag="lamp")
+        inner = run[1:-1]
+        while inner:
+            q = host[inner[0]]
+            if len(inner) >= 2:
+                dx = 10 if tuple(round(c) for c in mul(q.mat, (1, 0, 0))) == (0, 0, 1) else -10
+                pid, col = ("2412b", 0) if front else ("3069b", q.color)
+                D.attach(pid, col, q, (dx, 10, -14), SIDE_STUD_REL, tag="grille" if front else "trim")
+                inner = inner[2:]
+            else:
+                D.attach("3070b", 0 if front else q.color, q, (0, 10, -14), SIDE_STUD_REL, tag="trim")
+                inner = inner[1:]
+
     def rescue_loose(self, n0, hidden, max_group=12, rounds=4):
         """Targeted repair after a sculpt fill that left small loose groups.
         Typical case: a surface cell on a ball's diagonal near its widest
@@ -1010,6 +1081,15 @@ class Interp:
     def _sculpt_with_retry(self, spec):
         n0, r0, e0 = len(self.D.parts), len(self.repairs), len(self.errors)
         ok = self._sculpt(spec)
+        wheels = spec.get("wheels")
+        if wheels and wheels.get("lights") and not self.D.is_one_piece(range(n0, len(self.D.parts))):
+            # the lights are dressing: a body that falls apart with them is rebuilt without
+            self.D.rollback(n0)
+            del self.repairs[r0:]
+            del self.errors[e0:]
+            spec = dict(spec, wheels=dict(wheels, lights=False))
+            ok = self._sculpt(spec)
+            self.repairs.append(("lights dropped", 0))
         # rebuild solid only if hollow really fell apart, not when it is one
         # piece that simply stands on something without clicking on
         if not ok and spec.get("hollow") and not self.D.is_one_piece(range(n0, len(self.D.parts))):
@@ -1244,11 +1324,24 @@ class Interp:
                     core.update(studs_up_details(core, dict(spec, ppaint=[], eyes=[e]), S, sides=(side,)))
                     self.repairs.append((f"eye painted {side}", 1))
 
+        # ---- vehicle lights: headlight bricks across the front and back faces
+        light_plan = []
+        if spec.get("wheels") and spec["wheels"].get("lights") and self.sideways != "off":
+            light_plan = self.plan_lights(core, reserved, spec["wheels"]["front"])
+            for (sign, run, Lc, X) in light_plan:
+                for z in run:
+                    cells = {(X, Lc + l, z) for l in range(3)}
+                    reserved |= cells
+                    placements.append(("4070", core[(X, Lc + 1, z)], X, Lc, z,
+                                       yaw_pointing(MAIN, (sign, 0, 0), local=(0, 0, -1)), "light", cells))
+
         # ---- place fixed parts, then fill the rest (self-repairing)
         D.new_step()
         n_sculpt = len(D.parts)
         for (pid, col, x, L, z, yaw, tag, cells) in placements:
             D.place(pid, col, x, L, z, yaw=yaw, tag=tag)
+        for (sign, run, Lc, X) in light_plan:
+            self.dress_lights(sign, run, Lc, X, front=(sign > 0) == (spec["wheels"]["front"] == "+x"))
         by_level = defaultdict(dict)
         for (x, L, z), col in tiles_top.items():
             by_level[L][(x, z)] = col
@@ -1464,7 +1557,11 @@ class Interp:
                     size = k.get("size", "small")
                     if size not in WHEELS:
                         raise SpecError("wheels size must be small or large")
-                    spec["wheels"] = dict(xs=[int(v) for v in p[0].split(",")], size=size)
+                    front = k.get("front", "+x")
+                    if front not in ("+x", "-x"):
+                        raise SpecError("wheels front must be +x or -x")
+                    spec["wheels"] = dict(xs=[int(v) for v in p[0].split(",")], size=size, front=front,
+                                          lights=k.get("lights", "1") != "0")
                 elif t[0] == "eye":
                     spec["eyes"].append(dict(x=int(p[0]), y=int(p[1]),
                                              pupil=color(k.get("pupil", "black"))[0],

@@ -122,7 +122,8 @@ sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z]
   panel X0..X1 Y0..Y1 thick=2|3         # smooth sideways (SNOT) skin on both flanks
   ppaint COLOUR X0..X1 Y0..Y1           # colour panel cells (face markings)
   eye X Y [pupil=] [ring=] [skin=]      # eye on both sides at column X, height Y
-  wheels X1,X2,... [size=small|large]   # real wheels: one axle per X, under x=X..X+1
+  wheels X1,X2,... [size=small|large] [front=+x|-x] [lights=1|0]
+                                        # real wheels: one axle per X, under x=X..X+1
 end
 ```
 All levels inside are relative to `base` (y). Centres are continuous: a shape centred
@@ -144,7 +145,10 @@ it for anything larger than about 8x8x8).
   the body's underside flat and at least 4 studs wide across each axle's x..x+1. The
   engine lifts the body so the tyres rest on the surface below and makes it a separate
   piece. size=large (2.5-stud tyres) for bodies 6 or more studs wide, small otherwise.
-  Tyres stick out up to 2 studs past each side: leave room on the base.
+  Tyres stick out up to 2 studs past each side: leave room on the base. The engine
+  fits real headlights, a grille and tail lights to a flat front and back (front=+x
+  by default): give the body a flat, vertical end at least 3 plates tall and don't
+  paint lights or grilles yourself.
 
 ## Recipes
 
