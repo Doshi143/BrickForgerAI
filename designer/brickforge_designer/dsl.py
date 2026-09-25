@@ -1095,6 +1095,49 @@ class Interp:
         self._sculpt_with_retry(spec)
         if spec.get("texture") == "rock":
             self.rockify(n0, spec)
+        elif spec.get("texture") == "greeble":
+            self.greeble(n0)
+
+    def greeble(self, n0):
+        """Greebling (TECHNIQUES.md item 11): small relief on the flat tops of
+        machines, robots and vehicles.  About 40% of the top tiles are split
+        into grille tiles (2412b, 1x2, same colour) with dark round tiles on
+        odd cells.  A top tile can be what ties the plates under it together,
+        so each swap is kept only if the model stays in as many pieces."""
+        D = self.D
+        tops = [i for i in range(n0, len(D.parts)) if D.parts[i].tag == "top" and hash01(i, 11) < 0.4]
+        done = 0
+        for i in sorted(tops, reverse=True):
+            if i >= len(D.parts) or D.parts[i].tag != "top":
+                continue
+            before = len(D.components()[0])
+            snap = (list(D.parts), [q.host for q in D.parts], dict(D.occ), list(D.links))
+            q = D.parts[i]
+            cells = sorted(c for c, j in D.occ.items() if j == i)
+            L = cells[0][1]
+            todo = {(c[0], c[2]) for c in cells}
+            D.remove([i])
+            along = "x" if len({x for x, _ in todo}) >= len({z for _, z in todo}) else "z"
+            for (x, z) in sorted(todo):
+                if (x, z) not in todo:
+                    continue
+                nxt = (x + 1, z) if along == "x" else (x, z + 1)
+                if nxt in todo:
+                    D.place("2412b", q.color, x, L, z, yaw=0 if along == "x" else 90, tag="greeble")
+                    todo -= {(x, z), nxt}
+                else:
+                    D.place("98138", COLORS["dark_bluish_gray"], x, L, z, tag="greeble")
+                    todo.discard((x, z))
+            if len(D.components()[0]) > before:
+                parts, hosts, occ, links = snap
+                D.parts, D.occ, D.links = parts, occ, links
+                for p_, h in zip(D.parts, hosts):
+                    p_.host = h
+                D._reindex()
+            else:
+                done += 1
+        if done:
+            self.repairs.append(("greebled", done))
 
     def rockify(self, n0, spec):
         """Rockwork (TECHNIQUES.md item 10): builders avoid any repeating
@@ -1501,6 +1544,35 @@ class Interp:
         flex = {c for c in core if all((c[0] + a, c[1] + b, c[2] + e) in core for a, b, e in NB6)}
         reserved = set()
         placements = []                         # (pid, col, x, L, z, yaw, tag, cells)
+
+        # ---- thin round columns (legs, posts, stands): 2x2 round bricks and round
+        # plates where the column stands free of the body (TECHNIQUES.md item 12)
+        for (cx, cz, y0, y1) in spec.get("round", ()):
+            quad = [(cx - 1, cz - 1), (cx, cz - 1), (cx - 1, cz), (cx, cz)]
+            ring = [(cx + a, cz + b) for a in range(-2, 2) for b in range(-2, 2) if (cx + a, cz + b) not in quad]
+            free = [L for L in range(S + y0, S + y1 + 1)
+                    if all((x, L, z) in core and (x, L, z) not in reserved for x, z in quad)
+                    and not any((x, L, z) in core for x, z in ring)
+                    and len({core[(x, L, z)] for x, z in quad}) == 1]
+            L = free[0] if free else None
+            while free:
+                run = [L]
+                while run[-1] + 1 in free:
+                    run.append(run[-1] + 1)
+                pos = 0
+                while pos < len(run):
+                    lvl = run[pos]
+                    n = 3 if pos + 3 <= len(run) and len({core[(cx - 1, lvl + l, cz - 1)] for l in range(3)}) == 1 else 1
+                    cells = {(x, lvl + l, z) for x, z in quad for l in range(n)}
+                    placements.append(("3941" if n == 3 else "4032", core[(cx - 1, lvl, cz - 1)], cx - 1, lvl, cz - 1, 0,
+                                       "round", cells))
+                    for c in cells:
+                        core.pop(c, None)
+                    pos += n
+                free = [f for f in free if f > run[-1]]
+                L = free[0] if free else None
+        if spec.get("round"):
+            flex = {c for c in flex if c in core}
 
         # ---- top caps along x, then along z for tops still flat
         top, bot = {}, {}
@@ -1922,12 +1994,12 @@ class Interp:
         if grad:
             axis_pos(grad[1])                     # validate now: report the bad axis on this line
         texture = kw.get("texture", "plain")
-        if texture not in ("plain", "rock"):
-            raise SpecError("sculpt texture must be plain or rock")
+        if texture not in ("plain", "rock", "greeble"):
+            raise SpecError("sculpt texture must be plain, rock or greeble")
         spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
                     texture=texture, mix=None if grad else color(ctok),
                     hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"), wedges=kw.get("wedges", "1") != "0",
-                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set())
+                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[])
         for ln, raw in block:
             if not raw:
                 continue
@@ -1936,6 +2008,10 @@ class Interp:
             try:
                 if t[0] in ("col", "box", "ball", "cyl", "poly"):
                     spec["shapes"].append(("add", shape_cells(t[0], p)))
+                    if t[0] == "cyl" and p[0] == "y" and max(float(v) for v in p[4:6]) <= 1.3 \
+                            and float(p[2]).is_integer() and float(p[3]).is_integer():
+                        ys = rng_(p[1])                 # a thin round column on a stud corner
+                        spec["round"].append((int(float(p[2])), int(float(p[3])), ys.start, ys.stop - 1))
                     if t[0] == "poly":                # diagonal edges drawn on purpose: wedge them
                         spec["poly"] |= spec["shapes"][-1][1]
                 elif t[0] == "cut":

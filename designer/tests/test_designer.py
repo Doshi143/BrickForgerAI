@@ -833,3 +833,18 @@ def test_rock_texture_mixes_colours_per_part_and_roughens_the_top():
     assert {72, 71, 28} <= set(seen) and min(seen[c] for c in (72, 71, 28)) > 20
     cheese = [q for q in D.parts if q.tag == "rock"]
     assert len(cheese) > 20 and len({q.mat for q in cheese}) >= 3         # facing several ways
+
+
+# ---------------------------------------------------------------- greebling and round columns (TECHNIQUES.md 11-12)
+def test_greeble_adds_grille_and_round_tiles_without_splitting_the_model():
+    D, problems, stats = run(BASE + "sculpt base=0 color=dark_bluish_gray texture=greeble caps=x\n"
+                                    "  box 2..17 0..5 2..13\nend\n")
+    assert problems == [] and stats["components"] == 1, problems
+    assert any(q.pid == "2412b" for q in D.parts)
+
+
+def test_thin_vertical_cylinders_are_built_from_round_bricks():
+    D, problems, stats = run("model t\nsculpt base=0 color=reddish_brown\n  box 2..9 9..14 -3..2\n"
+                             "  cyl y 0..8 4 -1 1\n  cyl y 0..8 8 1 1\nend\n")
+    assert problems == [] and stats["components"] == 1, problems
+    assert sum(q.pid == "3941" for q in D.parts) == 6            # 9 plates per leg = 3 round bricks each

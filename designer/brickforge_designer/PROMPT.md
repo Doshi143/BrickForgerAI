@@ -122,7 +122,7 @@ anything unusual: use `sculpt` (below); things that fly sit on a small `base` wi
 ## Sculpture: animals, figures, organic shapes, aircraft, boats
 
 ```
-sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z] [texture=rock]
+sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z] [texture=rock|greeble]
   box X0..X1 Y0..Y1 Z0..Z1              # solid block
   col X0..X1 Y0..Y1 [Z0..Z1]            # same, z defaults to -2..1
   ball CX CY CZ RX RY RZ                # ellipsoid: centre (x, y, z), radii (studs, plates, studs)
@@ -151,6 +151,9 @@ it for anything larger than about 8x8x8).
 
 - Rocks, cliffs, boulders: `texture=rock` with `color=dark_bluish_gray|light_bluish_gray|dark_tan`
   (mixed colours per part, rough top of slopes facing every way).
+- Machines, robots, spaceships: `texture=greeble` (grille and round tiles on flat tops).
+- A thin `cyl y` of radius 1 centred on whole numbers (legs, posts, stands) is built
+  from real 2x2 round bricks.
 - Build a body from a few overlapping shapes: torso ball, head ball, neck/leg/tail
   `cyl` (tapered for trunks, tails, beaks, noses, wings' leading edges), ear boxes.
 - Legs, stands and anything that must carry weight should reach the table or the base.
