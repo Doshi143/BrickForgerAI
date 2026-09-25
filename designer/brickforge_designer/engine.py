@@ -43,7 +43,7 @@ FOOTPRINT = {"30414": (4, 1, 0, 0), "87087": (1, 1, 0, 0), "4600": (2, 2, 0, 0),
              # ball-joint plates: a 1x2 plate; ball and socket stick out past it (measured)
              "14417": (2, 1, 0, 0), "14418": (2, 1, 0, 0), "14419": (2, 1, 0, 0)}
 HEIGHT_OVERRIDE = {"32607": 1, "2417": 1, "2435": 1, "4079": 1, "3829c01": 1, "3811": 0, "15070": 1,
-                   "14417": 1, "14418": 1, "14419": 1}
+                   "14417": 1, "14418": 1, "14419": 1, "3938": 1}
 ORIGIN_PARTS = {"2423", "2417", "32607", "2435"}          # placed by their attachment stud
 FULL_BOX = ORIGIN_PARTS | {"4079", "3829c01", "49668", "15070", "15208", "14418", "14419"}   # collide with their whole geometry
 # Collision body where it differs from the footprint box.  4070's front is
@@ -52,7 +52,9 @@ FULL_BOX = ORIGIN_PARTS | {"4079", "3829c01", "49668", "15070", "15208", "14418"
 BODY_BOX = {"4070": ((-10, 10), (0, 24), (-6, 10)),
             # a limb anchor is built into the body: its body is the plate; the ball
             # sticks out into space the anchor search keeps clear
-            "14417": ((-20, 20), (0, 8), (-10, 10))}
+            "14417": ((-20, 20), (0, 8), (-10, 10)),
+            # a hinge top is a 1x2 plate; its knuckles hang into the base below it
+            "3938": ((-20, 20), (0, 8), (-10, 10))}
 RECV = {"24201": [(0, 1)], "13547": [(0, 3)],
         "87081": [(a, b) for a in range(4) for b in range(4) if not (a in (0, 3) and b in (0, 3))],
         "3811": []}
@@ -378,10 +380,19 @@ class Design:
                     p, q = self.parts[m], self.parts[n]
                     if p.host == n or q.host == m or (p.host is not None and p.host == q.host):
                         continue     # a detail vs its own host, or two details on one host (rim + tyre)
+                    if n in self._ancestors(m) or m in self._ancestors(n):
+                        continue     # parts of one jointed assembly (a hinge, a joint chain) are made to meet
                     tol = 2.0 if (p.host is not None or q.host is not None) else 0.6   # hinge / pin play
                     if self._collide(p, q, tol):
                         hits.append((m, n))
         return hits
+
+    def _ancestors(self, i):
+        out, h = set(), self.parts[i].host
+        while h is not None and h not in out:
+            out.add(h)
+            h = self.parts[h].host
+        return out
 
     def graph(self):
         adj = defaultdict(set)

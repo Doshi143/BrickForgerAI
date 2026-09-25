@@ -45,6 +45,8 @@ PARTS = [
     "14417", "14418", "14419",
     # horns and claws: curved blade on a bar, in a 1x1 round plate's open stud
     "87747", "85861",
+    # hinged panels: 1x2 hinge base (brick) and top (plate), tilting about a shared x axis
+    "3937", "3938",
 ]
 JOINTS = {"14417", "14418", "14419"}           # store measured ball centres and sockets
 # Parts whose plan-view shape isn't their bounding rectangle: store the top

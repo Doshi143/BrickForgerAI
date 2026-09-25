@@ -922,3 +922,24 @@ def test_horns_are_curved_blades_in_open_stud_round_plates():
     for q in blades:
         host = D.parts[q.host]
         assert host.pid == "85861" and abs(q.pos[1] - (host.pos[1] - 4)) < 0.01     # its bar in the open stud
+
+
+# ---------------------------------------------------------------- hinged flaps (TECHNIQUES.md item 16)
+@pytest.mark.parametrize("d,z", [("+z", 2), ("-z", -2)])
+def test_a_flap_is_a_panel_tilted_up_on_a_hinge(d, z):
+    import math
+    D, problems, stats = run(f"model t\nsculpt base=0 color=blue hollow=2\n  box 2..13 0..7 -2..2\n"
+                             f"  flap 7 {z} 6 4 angle=30 dir={d}\nend\n")
+    assert problems == [] and stats["components"] == 1, problems
+    top = next(q for q in D.parts if q.pid == "3938")
+    up = (-top.mat[1], -top.mat[4], -top.mat[7])                   # the hinge top's stud direction
+    tilt = math.degrees(math.acos(max(-1, min(1, -up[1]))))
+    assert abs(tilt - 30) < 0.5
+    out = 1 if d == "+z" else -1
+    assert up[2] * out < 0                                         # leaning back toward the body: the panel rises outward
+    assert sum(q.pid == "3937" for q in D.parts) == 1
+
+
+def test_flaps_are_bounded():
+    _, problems, _ = run(BASE + "sculpt base=0 color=red\n  box 0..3 0..3 0..3\n  flap 1 1 40 4\nend\n")
+    assert any("length must be" in p for p in problems), problems

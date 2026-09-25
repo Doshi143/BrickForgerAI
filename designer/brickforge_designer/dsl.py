@@ -1440,6 +1440,79 @@ class Interp:
         if placed < n:
             self.repairs.append(("limb shortened", n - placed))
 
+    def build_flap(self, fl, default):
+        """A hinged panel (TECHNIQUES.md item 16): wings with dihedral, ears,
+        fins.  A 1x2 hinge base (3937) clicks onto the body's top at the flap's
+        two columns; the hinge top (3938) turns about their shared axis
+        (measured: along the pair's x, through (0, 10, 0) in both parts) by
+        `angle` from flat; a plate panel LENGTH studs out and WIDTH studs
+        along the axis is built on its two studs in that tilted frame.  If
+        any of it would hit something, the flap is left off (reported)."""
+        D = self.D
+        x, z, d = fl["x"], fl["z"], fl["dir"]
+        col = fl["color"] if fl["color"] is not None else default
+        axis_x = d in ("+z", "-z")                      # the hinge axis runs across the flap's direction
+        pair = [(x, z), (x + 1, z)] if axis_x else [(x, z), (x, z + 1)]
+        tops = {}
+        for (cx, l, cz) in D.occ:
+            if (cx, cz) in pair:
+                tops[(cx, cz)] = max(tops.get((cx, cz), l), l)
+        if len(tops) < 2 or len(set(tops.values())) != 1:
+            self.errors.append(f"flap at {x},{z}: needs a flat top two studs wide there to click its hinge onto")
+            return False
+        L = next(iter(tops.values())) + 1
+        n0 = len(D.parts)
+        self.expose_studs({(cx, L, cz) for cx, cz in pair})
+        yaw = 0 if axis_x else 90
+        base = D.make("3937", col, min(c[0] for c in pair), L, min(c[1] for c in pair), yaw=yaw)
+        if not D.fits(base) or not D.supports(base):
+            self.errors.append(f"flap at {x},{z}: no room for its hinge")
+            return False
+        base = D.place("3937", col, min(c[0] for c in pair), L, min(c[1] for c in pair), yaw=yaw, tag="flap")
+        bi = D.parts.index(base)
+        # which way the panel runs in the hinge's own frame (+-z local), and the tilt that raises it
+        out_world = {"+z": (0, 0, 1), "-z": (0, 0, -1), "+x": (1, 0, 0), "-x": (-1, 0, 0)}[d]
+        local_out = 1 if tuple(round(c) for c in mul(base.mat, (0, 0, 1))) == out_world else -1
+        phi = math.radians(fl["angle"]) * local_out
+        c_, s_ = math.cos(phi), math.sin(phi)
+        Rx = (1, 0, 0, 0, c_, -s_, 0, s_, c_)
+        pivot = (0, 10, 0)
+        rp = mul(Rx, pivot)
+        off = mul(base.mat, (pivot[0] - rp[0], pivot[1] - rp[1], pivot[2] - rp[2]))
+        M = mm(base.mat, Rx)
+        top = D._finish(pdef("3938"), col, (base.pos[0] + off[0], base.pos[1] + off[1], base.pos[2] + off[2]),
+                        M, "flap", base.asm, host=bi)
+        ti = D.add(top)
+        D.links.append((bi, ti))
+        # the panel: plates in the hinge top's frame, cell (i, k) spans local x 20i..20i+20 and
+        # z 20k-10..20k+10 around the top's own studs (x = +-10, z = 0), level 0 on its top
+        w, n = fl["width"], fl["length"]
+        o = mul(M, (0, 0, -10))
+        F = Frame((top.pos[0] + o[0], top.pos[1] + o[1], top.pos[2] + o[2]), M, "flap")
+        i0 = -(w // 2)
+        cells = {(i, k * local_out if local_out > 0 else -k): col for i in range(i0, i0 + w) for k in range(n)}
+        cells = {(i, k): col for (i, k), col in cells.items()}
+        n1 = len(D.parts)
+
+        def attempt(r, mirror, flip):
+            # two crossed layers: side-by-side plates never connect, so a one-layer
+            # panel only holds where each piece happens to reach the hinge
+            tile_level(D, cells, 0, PLATES, "x" if flip else "z", frame=F, tag="flap", rng=r)
+            tile_level(D, cells, 1, self.flat, "z" if flip else "x", frame=F, tag="flap", rng=r)
+        verified(D, attempt, tries=16)
+        for i in range(n1, len(D.parts)):
+            D.parts[i].host = ti                        # the panel rides on the hinge top
+        new = range(n0, len(D.parts))
+        clash = any(D._collide(D.parts[m], D.parts[o_]) for m in new if m != bi
+                    for key in D._buckets(D.parts[m].box) for o_ in D._hash.get(key, ())
+                    if o_ not in new and o_ != bi and D.parts[o_].host != bi)
+        if clash or not D.is_one_piece(list(new)):
+            D.remove(list(new))
+            self.errors.append(f"flap at {x},{z}: its panel would hit the model; move it or make it shorter")
+            return False
+        self.repairs.append(("flap", len(new)))
+        return True
+
     def plan_large_eye(self, core, reserved, e, side, S):
         """A flat, exposed patch 2 studs wide and 3 plates tall on the flank at
         the eye's height (for two side-stud bricks), with nothing sticking out
@@ -1983,6 +2056,20 @@ class Interp:
         # limbs last, so each link is checked against the finished body
         for lb, (x, L, z), face in limb_plan:
             self.grow_limb(D.parts[D.occ[(x, L, z)]], lb, face, S, spec["color"])
+        for fl in spec.get("flaps", ()):
+            # the asked spot first, then nearby ones: on a dome, the body just inward
+            # of the hinge can stand taller than it and block the tilting panel
+            spots = sorted(((dx, dz) for dx in range(-3, 4) for dz in range(-3, 4)), key=lambda o: o[0] ** 2 + o[1] ** 2)
+            e0 = len(self.errors)
+            first = None
+            for dx, dz in spots:
+                if self.build_flap(dict(fl, x=fl["x"] + dx, z=fl["z"] + dz), spec["color"]):
+                    del self.errors[e0:]
+                    break
+                first = first or self.errors[e0:e0 + 1]
+                del self.errors[e0:]
+            else:
+                self.errors += first or []
 
         # ---- panels, then surface eyes' pupils
         D.new_step()
@@ -2147,7 +2234,7 @@ class Interp:
         spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
                     texture=texture, mix=None if grad else color(ctok),
                     hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"), wedges=kw.get("wedges", "1") != "0",
-                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[], limbs=[])
+                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[], limbs=[], flaps=[])
         for ln, raw in block:
             if not raw:
                 continue
@@ -2180,6 +2267,21 @@ class Interp:
                 elif t[0] == "ppaint":
                     ys = rng_(p[2])
                     spec["ppaint"].append((color(p[0])[0], rng_(p[1]), ys.start, ys.stop - 1))
+                elif t[0] == "flap":
+                    x, z, length, width = int(p[0]), int(p[1]), int(p[2]), int(p[3])
+                    for v, lim, what in ((length, 12, "length"), (width, 12, "width")):
+                        if not 1 <= v <= lim:
+                            raise SpecError(f"flap {what} must be 1..{lim}")
+                    _bounded(x, LIMITS["coord"], "flap x")
+                    _bounded(z, LIMITS["coord"], "flap z")
+                    angle = _bounded(float(k.get("angle", 30)), 90, "angle")
+                    d = k.get("dir", "+z")
+                    if d not in ("+x", "-x", "+z", "-z"):
+                        raise SpecError("flap dir must be +x, -x, +z or -z")
+                    spec["flaps"].append(dict(x=x, z=z, length=length, width=width, angle=angle, dir=d,
+                                              color=color(k["color"])[0] if "color" in k else None))
+                    if len(spec["flaps"]) > 8:
+                        raise SpecError("at most 8 flaps per sculpt")
                 elif t[0] == "limb":
                     vals = [_bounded(float(v), LIMITS["coord"], "limb point") for v in p[:6]]
                     if len(vals) != 6:
