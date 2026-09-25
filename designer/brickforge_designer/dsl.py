@@ -491,6 +491,21 @@ def _cell_cover(q, outline):
     return cover
 
 
+def wall_run(length, odd):
+    """Textured walls: mostly 1x2 bricks (the textured part), a 1x1 or 1x3 to
+    stagger odd courses and use up an odd length."""
+    seq, left = [], length
+    if odd and left >= 3:
+        seq.append(3 if left % 2 else 1)
+        left -= seq[0]
+    while left >= 2:
+        seq.append(2)
+        left -= 2
+    if left:
+        seq.append(1)
+    return seq
+
+
 def _lattice(D, cells, L, pid, w, d, phase):
     """Place `pid` (w x d studs, yaw 0) on a grid with offset `phase` from the
     region's min corner wherever a whole piece fits in single-colour free
@@ -691,7 +706,15 @@ class Interp:
     def blocked(self, cell, L):
         return any(cell in cells and L < L1 and L + 3 > L0 for cells, L0, L1 in self.openings)
 
-    def walls(self, x0, x1, z0, z1, L0, courses, cols):
+    def walls(self, x0, x1, z0, z1, L0, courses, cols, texture="plain", quoins=None):
+        """Brick courses around a rectangle, corners interlocked course by
+        course.  texture: "masonry"/"log" lay the walls in textured 1x2 bricks
+        (98283 embossed bricks / 30136 log).  quoins: a colour for the corner
+        blocks -- the face that owns the corner in a course gets a 3-long
+        block there, the other face shows its 1-stud end, swapping every
+        course, so both faces show the long-short stonework pattern."""
+        corners = {(x0, z0), (x0, z1), (x1, z0), (x1, z1)}
+        two = {"masonry": "98283", "log": "30136"}.get(texture)
         for c in range(courses):
             L = L0 + 3 * c
             own = c % 2 == 0
@@ -705,21 +728,40 @@ class Interp:
                     if cell is not None and not self.blocked(cell, L) and (cell[0], L, cell[1]) not in self.D.occ:
                         run.append(cell)
                         continue
+                    head = min(3, len(run)) if quoins is not None and run and run[0] in corners else 0
+                    tail = min(3, len(run) - head) if quoins is not None and run and run[-1] in corners else 0
+                    mid = len(run) - head - tail
+                    body = (wall_run if two else tile_run)(mid, odd=c % 2 == 1) if mid > 0 else []
+                    seq = ([head] if head else []) + body + ([tail] if tail else [])
                     pos = 0
-                    for n in tile_run(len(run), odd=c % 2 == 1):
+                    for k, n in enumerate(seq):
                         cx, cz = run[pos]
-                        self.D.place(BRICK_RUN[n], pick(cols, cx * 7 + L, cz * 3 + L), cx, L, cz,
-                                     yaw=0 if axis == "x" else 90)
+                        corner = (k == 0 and head) or (k == len(seq) - 1 and tail)
+                        col = quoins if corner else pick(cols, cx * 7 + L, cz * 3 + L)
+                        pid = two if two and n == 2 and not corner else BRICK_RUN[n]
+                        self.D.place(pid, col, cx, L, cz, yaw=0 if axis == "x" else 90)
                         pos += n
                     run = []
 
-    def window(self, x, z, axis, L, stack, fcol, gcol):
+    # kind -> (frame, glass, glass offset in the frame's own coordinates, width, height in plates)
+    WINDOWS = {"wide": ("60594", "60603", (0, 8, 0), 4, 9), "tall": ("60593", "60602", (0, 0, 0), 2, 9),
+               "small": ("60592", "60601", (0, 0, 0), 2, 6), "arched": ("60594", "60603", (0, 8, 0), 4, 9)}
+
+    def window(self, x, z, axis, L, stack, fcol, gcol, kind="wide"):
+        """A window (and its glass): wide 1x4x3, tall 1x2x3, small 1x2x2, or
+        arched (1x4x3 under a 1x4 arch brick, 12 plates).  Glass for the 1x2
+        frames sits at the frame's own origin (measured: the pane's extent,
+        y 2..41 / 2..65 inside the frame's 0..48 / 0..72)."""
+        fid, gid, goff, w, h = self.WINDOWS[kind]
         yaw = 0 if axis == "x" else 90
-        cells = {(x + a, z) if axis == "x" else (x, z + a) for a in range(4)}
-        self.openings.append((cells, L, L + 9 * stack))
+        cells = {(x + a, z) if axis == "x" else (x, z + a) for a in range(w)}
+        top = L + h * stack + (3 if kind == "arched" else 0)
+        self.openings.append((cells, L, top))
         for n in range(stack):
-            f = self.D.place("60594", fcol, x, L + 9 * n, z, yaw=yaw, tag="window")
-            self.D.attach("60603", gcol, f, (0, 8, 0), tag="glass")
+            f = self.D.place(fid, fcol, x, L + h * n, z, yaw=yaw, tag="window")
+            self.D.attach(gid, gcol, f, goff, tag="glass")
+        if kind == "arched":
+            self.D.place("3659", fcol, x, L + h * stack, z, yaw=yaw, tag="window")
         return cells
 
     def door(self, x, z, axis, L, fcol, lcol):
@@ -806,6 +848,15 @@ class Interp:
         frame = color(kw.get("frame", "black"))[0]
         glass = color(kw.get("glass", "trans_clear"))[0]
         gap = {"sparse": 3, "normal": 2, "dense": 1, "none": None}[kw.get("windows", "normal")]
+        wintype = kw.get("wintype", "wide")
+        if wintype not in self.WINDOWS:
+            raise SpecError(f"wintype must be one of {', '.join(self.WINDOWS)}")
+        texture = kw.get("texture", "plain")
+        if texture not in ("plain", "masonry", "log"):
+            raise SpecError("texture must be plain, masonry or log")
+        quoins = color(kw["quoins"])[0] if "quoins" in kw else None
+        ww = self.WINDOWS[wintype][3]
+        wl = 6 if wintype == "small" else 3                  # small windows sit higher in the storey
         door = kw.get("door", "front")
         if kw.get("base"):
             self.fill("plates", L, color(kw["base"]), {(x, z) for x in range(x0, x1 + 1) for z in range(z0, z1 + 1)})
@@ -823,24 +874,24 @@ class Interp:
                          ((z0 + 1, z1 - 1), x0, "z"), ((z0 + 1, z1 - 1), x1, "z")]
                 for (a, b), fixed, axis in sides:
                     n = b - a + 1
-                    k = max(0, (n - 1 + gap) // (4 + gap))
-                    start = a + (n - (k * 4 + (k - 1) * gap)) // 2
+                    k = max(0, (n - 1 + gap) // (ww + gap))
+                    start = a + (n - (k * ww + (k - 1) * gap)) // 2
                     for w in range(k):
-                        s = start + w * (4 + gap)
-                        cells_w = {(s + i, fixed) if axis == "x" else (fixed, s + i) for i in range(4)}
+                        s = start + w * (ww + gap)
+                        cells_w = {(s + i, fixed) if axis == "x" else (fixed, s + i) for i in range(ww)}
                         near = {(c[0] + dx, c[1] + dz) for c in used for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
                         if cells_w & near:
                             continue
                         x_, z_ = (s, fixed) if axis == "x" else (fixed, s)
-                        used |= self.window(x_, z_, axis, L + 3, 1, frame, glass)
-                        ends = [(s - 1, fixed), (s + 4, fixed)] if axis == "x" else [(fixed, s - 1), (fixed, s + 4)]
+                        used |= self.window(x_, z_, axis, L + wl, 1, frame, glass, wintype)
+                        ends = [(s - 1, fixed), (s + ww, fixed)] if axis == "x" else [(fixed, s - 1), (fixed, s + ww)]
                         posts |= set(ends)
             if style == "timber":
                 for (px, pz) in sorted(posts):
                     if all((px, L + l, pz) not in self.D.occ for l in range(3 * courses)) and (px, pz) not in used:
                         for c in range(courses):
                             self.D.place("3005", trim, px, L + 3 * c, pz)
-            self.walls(x0, x1, z0, z1, L, courses, wall)
+            self.walls(x0, x1, z0, z1, L, courses, wall, texture, quoins)
             L += 3 * courses
             if f < floors - 1:
                 x0, x1, z0, z1 = x0 - jetty, x1 + jetty, z0 - jetty, z1 + jetty
@@ -1547,8 +1598,6 @@ class Interp:
         by_level = defaultdict(dict)
         for (x, L, z), col in tiles_top.items():
             by_level[L][(x, z)] = col
-        for L, cells in by_level.items():
-            tile_level(D, cells, L, self.flat, "x", tag="top")
 
         soft = {c: col for c, col in soft.items() if core.get(c) == col and c not in reserved}
         fill_cells = {c: (None if c in flex or c in soft else col) for c, col in core.items() if c not in reserved}
@@ -1590,6 +1639,11 @@ class Interp:
                 tall = tile_level(D, free, L, PLATES, pref, three=three, bricks=BRICKS, rng=r, mirror=mirror)
                 taken |= {(x, L, z) for (x, z) in free}
                 taken |= {(x, L + l, z) for (x, z) in tall for l in (1, 2)}
+            # the smooth top last, so each tile can bridge the plates under it
+            # (and change with every retry): laid first, tops could only line up
+            # with the fill's joins, and thin parts (wings) fell apart
+            for L2, cells in by_level.items():
+                tile_level(D, cells, L2, self.flat, "x", tag="top", rng=r, mirror=mirror)
         D.new_step()
         n_fill = len(D.parts)
         fill_ok = verified(D, fill, standalone=D.default_asm != "main")
@@ -1870,11 +1924,17 @@ class Interp:
         elif cmd == "walls":
             cells = rect(p[0])
             xs, zs = sorted({c[0] for c in cells}), sorted({c[1] for c in cells})
+            texture = kw.get("texture", "plain")
+            if texture not in ("plain", "masonry", "log"):
+                raise SpecError("texture must be plain, masonry or log")
             self.walls(xs[0], xs[-1], zs[0], zs[-1], int(p[1]), _bounded(int(p[2]), LIMITS["courses"], "courses"),
-                       color(p[3]))
+                       color(p[3]), texture, color(kw["quoins"])[0] if "quoins" in kw else None)
         elif cmd == "window":
-            self.window(int(p[0]), int(p[1]), p[2], int(p[3]), int(kw.get("stack", 1)),
-                        color(kw.get("frame", "black"))[0], color(kw.get("glass", "trans_clear"))[0])
+            kind = kw.get("type", "wide")
+            if kind not in self.WINDOWS:
+                raise SpecError(f"window type must be one of {', '.join(self.WINDOWS)}")
+            self.window(int(p[0]), int(p[1]), p[2], int(p[3]), _bounded(int(kw.get("stack", 1)), 8, "stack"),
+                        color(kw.get("frame", "black"))[0], color(kw.get("glass", "trans_clear"))[0], kind)
         elif cmd == "door":
             self.door(int(p[0]), int(p[1]), p[2], int(p[3]), color(kw.get("frame", "black"))[0],
                       color(kw.get("leaf", "reddish_brown"))[0])

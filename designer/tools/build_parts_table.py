@@ -37,6 +37,8 @@ PARTS = [
     "43722", "43723", "41769", "41770", "24299", "24307",
     # large eyes: 2x2 round plate (original number, as the mirror has it)
     "4032",
+    # facades: textured 1x2 bricks, 1x2 windows + glass, arch over a window
+    "98283", "30136", "60592", "60601", "60593", "60602", "3659",
 ]
 # Parts whose plan-view shape isn't their bounding rectangle: store the top
 # face's outline (convex hull of the geometry at local y=0, as (x, z) LDU) so

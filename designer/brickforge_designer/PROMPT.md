@@ -84,6 +84,7 @@ building x0..x1,z0..z1 L [floors=2] [color=white|...] [trim=COLOUR] [style=plain
          [jetty=0|1] [roof=gable|hip|flat|none] [ridge=x|z] [roofcolor=] [gable=COLOUR]
          [door=front|back|left|right|none] [leaf=COLOUR] [frame=COLOUR]
          [windows=sparse|normal|dense|none] [base=COLOUR] [overhang=1]
+         [wintype=wide|tall|small|arched] [texture=plain|masonry|log] [quoins=COLOUR]
 roof x0..x1,z0..z1 L [type=gable|hip|flat] [ridge=x|z] [color=] [gable=] [overhang=1]
 walls x0..x1,z0..z1 L COURSES COLOUR   # manual walls; windows/doors declared BEFORE become openings
 window X Z x|z L [stack=N] [frame=] [glass=]   # 1x4x3 window, 9 plates
@@ -93,6 +94,8 @@ door X Z x|z L [frame=] [leaf=]                # 1x4x6 door, 18 plates
 `trim` colour), each upper floor overhanging by `jetty` studs, and a roof whose gable
 ends match the walls. Front = the z0 side. `style=timber` adds trim-coloured posts at
 corners and beside every opening. `color=a|b` mixes wall colours (stone, brick).
+`texture=masonry` (brick/stone) or `log` (cabins) textures the walls; `quoins=` gives
+contrasting corner stones; `wintype=tall|small` are 1x2 windows, `arched` has an arch.
 Footprints of 12-20 studs look right. Combine several buildings or add towers with
 `sculpt` for larger places (castles, stations).
 

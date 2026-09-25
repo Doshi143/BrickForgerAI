@@ -15,7 +15,7 @@ TILE_IDS = {"3070b", "3069b", "63864", "2431", "3068b", "87079", "6636", "4162",
 SNOT_IDS = {"30414", "87087"}
 # attached details (glass, door leaf, wheel rim, tyre) are placed by their
 # exact measured extent, not on the grid, so a thin pane may be 0 studs deep
-ATTACHED = {"60603", "60623", "4624", "3641"}
+ATTACHED = {"60603", "60623", "4624", "3641", "60601", "60602"}
 
 
 def spec(name):
@@ -751,3 +751,38 @@ def test_a_large_eye_can_look_back_and_falls_back_to_small_without_room():
     # a ball head has no flat 2x3 patch: the eye is painted, like a small one
     D, problems, stats = run(OWL.format(opts="").replace("box 3..9 12..22 -3..2", "ball 6 17 -0.5 4 7 3.5"))
     assert problems == [] and not any(q.pid == "4032" for q in D.parts)
+
+
+# ---------------------------------------------------------------- facades (TECHNIQUES.md item 6)
+def _house(opts):
+    return run(BASE + f"building 6..21,8..21 0 floors=2 color=light_bluish_gray trim=dark_tan roof=gable {opts}\n")
+
+
+def test_textured_walls_use_embossed_or_log_bricks():
+    for tex, pid in (("masonry", "98283"), ("log", "30136")):
+        D, problems, _ = _house(f"texture={tex}")
+        assert problems == [], problems
+        assert sum(q.pid == pid for q in D.parts) > 40
+
+
+def test_quoins_are_only_at_the_corners():
+    D, problems, _ = _house("quoins=tan")
+    assert problems == [], problems
+    quoin = [q for q in D.parts if q.color == 19]
+    assert quoin
+    for q in quoin:
+        x0, x1 = q.box[0][0] / 20, q.box[0][1] / 20
+        z0, z1 = q.box[2][0] / 20, q.box[2][1] / 20
+        assert (x0 <= 6 or x1 >= 22) and (z0 <= 8 or z1 >= 22), q.box
+
+
+def test_window_types():
+    for kind, frame, glass in (("tall", "60593", "60602"), ("small", "60592", "60601"), ("arched", "60594", "60603")):
+        D, problems, _ = _house(f"wintype={kind}")
+        assert problems == [], (kind, problems)
+        c = Counter(q.pid for q in D.parts)
+        assert c[frame] > 0 and c[frame] == c[glass], (kind, c[frame], c[glass])
+        if kind == "arched":
+            assert c["3659"] == c[frame]
+    _, problems, _ = _house("wintype=round")
+    assert any("wintype" in p for p in problems)
