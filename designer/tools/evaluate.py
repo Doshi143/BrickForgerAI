@@ -23,9 +23,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-IMAGE_PROMPT = ("{subject}. A simple, stylised 3D figurine with chunky, clearly separated shapes and flat, "
-                "true-to-life colours, shown whole in a three-quarter view from the front-left and slightly "
-                "above, on a plain light-grey background. No text, no logos.")
+# Variant -> reference-picture prompt.  "image" is the one production used first
+# (stylised and chunky: it pulled designs toward simple shapes); "detail" asks for a
+# clear, detailed, true-colour depiction instead.  Keep the production one in step
+# with web/backend/app/pipeline/designer_bridge.py::REFERENCE_IMAGE_PROMPT.
+IMAGE_PROMPTS = {
+    "image": ("{subject}. A simple, stylised 3D figurine with chunky, clearly separated shapes and flat, "
+              "true-to-life colours, shown whole in a three-quarter view from the front-left and slightly "
+              "above, on a plain light-grey background. No text, no logos."),
+    "detail": ("{subject}. A clear, detailed 3D render of the whole subject that shows its characteristic "
+               "details, textures and features in true-to-life colours, seen in a three-quarter view from "
+               "the front-left and slightly above, evenly lit, on a plain light-grey background. "
+               "No text, no logos."),
+}
+IMAGE_PROMPT = IMAGE_PROMPTS["image"]
 # gpt-image-1, 1024x1024: $ per image by quality, used only if the response has no usage block
 IMAGE_PRICE_FALLBACK = {"low": 0.011, "medium": 0.042, "high": 0.167}
 # gpt-image-1 token prices ($ per 1M): text input, image output
@@ -40,12 +51,12 @@ def load_keys():
                 os.environ.setdefault(k, v.strip().strip('"').strip("'"))
 
 
-def reference_image(subject, quality, out_path):
+def reference_image(subject, quality, out_path, template=IMAGE_PROMPT):
     import requests
     t0 = time.time()
     r = requests.post("https://api.openai.com/v1/images/generations",
                       headers={"Authorization": f"Bearer {os.environ['IMAGE_GEN_API_KEY']}"},
-                      json={"model": "gpt-image-1", "prompt": IMAGE_PROMPT.format(subject=subject),
+                      json={"model": "gpt-image-1", "prompt": template.format(subject=subject),
                             "size": "1024x1024", "quality": quality, "n": 1}, timeout=180)
     if not r.ok:
         raise RuntimeError(f"image generation failed ({r.status_code}): {r.text[:300]}")
@@ -125,7 +136,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("prompts")
     ap.add_argument("--out", default=os.path.join(ROOT, "designer", "out", "eval"))
-    ap.add_argument("--variants", default="none", help="comma list of: none, image")
+    ap.add_argument("--variants", default="none", help="comma list of: none, image (stylised picture), detail (detailed picture)")
     ap.add_argument("--quality", default="medium", choices=("low", "medium", "high"))
     ap.add_argument("--finish", default="tiled")
     ap.add_argument("--sideways", default="auto")
@@ -155,8 +166,9 @@ def main():
         t0 = time.time()
         ref = None
         try:
-            if variant == "image":
-                png, dollars, secs = reference_image(prompt, a.quality, os.path.join(a.out, name + "_ref.png"))
+            if variant in IMAGE_PROMPTS:
+                png, dollars, secs = reference_image(prompt, a.quality, os.path.join(a.out, name + "_ref.png"),
+                                                     IMAGE_PROMPTS[variant])
                 ref = (png, "image/png")
                 row.update(image_cost=dollars, image_seconds=secs)
             d = AnthropicDesigner()

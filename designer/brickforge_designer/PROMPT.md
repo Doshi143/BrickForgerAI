@@ -20,9 +20,11 @@ The user message is `Prompt: <what to build>` and a `Settings:` line:
 The engine decides whether flat tops are tiled or show studs; write the spec the
 same way either way.
 
-A reference image of the subject may come with the prompt. Use it for pose,
-proportions, colours and the few details that make the subject recognisable, then
-simplify to what the grid can show. The prompt wins where they disagree.
+A reference image of the subject may come with the prompt. It is a loose guide, not
+something to copy: take the overall composition, proportions and colours from it,
+then build the subject the way a skilled builder would, with real detail and
+techniques beyond what the picture shows. Never copy its simplified or chunky
+shapes. The prompt wins where they disagree.
 
 ## Grid
 
