@@ -353,3 +353,32 @@ def test_stepped_ldr_name_stays_on_one_line():
     text = stepped_ldr(D, build_steps(D), "a truck\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat\n0 STEP")
     assert text.splitlines()[0] == "0 a truck 1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat 0 STEP"
     assert sum(1 for ln in text.splitlines() if ln.startswith("1 ")) == len(D.parts)
+
+
+@pytest.mark.parametrize("roof", ["flat", "gable", "hip"])
+def test_a_full_width_multi_storey_building_is_one_piece(roof):
+    # Regression: "a whole modular building at 32 studs" failed in production.
+    # Floor slabs and flat roofs over a wide hollow interior left islands of
+    # plates floating in the middle of the floor (only the rim rests on walls);
+    # the model could not fix that from one `building` line.
+    text = ("baseplate 0 0 light_bluish_gray\n"
+            f"building 0..31,4..27 0 floors=4 color=tan trim=dark_tan roof={roof} windows=dense base=dark_bluish_gray\n")
+    D, problems, stats = run(text)
+    assert problems == [], problems
+    assert stats["components"] == 1
+    assert not any(r[0] == "slab" for r in stats["engine_repairs"]), stats["engine_repairs"]  # right first time
+    assert len(D.parts) <= 2500
+
+
+def test_a_wide_slab_uses_big_plates():
+    # the staggered lattice keeps a 32x24 floor to large plates (jittered
+    # retries also connect it, but with roughly twice the parts)
+    from brickforge_designer.dsl import Interp
+    from brickforge_designer.engine import PLATES
+    it = Interp()
+    it.walls(0, 31, 4, 27, 0, 6, [15])
+    n0 = len(it.D.parts)
+    it.slab({(x, z) for x in range(32) for z in range(4, 28)}, 18, [15], PLATES)
+    slab = it.D.parts[n0:]
+    assert len(slab) <= 110 and sum(q.pid == "3024" for q in slab) == 0
+    assert it.D.is_one_piece(range(len(it.D.parts)))

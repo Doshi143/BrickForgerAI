@@ -12,8 +12,8 @@ import math
 import re
 from collections import defaultdict, deque
 
-from .engine import (BRICKS, COLORS, I3, MAIN, PLATES, TILES, YAW, Design, Frame, tile_level, verified,
-                    yaw_pointing, pdef)
+from .engine import (BRICKS, COLORS, HIDDEN_COLOR, I3, MAIN, PLATES, TILES, YAW, Design, Frame, tile_level,
+                     verified, yaw_pointing, pdef)
 
 
 class SpecError(Exception):
@@ -336,6 +336,25 @@ def tile_run(length, odd):
     return seq
 
 
+def _lattice(D, cells, L, pid, w, d, phase):
+    """Place `pid` (w x d studs, yaw 0) on a grid with offset `phase` from the
+    region's min corner wherever a whole piece fits in single-colour free
+    cells; returns the cells still to fill."""
+    rest = dict(cells)
+    if not rest:
+        return rest
+    us, vs = [c[0] for c in rest], [c[1] for c in rest]
+    for u in range(min(us) + phase[0] % w - w, max(us) + 1, w):
+        for v in range(min(vs) + phase[1] % d - d, max(vs) + 1, d):
+            blk = [(u + a, v + b) for a in range(w) for b in range(d)]
+            if all(c in rest for c in blk) and len({rest[c] for c in blk}) == 1:
+                col = rest[blk[0]]
+                D.place(pid, HIDDEN_COLOR if col is None else col, u, L, v)
+                for c in blk:
+                    del rest[c]
+    return rest
+
+
 # ================================================================ interpreter
 FINISHES = ("tiled", "studs")
 SIDEWAYS = ("off", "auto", "more")
@@ -419,6 +438,32 @@ class Interp:
             free = {c: pick(cols, *c) for c in cells if all((c[0], lvl + l, c[1]) not in D.occ for l in range(3))}
             pr = prefer if n % 2 == 0 else ("z" if prefer == "x" else "x")
             tile_level(D, free, lvl, [], pr, three={c: {col} for c, col in free.items()}, bricks=BRICKS, asm=asm)
+
+    def slab(self, cells, L, cols, second):
+        """Two crossed layers at L and L+1 (plates, then `second`: PLATES or a
+        flat finish): floor slabs and flat roofs.  Over a hollow interior only
+        the rim rests on walls, and on a wide footprint (32 studs) the two
+        tilings' seams can line up into a closed island that touches nothing
+        else -- so it is verified and retried like a base."""
+        D = self.D
+        self.expose_studs({(c[0], L, c[1]) for c in cells})
+        top = ("3031", 4, 4) if second is PLATES else ("87079", 4, 2)
+        # Staggered lattice: big pieces on a grid, the upper layer offset by 2
+        # studs so each of its pieces bridges up to four below (brick bond, in
+        # plan).  Connected by construction, and big pieces keep the count low
+        # -- jittered retries also connect but roughly double the parts.
+        phases = [((0, 0), (2, 2)), ((0, 0), (2, 1)), ((1, 1), (3, 3)), ((2, 2), (0, 0))]
+
+        def attempt(r, mirror, flip):
+            (p0, p1) = phases[0] if r is None else phases[r.randrange(len(phases))]
+            for n, ((pid, w, d), phase, sizes, pref) in enumerate(((("3031", 4, 4), p0, PLATES, "x"),
+                                                                   (top, p1, second, "z"))):
+                free = {c: pick(cols, *c) for c in cells if (c[0], L + n, c[1]) not in D.occ}
+                rest = _lattice(D, free, L + n, pid, w, d, phase)
+                tile_level(D, rest, L + n, sizes, pref, rng=r)
+        t = verified(D, attempt, tries=12)
+        if t:
+            self.repairs.append(("slab", t))
 
     def blocked(self, cell, L):
         return any(cell in cells and L < L1 and L + 3 > L0 for cells, L0, L1 in self.openings)
@@ -555,9 +600,7 @@ class Interp:
             L += 3 * courses
             if f < floors - 1:
                 x0, x1, z0, z1 = x0 - jetty, x1 + jetty, z0 - jetty, z1 + jetty
-                slab = {(x, z) for x in range(x0, x1 + 1) for z in range(z0, z1 + 1)}
-                self.fill("plates", L, [trim], slab, "x")
-                self.fill("plates", L + 1, [trim], slab, "z")
+                self.slab({(x, z) for x in range(x0, x1 + 1) for z in range(z0, z1 + 1)}, L, [trim], PLATES)
                 L += 2
         roof = kw.get("roof", "gable")
         self.roof(x0, x1, z0, z1, L, roof, kw.get("ridge", "x"),
@@ -570,8 +613,7 @@ class Interp:
         if kind == "none":
             return
         if kind == "flat":
-            self.fill("plates", L, [rcol], area, "x")
-            self.fill("tiles", L + 1, [rcol], area, "x")
+            self.slab(area, L, [rcol], self.flat)
             return
         cells, heights = set(), {}
         for (x, z) in area:
