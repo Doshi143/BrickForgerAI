@@ -312,3 +312,44 @@ def test_curved_slope_hollow_end_gets_a_filler_plate_inside_it(pid, rot):
     assert abs(fillers[0].box[1][1] - slope.box[1][1]) < 0.1
     if len(fillers) == 2:
         assert abs(fillers[1].box[1][1] - (slope.box[1][1] - 8)) < 0.1
+
+
+# ---------------------------------------------------------------- resource limits
+# A spec comes from a model the user can steer, so none of these may be able
+# to tie up a worker: each must be reported quickly (a SPEC error for anything
+# that would mean unbounded work; a lone far-away part is simply loose).
+HOSTILE = [
+    "sculpt base=0 color=red\n  ball 0 0 0 5000 5000 5000\nend\n",
+    "sculpt base=0 color=red\n  box 0..200 0..200 0..200\nend\n",
+    "sculpt base=0 color=red\n  cyl y 0..100 0 0 900\nend\n",
+    "plates 0 red 0..100000,0..100000\n",
+    "plates 0 red 0..200,0..200\n",
+    "stack 3001 red 0 0 0 1000000\n",
+    "row 3005 red 0 0 0 5000\n",
+    "bricks 0 red 0..3,0..3 courses=100000\n",
+    "building 0..10,0..10 0 floors=500\n",
+    "part 3001 red 99999999 0 0\n",
+]
+
+
+@pytest.mark.parametrize("line", HOSTILE)
+def test_oversized_specs_are_rejected_quickly(line):
+    import time
+    t0 = time.time()
+    _, problems, _ = run(BASE + line)
+    assert time.time() - t0 < 5, "a hostile spec must not take long to reject"
+    assert problems, "a hostile spec must be reported, never silently built"
+
+
+def test_many_sculpts_cannot_add_up_past_the_total_limit():
+    one = "sculpt base=0 color=red\n  box 0..29 0..59 0..9\nend\n"            # 18,000 cells each
+    _, problems, _ = run(BASE + one * 4)
+    assert any("too big" in p for p in problems), problems
+
+
+def test_stepped_ldr_name_stays_on_one_line():
+    from brickforge_designer.instructions import build_steps, stepped_ldr
+    D, _, _ = run(spec("pickup"))
+    text = stepped_ldr(D, build_steps(D), "a truck\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat\n0 STEP")
+    assert text.splitlines()[0] == "0 a truck 1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat 0 STEP"
+    assert sum(1 for ln in text.splitlines() if ln.startswith("1 ")) == len(D.parts)

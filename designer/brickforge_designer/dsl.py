@@ -20,6 +20,32 @@ class SpecError(Exception):
     pass
 
 
+# Hard bounds on what a spec can ask for.  Specs are written by a model the
+# user can steer through their prompt, so nothing here may allow unbounded
+# work: without these, one line like `ball 0 0 0 5000 5000 5000` or
+# `stack 3001 red 0 0 0 1000000` would tie up a worker for hours.  Real specs
+# stay far inside them (largest sculpt seen in testing: ~9,400 cells on a
+# 32x32 baseplate).
+LIMITS = dict(
+    coord=512,            # |x|, |z| in studs, |level| in plates
+    span=256,             # cells in one a..b range
+    rect_cells=4096,      # cells in one x0..x1,z0..z1 rectangle (64 x 64)
+    radius=64,            # ball / cyl radius in studs (ball y radius in plates: 2.5x)
+    shape_cells=25000,    # cells one shape may cover
+    sculpt_cells=25000,   # cells in one sculpt
+    total_cells=60000,    # cells across every sculpt in the spec
+    count=100,            # stack / row repeats
+    floors=6,             # building floors
+    courses=40,           # brick courses in `bricks` / `walls`
+)
+
+
+def _bounded(v, limit, what):
+    if abs(v) > limit:
+        raise SpecError(f"{what} {v} is out of range (limit {limit})")
+    return v
+
+
 # ================================================================ parsing helpers
 def rng_(tok):
     """`a..b` inclusive, or a single `a`.  Cells are whole studs/plates, so a
@@ -28,8 +54,10 @@ def rng_(tok):
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(?:\.\.(-?\d+(?:\.\d+)?))?", tok)
     if not m:
         raise SpecError(f"bad range '{tok}'")
-    a = math.floor(float(m.group(1)) + 0.5)
-    b = math.floor(float(m.group(2)) + 0.5) if m.group(2) is not None else a
+    a = _bounded(math.floor(float(m.group(1)) + 0.5), LIMITS["coord"], "coordinate")
+    b = _bounded(math.floor(float(m.group(2)) + 0.5), LIMITS["coord"], "coordinate") if m.group(2) is not None else a
+    if abs(b - a) + 1 > LIMITS["span"]:
+        raise SpecError(f"range '{tok}' is too long (limit {LIMITS['span']} cells)")
     return range(min(a, b), max(a, b) + 1)
 
 
@@ -38,7 +66,10 @@ def rect(tok):
         xs, zs = tok.split(",")
     except ValueError:
         raise SpecError(f"bad rect '{tok}' (want x0..x1,z0..z1)")
-    return {(x, z) for x in rng_(xs) for z in rng_(zs)}
+    xr, zr = rng_(xs), rng_(zs)
+    if len(xr) * len(zr) > LIMITS["rect_cells"]:
+        raise SpecError(f"rect '{tok}' is too big (limit {LIMITS['rect_cells']} cells)")
+    return {(x, z) for x in xr for z in zr}
 
 
 def region_terms(toks):
@@ -95,12 +126,27 @@ def rot_(kw):
 # coordinates: the centre of cell (x, y, z) is (x+.5, y+.5, z+.5), so a shape
 # centred on z=0 is symmetric about the model's centre line.
 def shape_cells(kind, p):
+    cells = _shape_cells(kind, p)
+    if len(cells) > LIMITS["shape_cells"]:
+        raise SpecError(f"{kind} is too big (limit {LIMITS['shape_cells']} cells)")
+    return cells
+
+
+def _shape_cells(kind, p):
+    R = LIMITS["radius"]
     try:
         if kind in ("col", "box"):
             zs = rng_(p[2]) if len(p) > 2 else rng_("-2..1")
-            return {(x, y, z) for x in rng_(p[0]) for y in rng_(p[1]) for z in zs}
+            xs, ys = rng_(p[0]), rng_(p[1])
+            if len(xs) * len(ys) * len(zs) > LIMITS["shape_cells"]:
+                raise SpecError(f"{kind} is too big (limit {LIMITS['shape_cells']} cells)")
+            return {(x, y, z) for x in xs for y in ys for z in zs}
         if kind == "ball":
             cx, cy, cz, rx, ry, rz = (float(v) for v in p[:6])
+            for v in (cx, cy, cz):
+                _bounded(v, LIMITS["coord"], "centre")
+            for v, lim in ((rx, R), (ry, 2.5 * R), (rz, R)):
+                _bounded(v, lim, "radius")
             out = set()
             for x in range(math.floor(cx - rx) - 1, math.ceil(cx + rx) + 1):
                 for y in range(math.floor(cy - ry) - 1, math.ceil(cy + ry) + 1):
@@ -112,6 +158,10 @@ def shape_cells(kind, p):
             axis, span, c1, c2 = p[0], rng_(p[1]), float(p[2]), float(p[3])
             r0 = float(p[4])
             r1 = float(p[5]) if len(p) > 5 else r0
+            for v in (c1, c2):
+                _bounded(v, LIMITS["coord"], "centre")
+            for v in (r0, r1):
+                _bounded(v, R, "radius")
             out = set()
             n = max(1, span[-1] - span[0])
             for t in span:
@@ -311,6 +361,7 @@ class Interp:
         self.errors = []
         self.repairs = []
         self.nasm = 0
+        self.cells_used = 0    # across every sculpt, see LIMITS["total_cells"]
 
     # ---------------------------------------------------------- click-on support
     def expose_studs(self, bottom):
@@ -458,7 +509,7 @@ class Interp:
         self.expose_studs({(c[0], L, c[1]) for c in cells})
         xs, zs = sorted({c[0] for c in cells}), sorted({c[1] for c in cells})
         x0, x1, z0, z1 = xs[0], xs[-1], zs[0], zs[-1]
-        floors = int(kw.get("floors", 2))
+        floors = _bounded(int(kw.get("floors", 2)), LIMITS["floors"], "floors")
         wall = color(kw.get("color", "white"))
         trim = color(kw.get("trim", kw.get("color", "white")))[0]
         style = kw.get("style", "plain")
@@ -620,6 +671,12 @@ class Interp:
 
     # ---------------------------------------------------------- sculpt
     def sculpt(self, spec):
+        n = len(sculpt_cells(spec))
+        if n > LIMITS["sculpt_cells"]:
+            raise SpecError(f"sculpt is too big ({n} cells, limit {LIMITS['sculpt_cells']})")
+        self.cells_used += n
+        if self.cells_used > LIMITS["total_cells"]:
+            raise SpecError(f"the model is too big (limit {LIMITS['total_cells']} sculpted cells in total)")
         if spec.get("wheels"):
             return self.wheeled_sculpt(spec)
         cells = sculpt_cells(spec) - set(self.D.occ)
@@ -1124,17 +1181,21 @@ class Interp:
         elif cmd == "baseplate":
             D.add(D.make("3811", color(p[2])[0], int(p[0]), 0, int(p[1])))
         elif cmd in ("plates", "tiles", "bricks"):
-            self.fill(cmd, int(p[0]), color(p[1]), region_terms(p[2:]), kw.get("prefer", "x"), int(kw.get("courses", 1)))
+            courses = _bounded(int(kw.get("courses", 1)), LIMITS["courses"], "courses")
+            self.fill(cmd, _bounded(int(p[0]), LIMITS["coord"], "level"), color(p[1]), region_terms(p[2:]),
+                      kw.get("prefer", "x"), courses)
         elif cmd == "part":
             self.expose_for_part(p[0], int(p[2]), int(p[4]), int(p[3]), rot_(kw))
             D.place(p[0], color(p[1])[0], int(p[2]), int(p[4]), int(p[3]), yaw=rot_(kw))
         elif cmd == "stack":
             pid, col, x, z, L, n = p[0], color(p[1])[0], int(p[2]), int(p[3]), int(p[4]), int(p[5])
+            _bounded(n, LIMITS["count"], "count")
             self.expose_for_part(pid, x, L, z, rot_(kw))
             for a in range(n):
                 D.place(pid, col, x, L + a * pdef(pid).h, z, yaw=rot_(kw))
         elif cmd == "row":
             pid, col, x, z, L, n = p[0], color(p[1])[0], int(p[2]), int(p[3]), int(p[4]), int(p[5])
+            _bounded(n, LIMITS["count"], "count")
             dx, dz = int(kw.get("dx", 1)), int(kw.get("dz", 0))
             for a in range(n):
                 self.expose_for_part(pid, x + a * dx, L, z + a * dz, rot_(kw))
@@ -1148,7 +1209,8 @@ class Interp:
         elif cmd == "walls":
             cells = rect(p[0])
             xs, zs = sorted({c[0] for c in cells}), sorted({c[1] for c in cells})
-            self.walls(xs[0], xs[-1], zs[0], zs[-1], int(p[1]), int(p[2]), color(p[3]))
+            self.walls(xs[0], xs[-1], zs[0], zs[-1], int(p[1]), _bounded(int(p[2]), LIMITS["courses"], "courses"),
+                       color(p[3]))
         elif cmd == "window":
             self.window(int(p[0]), int(p[1]), p[2], int(p[3]), int(kw.get("stack", 1)),
                         color(kw.get("frame", "black"))[0], color(kw.get("glass", "trans_clear"))[0])

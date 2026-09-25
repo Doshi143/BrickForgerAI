@@ -187,7 +187,9 @@ def build_steps(D, max_per_step=DEFAULT_MAX_PER_STEP):
 def stepped_ldr(D, steps, name=None):
     """The model's LDR with parts reordered into build order and a `0 STEP`
     between steps (what the PDF renderer and Studio walk through)."""
-    name = name or D.title
+    # the name comes from the user's prompt: keep it to one line so it can't
+    # add lines (parts, meta-commands) to the LDR the renderer parses
+    name = " ".join((name or D.title).split())
     fmt = lambda v: str(int(round(v))) if abs(v - round(v)) < 1e-6 else f"{v:.3f}".rstrip("0").rstrip(".")
     lines = [f"0 {name}", f"0 Name: {name}.ldr", "0 Author: BrickForgerAI designer",
              "0 !LDRAW_ORG Unofficial_Model", "0 BFC CERTIFY CCW", ""]
