@@ -1,0 +1,26 @@
+# Phase 4 benchmark (paid: run only with the founder's OK).  Same format as tools/evaluate.py.
+# The 15 original evaluation prompts, then one per new technique / build type.
+an octopus with uneven tentacles wrapping around a ship
+a red sports car
+a medieval castle with towers
+a cute penguin
+a steam train
+a cozy cottage with a garden
+a cactus in a pot
+a friendly robot
+a hot air balloon
+an elephant
+an acoustic guitar
+a burger with fries
+a snowman with a scarf
+a jet plane
+a treehouse in an oak tree
+a whole modular building | size=32
+a garden with a pond and trees
+a tropical island with palm trees
+a dragon with spiky wings
+a bird with open wings
+a stone house with a tiled roof
+a mountain with a snowy peak and a lake
+a steampunk robot with gears
+a sea turtle

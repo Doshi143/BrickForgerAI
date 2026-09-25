@@ -166,6 +166,8 @@ it for anything larger than about 8x8x8).
 - Build a body from a few overlapping shapes: torso ball, head ball, neck/leg/tail
   `cyl` (tapered for trunks, tails, beaks, noses, wings' leading edges), ear boxes.
 - Legs, stands and anything that must carry weight should reach the table or the base.
+- Flat objects (guitars, signs, paintings, shields) stand upright on a small `base`,
+  built vertically with a stand behind them, not lying flat.
 - Keep features at least 1 stud thick; thin parts (fins, sails) can be 1-2 plates tall
   boxes; wings and ears that should lift use `flap`, tentacles/trunks/tails `limb`.
 - Eyes need a flat 3-plate-high patch on the side of the head at X, Y (a large eye:

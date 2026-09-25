@@ -33,6 +33,16 @@ create graph edges; nothing can be placed at an angle other than 0/90/180/270 de
 
 ---
 
+## Status (2026-09-25 overnight, local commits)
+
+Built and tested (unit tests + renders; Studio checks pending): 1 gradients, 2 water, 3 trees
+(round, bush, palm), 4 car lights, 5 wedge plates on `poly` edges, 6 facades (texture, quoins,
+window types), 7 large eyes, 8 spikes/teeth (`scatter ... top rot=`), 9 slope-brick roofs,
+10 rockwork, 11 greebling, 12 round columns, 14 horns (curved blade in an open stud),
+15 palm leaves (stud-mounted, no clips needed), 16 hinged flaps, 17 ball-joint limbs,
+18 Technic gears.  Not done: 13 jumper offsets, 19 Technic frames, 20 microscale, clip/bar
+connections as such, most of the automatic details in section 3 (quoins/lights done).
+
 ## 1. Ranked catalogue
 
 | # | Technique | Build types | Key parts (LDraw) | Connection | Effort | Payoff | Surface |
