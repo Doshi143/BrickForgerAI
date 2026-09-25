@@ -126,7 +126,9 @@ sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z]
   paint COLOUR X0..X1 Y0..Y1 [Z0..Z1]   # or: paint COLOUR ball|box|cyl ...   (later lines win)
   panel X0..X1 Y0..Y1 thick=2|3         # smooth sideways (SNOT) skin on both flanks
   ppaint COLOUR X0..X1 Y0..Y1           # colour panel cells (face markings)
-  eye X Y [pupil=] [ring=] [skin=]      # eye on both sides at column X, height Y
+  eye X Y [pupil=] [ring=] [skin=] [size=small|large] [look=+x|-x]
+                                        # eye on both sides at column X, height Y; large = a
+                                        # 2x2 round eye (ring) with the pupil looking forward
   wheels X1,X2,... [size=small|large] [front=+x|-x] [lights=1|0]
                                         # real wheels: one axle per X, under x=X..X+1
 end
@@ -144,7 +146,8 @@ it for anything larger than about 8x8x8).
 - Legs, stands and anything that must carry weight should reach the table or the base.
 - Keep features at least 1 stud thick; thin parts (wings, fins, sails) can be 1-2
   plates tall boxes.
-- Eyes need a flat 3-plate-high patch on the side of the head at X, Y.
+- Eyes need a flat 3-plate-high patch on the side of the head at X, Y (a large eye:
+  columns X..X+1, with nothing bulging out just below it).
 - Panels hang outside the body; `thick=3` gives rounded flanks, `thick=2` suits faces.
 - Overhangs (beaks, snouts, wings) must overlap the body by 2 studs where they join.
 - Wheeled vehicles: never sculpt or paint wheels; list the axles with `wheels`. Keep

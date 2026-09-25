@@ -82,6 +82,7 @@ NAME_OVERRIDES = {
     "43723": "Wing 2 x 3 Left",
     "41769": "Wing 2 x 4 Right",
     "41770": "Wing 2 x 4 Left",
+    "4032": "Plate 2 x 2 Round",
 }
 
 DEFAULT_MAX_PER_STEP = 8        # matches core's DEFAULT_MAX_BRICKS_PER_STEP

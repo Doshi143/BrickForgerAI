@@ -717,3 +717,37 @@ def test_teeth_with_rot_alt_point_out_to_both_sides_of_the_row():
     # the tooth sticks out a stud past the plate across the row (z), never along it (x)
     for q in teeth:
         assert q.box[0][1] - q.box[0][0] == 20 and q.box[2][1] - q.box[2][0] == 40, q.box
+
+
+# ---------------------------------------------------------------- large eyes (TECHNIQUES.md item 7)
+OWL = """model owl
+sculpt base=0 color=reddish_brown hollow=2
+  box 2..9 0..11 -3..2
+  box 3..9 12..22 -3..2
+  eye 7 17 size=large pupil=black ring=white{opts}
+end
+"""
+
+
+def test_a_large_eye_is_a_round_plate_on_two_side_studs_with_a_pupil_looking_forward():
+    D, problems, stats = run(OWL.format(opts=""))
+    assert problems == [] and stats["components"] == 1, problems
+    plates = [q for q in D.parts if q.pid == "4032"]
+    pupils = [q for q in D.parts if q.tag == "pupil"]
+    assert len(plates) == 2 and len(pupils) == 2
+    assert sum(q.pid == "87087" for q in D.parts) == 4
+    for plate in plates:
+        pupil = min(pupils, key=lambda q: abs(q.pos[2] - plate.pos[2]))
+        assert pupil.pos[0] > plate.pos[0]                  # the front (+x) column
+        assert pupil.pos[1] < plate.pos[1]                  # the upper row (LDraw y is down)
+        assert abs(pupil.pos[2]) > abs(plate.pos[2])        # outside, on the plate
+
+
+def test_a_large_eye_can_look_back_and_falls_back_to_small_without_room():
+    D, _, _ = run(OWL.format(opts=" look=-x"))
+    plates = [q for q in D.parts if q.pid == "4032"]
+    assert plates and all(min((q for q in D.parts if q.tag == "pupil"), key=lambda q: abs(q.pos[2] - p.pos[2])).pos[0]
+                          < p.pos[0] for p in plates)
+    # a ball head has no flat 2x3 patch: the eye is painted, like a small one
+    D, problems, stats = run(OWL.format(opts="").replace("box 3..9 12..22 -3..2", "ball 6 17 -0.5 4 7 3.5"))
+    assert problems == [] and not any(q.pid == "4032" for q in D.parts)

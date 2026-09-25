@@ -35,6 +35,8 @@ PARTS = [
     # spikes, wedge plates for sleek outlines
     "4070", "2412b", "4589", "49668", "15070", "15208",
     "43722", "43723", "41769", "41770", "24299", "24307",
+    # large eyes: 2x2 round plate (original number, as the mirror has it)
+    "4032",
 ]
 # Parts whose plan-view shape isn't their bounding rectangle: store the top
 # face's outline (convex hull of the geometry at local y=0, as (x, z) LDU) so

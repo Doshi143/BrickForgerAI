@@ -1112,6 +1112,26 @@ class Interp:
                     return pid, i, k, yaw
         return None
 
+    def plan_large_eye(self, core, reserved, e, side, S):
+        """A flat, exposed patch 2 studs wide and 3 plates tall on the flank at
+        the eye's height (for two side-stud bricks), with nothing sticking out
+        under it for the 2.5 plates the round plate hangs down."""
+        xs = (e["x"], e["x"] + 1)
+        for L0 in (S + e["y"] - 1, S + e["y"] - 2, S + e["y"]):
+            zc = [c[2] for c in core if c[0] in xs and c[1] == L0 + 1]
+            if not zc:
+                continue
+            zside = min(zc) if side == "L" else max(zc)
+            out = zside - 1 if side == "L" else zside + 1
+            cells = {(x, L0 + l, zside) for x in xs for l in range(3)}
+            if not all(c in core and c not in reserved and (c[0], c[1], out) not in core
+                       and (c[0], c[1], out) not in self.D.occ for c in cells):
+                continue
+            if any((x, l, out) in core or (x, l, out) in self.D.occ for x in xs for l in range(L0 - 3, L0)):
+                continue
+            return L0, zside, cells
+        return None
+
     def plan_lights(self, core, reserved, front):
         """Where a wheeled sculpt's front and back faces are flat and exposed
         for one brick course (3 plates) across at least 2 studs: returns
@@ -1477,6 +1497,16 @@ class Interp:
             if any(e["x"] in pn["x"] and pn["y"][0] <= e["y"] <= pn["y"][1] for pn in spec["panels"]):
                 continue
             for side in ("L", "R"):
+                if e.get("size") == "large":
+                    big = self.plan_large_eye(core, reserved, e, side, S)
+                    if big:
+                        L0, zside, cells = big
+                        reserved |= cells
+                        for xx in (e["x"], e["x"] + 1):
+                            placements.append(("87087", core[(xx, L0 + 1, zside)], xx, L0, zside,
+                                               0 if side == "L" else 180, "eye", {c for c in cells if c[0] == xx}))
+                        surface_eyes.append((side, e, L0, zside))
+                        continue
                 done = False
                 for L0 in (S + e["y"] - 1, S + e["y"] - 2, S + e["y"]):
                     zc = [c[2] for c in core if c[0] == e["x"] and c[1] == L0 + 1]
@@ -1577,8 +1607,22 @@ class Interp:
             Oy = -8 * (L0 + 3) + 20
             if side == "L":
                 F, i = Frame((0, Oy, 20 * zside), L_FRAME, "eyeL"), e["x"]
+                u = lambda x, w=1: x                      # frame column of world column x
             else:
                 F, i = Frame((0, Oy, 20 * (zside + 1)), R_FRAME, "eyeR"), -e["x"] - 1
+                u = lambda x, w=1: -x - w
+            if e.get("size") == "large" and (e["x"] + 1, L0, zside) in D.occ and                     D.parts[D.occ[(e["x"] + 1, L0, zside)]].tag == "eye":
+                # a white 2x2 round plate across the two side studs (its top row of
+                # anti-studs on them, hanging 2.5 plates below), and a round pupil
+                # on its front-upper stud, looking the way the animal faces
+                plate = D.make("4032", e["ring"], u(e["x"], 2), 0, -1, frame=F, tag="eye")
+                front = e["x"] + 1 if e.get("look", "+x") == "+x" else e["x"]
+                pupil = D.make("98138", e["pupil"], u(front), 1, 0, frame=F, tag="pupil")
+                if D.fits(plate) and D.fits(pupil):
+                    D.place("4032", e["ring"], u(e["x"], 2), 0, -1, frame=F, tag="eye")
+                    D.place("98138", e["pupil"], u(front), 1, 0, frame=F, tag="pupil")
+                    continue
+                self.repairs.append((f"large eye made small {side}", 1))
             D.place("98138", e["pupil"], i, 0, 0, frame=F, tag="pupil")
         return fill_ok >= 0
 
@@ -1753,10 +1797,13 @@ class Interp:
                     spec["wheels"] = dict(xs=[int(v) for v in p[0].split(",")], size=size, front=front,
                                           lights=k.get("lights", "1") != "0")
                 elif t[0] == "eye":
+                    size, look = k.get("size", "small"), k.get("look", "+x")
+                    if size not in ("small", "large") or look not in ("+x", "-x"):
+                        raise SpecError("eye size must be small or large, look +x or -x")
                     spec["eyes"].append(dict(x=int(p[0]), y=int(p[1]),
                                              pupil=color(k.get("pupil", "black"))[0],
                                              ring=color(k.get("ring", "medium_azure"))[0],
-                                             skin=color(k.get("skin", "orange"))[0]))
+                                             skin=color(k.get("skin", "orange"))[0], size=size, look=look))
                 else:
                     raise SpecError(f"unknown sculpt command '{t[0]}'")
             except (SpecError, IndexError, ValueError) as e:
