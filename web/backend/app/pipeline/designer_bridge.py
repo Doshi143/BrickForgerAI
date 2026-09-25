@@ -94,6 +94,8 @@ def design_to_ldr(
                             "We couldn't design a model for this prompt that holds together. "
                             "Please try rephrasing it or choosing a simpler subject.")
         err.usage = usage
+        # kept with the failed job so it can be rebuilt and diagnosed for free
+        err.spec, err.problems = result["spec"], result["problems"]
         raise err
 
     D = result["design"]

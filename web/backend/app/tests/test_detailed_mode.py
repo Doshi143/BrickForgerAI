@@ -167,6 +167,7 @@ def test_detailed_generate_charges_two_and_a_failed_design_refunds_both():
     def failing(*a, **k):
         err = DesignerError("checks failed", "We couldn't design a model for this prompt that holds together.")
         err.usage = {"totals": {"cost_usd": 0.12, "calls": 3}, "rounds": 2}
+        err.spec, err.problems = "model fox\n", ["LOOSE main: 4 part(s) from line 3", "TOO BIG: 2600 parts"]
         raise err
     real = designer_bridge.design_to_ldr
     designer_bridge.design_to_ldr = failing
@@ -183,6 +184,9 @@ def test_detailed_generate_charges_two_and_a_failed_design_refunds_both():
     assert "Traceback" not in meta["error"]
     assert meta["cost_usd"] == 0.12                      # spend is still recorded on failure
     assert pools(u.id) == (1, 0, 2), pools(u.id)         # both credits back where they came from
+    # the failed spec and checker report are kept for a free local rebuild
+    assert jobs.STORAGE.get_bytes(job_id, "design.bfd") == b"model fox\n"
+    assert b"TOO BIG" in jobs.STORAGE.get_bytes(job_id, "design_problems.txt")
     public = client.get(f"/generate/{job_id}", headers=token(u)).json()
     assert "cost_usd" not in public and "design_usage" not in public and "credit_source" not in public
 
@@ -257,6 +261,38 @@ def test_design_image_is_never_the_thumbnail_but_a_build_render_is():
     jobs.STORAGE.put(job_id, "render.png", render)
     assert jobs.load_job_meta(job_id)["thumbnail_url"] == f"/generate/{job_id}/thumbnail"
     assert client.get(f"/generate/{job_id}/thumbnail").content == b"\x89PNG build render"
+
+
+def test_my_builds_lists_finished_detailed_jobs_but_not_failed_ones():
+    """My Builds (GET /generate) shows every finished job of the caller, whatever
+    its mode; failed jobs (any mode) are never listed."""
+    u = new_user(monthly=4)
+    set_flag(True, allow=u.email)
+
+    def ok(prompt, ldr_out_path, **k):
+        with open(ldr_out_path, "w") as f:
+            f.write("0 test\n")
+        return {"part_count": 80, "slope_count": 0, "tile_count": 3, "color_count": 3, "color_source": "designer",
+                "was_repaired": None, "still_critical_count": None, "is_single_piece": True, "piece_count": 1,
+                "symmetrized": False, "spec": "model t\n", "pdf_generated": False,
+                "design_usage": {"totals": {"cost_usd": 0.1, "calls": 1}, "rounds": 0}}
+
+    def failing(*a, **k):
+        raise DesignerError("checks failed", "We couldn't design a model for this prompt that holds together.")
+
+    real = designer_bridge.design_to_ldr
+    ids = {}
+    try:
+        for name, fn in (("done", ok), ("failed", failing)):
+            designer_bridge.design_to_ldr = fn
+            r = client.post("/generate", json={"prompt": f"a {name} castle", "mode": "detailed",
+                                               "target_size_studs": 24}, headers=token(u))
+            ids[name] = r.json()["job_id"]
+    finally:
+        designer_bridge.design_to_ldr = real
+    listed = client.get("/generate", headers=token(u)).json()
+    assert [j["job_id"] for j in listed] == [ids["done"]], listed
+    assert listed[0]["mode"] == "detailed" and "cost_usd" not in listed[0]
 
 
 def test_voxel_generate_still_costs_one_credit():

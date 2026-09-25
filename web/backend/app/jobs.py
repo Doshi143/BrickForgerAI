@@ -859,6 +859,19 @@ def process_designer_job(
         job.error = f"{user_message} Your {n} credit{'s' if n != 1 else ''} for this generation " \
                     f"{'have' if n != 1 else 'has'} been refunded."
         logger.error("detailed job %s failed: %s\n%s", job.id, exc, traceback.format_exc())
+        # The last spec and the checker's report, so a failure can be rebuilt
+        # locally for free (python -m brickforge_designer.pipeline design.bfd).
+        # Internal files only: nothing serves them to users.
+        for name, text in (("design.bfd", getattr(exc, "spec", None)),
+                           ("design_problems.txt", "\n".join(getattr(exc, "problems", None) or []) or None)):
+            if text:
+                try:
+                    path = os.path.join(jdir, name)
+                    with open(path, "w", encoding="utf-8", newline="") as f:
+                        f.write(text)
+                    STORAGE.put(job.id, name, path)
+                except Exception:  # noqa: BLE001 -- diagnostics only
+                    logger.warning("could not store %s for failed detailed job %s", name, job.id, exc_info=True)
         _set_status(job, JobStatus.FAILED)
         if credit_source:
             try:
