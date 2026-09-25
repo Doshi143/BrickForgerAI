@@ -1472,6 +1472,15 @@ class Interp:
             spec = dict(spec, wheels=dict(wheels, lights=False))
             ok = self._sculpt(spec)
             self.repairs.append(("lights dropped", 0))
+        if spec.get("round") and not self.D.is_one_piece(range(n0, len(self.D.parts))):
+            # round columns join the body only through their end studs; a sculpt
+            # that isn't one piece with them is rebuilt with square columns
+            self.D.rollback(n0)
+            del self.repairs[r0:]
+            del self.errors[e0:]
+            spec = dict(spec, round=[])
+            ok = self._sculpt(spec)
+            self.repairs.append(("round columns dropped", 0))
         if spec.get("wedges", True) and not self.D.is_one_piece(range(n0, len(self.D.parts))) and any(
                 q.tag == "wedge" for q in self.D.parts[n0:]):
             # wedges are dressing too: rebuild without them rather than fall apart
