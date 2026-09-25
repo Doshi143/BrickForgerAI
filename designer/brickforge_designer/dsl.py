@@ -840,7 +840,22 @@ class Interp:
             if L == "top":
                 self.expose_for_part(pid, x, lvl, z, yaw)
                 q = D.make(pid, q.color, x, lvl, z, yaw=yaw)
-            if D.supports(q):
+            if pid == "87747":
+                # a horn/claw: the curved blade's bar goes into the open stud of a 1x1
+                # round plate (measured: the bar runs 10 LDU down from the blade's
+                # origin, the stud's top is 4 above the plate); rot aims the curve
+                plate = D.make("85861", q.color, x, lvl, z)
+                if not D.supports(plate):
+                    continue
+                host = D.place("85861", q.color, x, lvl, z, tag="horn")
+                blade = D._finish(pdef("87747"), q.color, (host.pos[0], host.pos[1] - 4, host.pos[2]), YAW[yaw],
+                                  "horn", host.asm, host=D.parts.index(host))
+                if any(D._collide(blade, D.parts[m]) for key in D._buckets(blade.box) for m in D._hash.get(key, ())
+                       if D.parts[m] is not host):
+                    D.remove([D.parts.index(host)])
+                    continue
+                D.links.append((D.parts.index(host), D.add(blade)))
+            elif D.supports(q):
                 D.place(pid, q.color, x, lvl, z, yaw=yaw)
 
     def base(self, cells, cols, top, rim):

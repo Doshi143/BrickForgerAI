@@ -43,6 +43,8 @@ PARTS = [
     "3040b", "3039", "3044b", "3043",
     # ball-joint chains (limbs): ball on side, socket, socket + ball (the chain link)
     "14417", "14418", "14419",
+    # horns and claws: curved blade on a bar, in a 1x1 round plate's open stud
+    "87747", "85861",
 ]
 JOINTS = {"14417", "14418", "14419"}           # store measured ball centres and sockets
 # Parts whose plan-view shape isn't their bounding rectangle: store the top

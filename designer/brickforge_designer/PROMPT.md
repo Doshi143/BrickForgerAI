@@ -59,7 +59,8 @@ row PID COLOUR X Z L N [dx=1] [dz=0] [rot=]
 scatter PID COLOURS REGION L|top [every=N shift=K | density=0.3 seed=S] [rot=0|90|180|270|alt]
                                        # decorations; `top` = on whatever is highest at each cell
                                        # (spikes: 4589 cone; teeth/claws: 49668 tooth plate, rot=alt
-                                       # points them out to both sides of the row)
+                                       # points them out to both sides of the row; horns/claws:
+                                       # 87747 curved blade on a round plate, rot aims the curve)
 water L REGION [bed=GRADIENT] [surface=GRADIENT] [foam=white|none] [ripples=0.06]
                                        # ponds, rivers, sea: 2 plates, deepens away from the shore
 tree X Z L COLOURS [trunk=COLOUR] [style=pine|round|bush] [height=2] [layers=3]

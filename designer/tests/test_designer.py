@@ -912,3 +912,13 @@ def test_turned_parts_collide_by_their_oriented_boxes():
     near = D._finish(P("3023"), 4, (5, 0, -5), M, "", "main")          # overlapping it
     assert D._overlap(a.box, far.box) and not D._collide(a, far)       # bounding boxes touch, parts don't
     assert D._collide(a, near)
+
+
+def test_horns_are_curved_blades_in_open_stud_round_plates():
+    D, problems, stats = run(SPINE + "scatter 87747 white 3..16,0..0 top every=2 rot=270\n")
+    assert problems == [] and stats["components"] == 1, problems
+    blades = [q for q in D.parts if q.pid == "87747"]
+    assert len(blades) == 7
+    for q in blades:
+        host = D.parts[q.host]
+        assert host.pid == "85861" and abs(q.pos[1] - (host.pos[1] - 4)) < 0.01     # its bar in the open stud
