@@ -790,6 +790,22 @@ class Interp:
         for n in range(height):
             D.place("3062b", trunk, x, L + 3 * n, z)
         lv = L + 3 * height
+        if style == "palm":
+            # four swordleaves stacked on the trunk's top stud, a quarter turn each;
+            # each leaf's root has an anti-stud (0, 8, 10) and a stud (0, 0, 10) above it
+            # (measured), so each clicks onto the one below; they droop over each other
+            host = D.parts[D.occ[(x, lv - 1, z)]]
+            stud = (host.pos[0], host.pos[1], host.pos[2])
+            for k, yaw in enumerate((0, 90, 180, 270)):
+                M = YAW[yaw]
+                a_ = mul(M, (0, 8, 10))
+                pos = (stud[0] - a_[0], stud[1] - a_[1], stud[2] - a_[2])
+                q = D._finish(pdef("10884"), pick(cols, x, z, k), pos, M, "tree", host.asm, host=D.parts.index(host))
+                D.links.append((D.parts.index(host), D.add(q)))
+                s_ = mul(M, (0, 0, 10))
+                stud = (pos[0] + s_[0], pos[1] + s_[1], pos[2] + s_[2])
+                host = q
+            return
         if style == "pine":
             D.place("2435", pick(cols, x, z), x, lv, z, tag="tree")
             return
@@ -2391,8 +2407,8 @@ class Interp:
                       color(kw.get("leaf", "reddish_brown"))[0])
         elif cmd == "tree":
             style = kw.get("style", "pine")
-            if style not in ("pine", "round", "bush"):
-                raise SpecError("tree style must be pine, round or bush")
+            if style not in ("pine", "round", "bush", "palm"):
+                raise SpecError("tree style must be pine, round, bush or palm")
             self.tree(int(p[0]), int(p[1]), int(p[2]), color(p[3]), color(kw.get("trunk", "reddish_brown"))[0], style,
                       _bounded(int(kw.get("height", 2)), 8, "height"), _bounded(int(kw.get("layers", 3)), 6, "layers"))
         elif cmd == "car":

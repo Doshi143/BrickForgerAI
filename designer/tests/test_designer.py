@@ -809,7 +809,7 @@ def test_a_slope_brick_roof_faces_out_and_closes_with_a_ridge(ridge):
 
 
 # ---------------------------------------------------------------- trees (TECHNIQUES.md item 3)
-@pytest.mark.parametrize("style,part", [("round", "2417"), ("bush", "2423"), ("pine", "2435")])
+@pytest.mark.parametrize("style,part", [("round", "2417"), ("bush", "2423"), ("pine", "2435"), ("palm", "10884")])
 def test_tree_styles_build_as_one_piece(style, part):
     D, problems, stats = run(BASE + f"tree 10 10 0 dark_green|green style={style}\n")
     assert problems == [] and stats["components"] == 1, problems

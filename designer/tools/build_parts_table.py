@@ -47,6 +47,8 @@ PARTS = [
     "87747", "85861",
     # hinged panels: 1x2 hinge base (brick) and top (plate), tilting about a shared x axis
     "3937", "3938",
+    # palm trees: swordleaf (stud and anti-stud at its root, the leaf droops ~4 plates)
+    "10884",
 ]
 JOINTS = {"14417", "14418", "14419"}           # store measured ball centres and sockets
 # Parts whose plan-view shape isn't their bounding rectangle: store the top

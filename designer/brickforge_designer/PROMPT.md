@@ -63,7 +63,7 @@ scatter PID COLOURS REGION L|top [every=N shift=K | density=0.3 seed=S] [rot=0|9
                                        # 87747 curved blade on a round plate, rot aims the curve)
 water L REGION [bed=GRADIENT] [surface=GRADIENT] [foam=white|none] [ripples=0.06]
                                        # ponds, rivers, sea: 2 plates, deepens away from the shore
-tree X Z L COLOURS [trunk=COLOUR] [style=pine|round|bush] [height=2] [layers=3]
+tree X Z L COLOURS [trunk=COLOUR] [style=pine|round|bush|palm] [height=2] [layers=3]
                                        # pine: pyramid; round: 6x5 leaf layers on a round trunk
                                        # (canopy ~6x6, leave room); bush: 2x2 with leaves
 stump X Z L0 L1 COLOUR [band=COLOUR bands=0,4]   # 4x4 round-brick column
