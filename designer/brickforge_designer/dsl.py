@@ -952,6 +952,61 @@ class Interp:
                 D.attach(w["rim"], 71, plate, (side * w["rim_x"], 5, 0), rel, tag="rim")
                 D.attach(w["tyre"], 0, plate, (side * w["tyre_x"], 5, 0), rel, tag="tyre")
 
+    def rescue_loose(self, n0, hidden, max_group=12, rounds=4):
+        """Targeted repair after a sculpt fill that left small loose groups.
+        Typical case: a surface cell on a ball's diagonal near its widest
+        point has nothing below it (the ball curves in) and its neighbours
+        were taken by 3-plate bricks, so it ends up as a stack of 1x1 plates
+        under a cap, held by nothing (side-by-side parts never connect).
+        Re-lay the group's fill parts and the fill parts beside them as
+        plates only -- plates can bridge sideways where bricks cannot --
+        and keep the result only if the group is now attached; otherwise
+        restore.  Returns how many groups were rescued."""
+        D = self.D
+        nb4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+        movable = lambda i: i >= n0 and D.parts[i].tag == "" and D.parts[i].host is None
+        rescued = 0
+        for _ in range(rounds):
+            comps, _ = D.components()
+            own = [c for c in comps if D.parts[c[0]].asm == D.default_asm]
+            if len(own) <= 1:
+                break
+            main = set(max(own, key=len))
+            groups = [set(c) for c in own if len(c) <= max_group and min(c) >= n0 and not set(c) & main]
+            progress = False
+            for g in groups:
+                if any(i >= len(D.parts) for i in g):
+                    break                          # indices moved: recompute in the next round
+                gcells = [c for c, i in D.occ.items() if i in g]
+                nbr = {D.occ.get((x + a, L, z + b)) for (x, L, z) in gcells for a, b in nb4}
+                remove = {i for i in (g | nbr) if i is not None and movable(i)}
+                if not remove:
+                    continue
+                snap = (list(D.parts), [q.host for q in D.parts], dict(D.occ), list(D.links))
+                cells = {c: (None if c in hidden else D.parts[i].color) for c, i in D.occ.items() if i in remove}
+                D.remove(remove)                                  # caps etc. stay where they are
+                for n, L in enumerate(sorted({c[1] for c in cells})):
+                    tile_level(D, {(x, z): col for (x, l, z), col in cells.items() if l == L}, L, PLATES,
+                               "x" if n % 2 == 0 else "z")
+                comps2, _ = D.components()
+                own2 = [c for c in comps2 if D.parts[c[0]].asm == D.default_asm]
+                main2 = set(max(own2, key=len))
+                back = {D.occ[c] for c in gcells if c in D.occ}
+                if len(own2) < len(own) and back <= main2:
+                    rescued += 1
+                    progress = True
+                    break                              # indices changed: recompute groups
+                parts, hosts, occ, links = snap
+                D.parts, D.occ, D.links = parts, occ, links
+                for q, h in zip(D.parts, hosts):
+                    q.host = h
+                D._reindex()
+            if not progress:
+                break
+        if rescued:
+            self.repairs.append(("loose rescued", rescued))
+        return rescued
+
     def _sculpt_with_retry(self, spec):
         n0, r0, e0 = len(self.D.parts), len(self.repairs), len(self.errors)
         ok = self._sculpt(spec)
@@ -975,6 +1030,12 @@ class Interp:
                     core[(x, S + y, z)] = default
                 else:
                     core.pop((x, S + y, z), None)
+        # nothing can be under level 0: that is the table, or a baseplate's top
+        under = [c for c in core if c[1] < 0]
+        for c in under:
+            del core[c]
+        if under:
+            self.repairs.append(("clipped below the table", len(under)))
         soft = {}                                 # gradient-coloured cells (see recolour)
         if spec.get("grad"):
             stops, axis = spec["grad"]
@@ -1185,6 +1246,7 @@ class Interp:
 
         # ---- place fixed parts, then fill the rest (self-repairing)
         D.new_step()
+        n_sculpt = len(D.parts)
         for (pid, col, x, L, z, yaw, tag, cells) in placements:
             D.place(pid, col, x, L, z, yaw=yaw, tag=tag)
         by_level = defaultdict(dict)
@@ -1221,6 +1283,8 @@ class Interp:
         n_fill = len(D.parts)
         fill_ok = verified(D, fill, standalone=D.default_asm != "main")
         self.repairs.append(("sculpt fill", fill_ok))
+        if fill_ok < 0:
+            self.rescue_loose(n_sculpt, flex | set(soft))
         if soft:
             recolour(D, n_fill, soft, hidden=flex)
 

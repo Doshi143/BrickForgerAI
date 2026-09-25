@@ -177,4 +177,5 @@ then `sculpt base=11` with `cyl x 2..22 2 0 2 1` fuselage, `box 9..13 1..2 -9..8
 Reply with the whole corrected spec. LOOSE = something touches nothing below it
 (extend it into its neighbour or lower it onto studs). COLLISION = two things share
 cells (move one). TIPS = the model would fall over on the table (move its feet under
-its weight, widen them, or balance it). SPEC = a syntax problem on that line.
+its weight, widen them, or balance it). BELOW = parts under level 0 (raise them).
+SPEC = a syntax problem on that line.

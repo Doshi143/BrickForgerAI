@@ -540,3 +540,23 @@ def test_water_options_are_bounded():
     assert any("ripples" in p for p in problems), problems
     _, problems, _ = run(BASE + "water 0 0..70,0..70\n")
     assert any("too big" in p for p in problems), problems
+
+
+# ---------------------------------------------------------------- engine repairs: below the table, loose rescue
+def test_sculpt_cells_below_level_0_are_clipped_and_parts_below_are_reported():
+    # a bush whose ball dips one plate under the baseplate (seen in a real spec)
+    D, problems, stats = run(BASE + "sculpt base=0 color=green\n  ball 10 2 8 2.5 3 1.5\nend\n")
+    assert problems == [], problems
+    assert any(r[0] == "clipped below the table" for r in stats["engine_repairs"])
+    assert all(q.box[1][1] <= 1 for q in D.parts)
+    _, problems, _ = run(BASE + "part 3001 red 4 4 0\npart 3001 red 10 4 -3\n")
+    assert any(p.startswith("BELOW") and "line 4" in p for p in problems), problems
+
+
+def test_small_loose_groups_on_a_hollow_ball_are_rescued():
+    # the ball's diagonal cells near its widest point used to end up as 1x1 plate
+    # stacks under a cap, held by nothing
+    D, problems, stats = run(BASE + "sculpt base=0 color=light_bluish_gray hollow=2\n  ball 16 12 24 6 12 5\nend\n")
+    assert problems == [], problems
+    assert any(r[0] == "loose rescued" for r in stats["engine_repairs"])
+    assert stats["components"] == 1

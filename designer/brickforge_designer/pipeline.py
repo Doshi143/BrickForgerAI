@@ -421,6 +421,11 @@ def check(D, it):
         a, b = D.parts[m], D.parts[n]
         problems.append(f"COLLISION {a.pid} ({a.tag or '-'}) with {b.pid} ({b.tag or '-'}) near cell "
                         f"x={round(a.pos[0]) // 20} z={round(a.pos[2]) // 20}")
+    below = [q for q in D.parts if q.box[1][1] > 1]
+    if below:
+        lines = sorted({q.src for q in below if q.src is not None})
+        problems.append(f"BELOW: {len(below)} part(s)" + (f" from line {', '.join(map(str, lines))}" if lines else "")
+                        + " go below level 0 (the table, or the baseplate's top); raise them")
     lim = CONFIG["limits"]
     if len(D.parts) > lim["max_parts"]:
         problems.append(f"TOO BIG: {len(D.parts)} parts (limit {lim['max_parts']}); make the model smaller")
