@@ -35,7 +35,7 @@ export default function PrivacyPage() {
         </ul>
         <p style={{ marginTop: 14 }}>
           As part of actually using the Service, we also store the text prompts you submit and
-          the images, 3D meshes, and brick models generated from them, so you can revisit and
+          the images, 3D meshes, designs, and brick models generated from them, so you can revisit and
           re-download your own results. If you subscribe to a paid plan or make a purchase, we
           store an internal Stripe customer reference ID so we can recognize your account on
           future purchases - never your card number or other payment details, which Stripe holds
@@ -91,7 +91,8 @@ export default function PrivacyPage() {
         </p>
         <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
           <li>Your prompt is used to generate a reference image via a third-party AI image-generation service</li>
-          <li>That image is used to generate a 3D model via a third-party AI 3D-generation service</li>
+          <li>For Voxel generations, that image is used to generate a 3D model via a third-party AI 3D-generation service</li>
+          <li>For Detailed generations, your prompt and that image are sent to Anthropic&apos;s Claude API, a third-party AI service, which designs the brick model</li>
           <li>Railway hosts our servers, database, and job queue</li>
           <li>Cloudflare R2 stores your generated files</li>
           <li>Sentry receives error/crash reports to help us fix bugs - this can include request metadata such as your IP address, but never your password</li>

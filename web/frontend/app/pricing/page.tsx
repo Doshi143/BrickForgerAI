@@ -29,7 +29,7 @@ const PLANS: Plan[] = [
     priceNote: "/ month",
     credits: "3 build credits a month",
     features: [
-      "3 model generations a month",
+      "3 Voxel generations a month (a Detailed beta build uses 2 credits)",
       "Full 3D preview with real colors",
       ".ldr file + parts list + PDF build guide included free on every generation",
     ],
@@ -41,7 +41,7 @@ const PLANS: Plan[] = [
     priceNote: "/ month",
     credits: "12 build credits a month",
     features: [
-      "12 model generations a month",
+      "12 Voxel generations a month (a Detailed beta build uses 2 credits)",
       "Full 3D preview with real colors",
       ".ldr file + parts list + PDF build guide included free on every generation",
     ],
@@ -53,7 +53,7 @@ const PLANS: Plan[] = [
     priceNote: "/ month",
     credits: "30 build credits a month",
     features: [
-      "30 model generations a month",
+      "30 Voxel generations a month (a Detailed beta build uses 2 credits)",
       "Full 3D preview with real colors",
       ".ldr file + parts list + PDF build guide included free on every generation",
     ],
