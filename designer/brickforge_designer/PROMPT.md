@@ -166,8 +166,8 @@ it for anything larger than about 8x8x8).
 - Build a body from a few overlapping shapes: torso ball, head ball, neck/leg/tail
   `cyl` (tapered for trunks, tails, beaks, noses, wings' leading edges), ear boxes.
 - Legs, stands and anything that must carry weight should reach the table or the base.
-- Keep features at least 1 stud thick; thin parts (wings, fins, sails) can be 1-2
-  plates tall boxes.
+- Keep features at least 1 stud thick; thin parts (fins, sails) can be 1-2 plates tall
+  boxes; wings and ears that should lift use `flap`, tentacles/trunks/tails `limb`.
 - Eyes need a flat 3-plate-high patch on the side of the head at X, Y (a large eye:
   columns X..X+1, with nothing bulging out just below it).
 - Panels hang outside the body; `thick=3` gives rounded flanks, `thick=2` suits faces.
@@ -198,13 +198,20 @@ end
 ```
 Plane (faces +x, on a stand): `base 7..15,-4..3 COLOUR`, `stack 3941 COLOUR 10 -1 2 3`,
 then `sculpt base=11` with `cyl x 2..22 2 0 2 1` fuselage, swept wings through it
-`poly 1..2 8,-0.5 12,-11 15,-11 15,11 12,11 8,0.5`, `box 2..4 3..8 0..0` fin, nose `cut`/taper.
+`poly 1..2 15,-0.5 9,-11 6,-11 8,-0.5 8,0.5 6,11 9,11 15,0.5` (swept back: the tips sit
+behind the root), `box 2..4 3..8 0..0` fin at the tail, nose `cut`/taper.
+Octopus/squid: body `ball`, then 6-8 `limb`s from low on its sides to points on the
+table around it (`bend=` for curled tips). Bird/bat/dragon wings: `flap` on the back,
+dir out to each side, angle 15-40. Dragon or dinosaur spine: after the sculpt,
+`scatter 87747 COLOUR X0..X1,Z..Z top every=2 rot=270` (curved horns) or 4589 cones.
+Beach or island: `baseplate` in tan, `water` around it, `tree ... style=palm`.
 
 ## Rules
 
 - Everything must connect: sit parts on studs of something below. Tiles, slopes and
   panels have no studs on top.
-- Nothing may overlap. Leave 1 stud between separate things (tree canopies are 3x3).
+- Nothing may overlap. Leave 1 stud between separate things (pine canopies are 3x3,
+  round and palm trees about 6x6).
 - Vehicles are separate pieces standing on tiles or a road.
 
 ## If you get a checker report
