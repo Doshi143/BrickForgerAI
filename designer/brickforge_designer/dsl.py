@@ -294,6 +294,28 @@ def _shape_cells(kind, p):
                 else:
                     raise SpecError(f"cyl axis must be x, y or z, got '{axis}'")
             return out
+        if kind == "poly":                 # poly Y0..Y1 x,z x,z x,z ...: a plan-view polygon, extruded
+            ys = rng_(p[0])
+            pts = []
+            for tok in p[1:]:
+                a, b = tok.split(",")
+                pts.append((_bounded(float(a), LIMITS["coord"], "vertex"), _bounded(float(b), LIMITS["coord"], "vertex")))
+            if not 3 <= len(pts) <= 16:
+                raise SpecError("poly needs 3 to 16 x,z corners")
+            x0, x1 = math.floor(min(q[0] for q in pts)), math.ceil(max(q[0] for q in pts))
+            z0, z1 = math.floor(min(q[1] for q in pts)), math.ceil(max(q[1] for q in pts))
+            if (x1 - x0) * (z1 - z0) * len(ys) > LIMITS["shape_cells"]:
+                raise SpecError(f"poly is too big (limit {LIMITS['shape_cells']} cells)")
+            plan = set()
+            for x in range(x0, x1):
+                for z in range(z0, z1):
+                    cx, cz, hit = x + .5, z + .5, False
+                    for (ax, az), (bx, bz) in zip(pts, pts[1:] + pts[:1]):
+                        if (az > cz) != (bz > cz) and cx < ax + (cz - az) * (bx - ax) / (bz - az):
+                            hit = not hit
+                    if hit:
+                        plan.add((x, z))
+            return {(x, y, z) for (x, z) in plan for y in ys}
     except (IndexError, ValueError):
         raise SpecError(f"bad {kind} arguments: {' '.join(p)}")
     raise SpecError(f"unknown shape '{kind}'")
@@ -445,6 +467,28 @@ def tile_run(length, odd):
                 left -= n
                 break
     return seq
+
+
+WEDGES = {2: ("24299", "24307"), 3: ("43722", "43723"), 4: ("41769", "41770")}   # tread length -> L/R pair
+
+
+def _cell_cover(q, outline):
+    """cover(cell) -> share of the (x, z) cell's area inside part q's top
+    outline (local (x, z) LDU points, transformed by q's placement)."""
+    M, P = q.mat, q.pos
+    poly = [(P[0] + M[0] * x + M[2] * z, P[2] + M[6] * x + M[8] * z) for x, z in outline]
+
+    def inside(px, pz):
+        hit = False
+        for (x1, z1), (x2, z2) in zip(poly, poly[1:] + poly[:1]):
+            if (z1 > pz) != (z2 > pz) and px < x1 + (pz - z1) * (x2 - x1) / (z2 - z1):
+                hit = not hit
+        return hit
+
+    def cover(cell):
+        pts = [(20 * cell[0] + 2 + 4 * a, 20 * cell[1] + 2 + 4 * b) for a in range(5) for b in range(5)]
+        return sum(inside(x, z) for x, z in pts) / len(pts)
+    return cover
 
 
 def _lattice(D, cells, L, pid, w, d, phase):
@@ -701,17 +745,38 @@ class Interp:
         for (dx, dz, yaw) in ((-2, 1, 90), (-2, 3, 90), (4, 2, 270), (4, 0, 270), (1, -2, 0), (2, 4, 180)):
             self.D.place("11477", col, x + dx, L, z + dz, yaw=yaw)
 
-    def scatter(self, pid, cols, cells, L, every, shift, density, seed):
+    def scatter(self, pid, cols, cells, L, every, shift, density, seed, rot=0):
+        """Decorations at level L, or with L="top" on whatever is highest at
+        each cell (spikes along a back, teeth along a jaw, flowers on a
+        hedge): the engine's smooth finish there becomes a studded plate so
+        the part clicks on.  rot: a yaw, or "alt" to point parts out to
+        either side of the row, alternating (teeth along a ridge)."""
         D = self.D
+        xs, zs = [c[0] for c in cells], [c[1] for c in cells]
+        # "alt": point out to either side of the row, i.e. across its long axis
+        across = (0, 180) if cells and max(xs) - min(xs) >= max(zs) - min(zs) else (90, 270)
+        tops = {}
+        if L == "top":
+            for (x, l, z) in D.occ:
+                tops[(x, z)] = max(tops.get((x, z), l), l)
         for (x, z) in sorted(cells):
             if every:
                 if (x + z + shift) % every:
                     continue
             elif ((x * 73856093 ^ z * 19349663 ^ seed * 83492791) & 0xFFFF) / 65536.0 >= density:
                 continue
-            q = D.make(pid, pick(cols, x, z, seed + 1), x, L, z)
-            if D.fits(q) and D.supports(q):
-                D.place(pid, q.color, x, L, z)
+            lvl = L if L != "top" else (tops[(x, z)] + 1 if (x, z) in tops else None)
+            if lvl is None:
+                continue
+            yaw = across[(x + z) % 2] if rot == "alt" else rot
+            q = D.make(pid, pick(cols, x, z, seed + 1), x, lvl, z, yaw=yaw)
+            if not D.fits(q):
+                continue
+            if L == "top":
+                self.expose_for_part(pid, x, lvl, z, yaw)
+                q = D.make(pid, q.color, x, lvl, z, yaw=yaw)
+            if D.supports(q):
+                D.place(pid, q.color, x, lvl, z, yaw=yaw)
 
     def base(self, cells, cols, top, rim):
         """Free-standing display base: two crossed plate layers (one piece),
@@ -955,6 +1020,98 @@ class Interp:
                 D.attach(w["rim"], 71, plate, (side * w["rim_x"], 5, 0), rel, tag="rim")
                 D.attach(w["tyre"], 0, plate, (side * w["tyre_x"], 5, 0), rel, tag="tyre")
 
+    def plan_wedges(self, core, reserved, placements, polys):
+        """Wedge plates on diagonal staircase edges (TECHNIQUES.md item 5).
+        On each level, along each side of the outline, a tread of 2-4 cells
+        followed by a one-stud step outward is a diagonal the grid can only
+        show as a staircase: a 2x2/2x3/2x4 wedge plate lays its studded
+        column on the tread and its tapered column over the empty cells
+        beside it, so the edge reads as a straight diagonal.  The part and
+        its rotation are chosen by testing the part's measured top outline
+        (parts_table "outline") against the step, never assumed.  Only on
+        `poly` cells: edges the spec drew as diagonals (wings, bows, fins); on
+        balls and cylinders the staircase is the intended curve and wedges
+        mostly just cost a rebuild (measured on the 15 evaluation specs)."""
+        D = self.D
+        claimed = set()
+        by_level = defaultdict(set)
+        for (x, L, z) in core:
+            by_level[L].add((x, z))
+        cands = []
+        for L in sorted(by_level):
+            S = by_level[L]
+            for axis in ("z", "x"):                       # the tread runs along this axis
+                to_xz = (lambda p, a: (p, a)) if axis == "z" else (lambda p, a: (a, p))
+                rows = defaultdict(list)
+                for (x, z) in S:
+                    a, p = (z, x) if axis == "z" else (x, z)
+                    rows[a].append(p)
+                for s in (1, -1):
+                    edge = {a: (max(ps) if s > 0 else min(ps)) for a, ps in rows.items()}
+                    as_ = sorted(edge)
+                    treads, cur = [], [as_[0]] if as_ else []
+                    for a in as_[1:]:
+                        if a == cur[-1] + 1 and edge[a] == edge[cur[0]]:
+                            cur.append(a)
+                        else:
+                            treads.append(cur)
+                            cur = [a]
+                    if cur:
+                        treads.append(cur)
+                    for tr in treads:
+                        e = edge[tr[0]]
+                        nxt, prv = edge.get(tr[-1] + 1), edge.get(tr[0] - 1)
+                        up_next, up_prev = nxt == e + s, prv == e + s
+                        if up_next == up_prev or len(tr) < 2:
+                            continue                      # no single outward step, or a notch
+                        seg = tr[-4:] if up_next else tr[:4]
+                        wide, narrow = (seg[-1], seg[0]) if up_next else (seg[0], seg[-1])
+                        full = tuple(to_xz(e, a) for a in seg)
+                        cands.append((L, full, tuple(to_xz(e + s, a) for a in seg), to_xz(e + s, wide),
+                                      to_xz(e + s, narrow)))
+        # A 1-stud-wide wedge column is held only by what crosses it above or
+        # below; wedges stacked on the same cells would form a closed island.
+        # So per vertical run only the bottom one is kept, with body over its
+        # studded column: the layer above (plates or the smooth top tiles)
+        # bridges it to the rest, as builders tuck a wing plate under tiles.
+        at = defaultdict(set)
+        for L, full, *_ in cands:
+            at[full].add(L)
+        for L, full, tri, wide, narrow in sorted(cands, key=lambda c: c[0]):
+            if L - 1 in at[full] or not all((x, L + 1, z) in core for (x, z) in full):
+                continue
+            if not all((x, L, z) in polys for (x, z) in full):
+                continue                              # only edges drawn as diagonals (poly shapes)
+            cells3 = {(x, L, z) for (x, z) in full + tri}
+            if (cells3 & claimed or any((x, L, z) in reserved for (x, z) in full)
+                    or any(c in by_level[L] or (c[0], L, c[1]) in D.occ for c in tri)):
+                continue
+            cols = {core[(x, L, z)] for (x, z) in full}
+            if len(cols) != 1:
+                continue
+            fit = self._fit_wedge(len(full), L, list(full), wide, narrow)
+            if fit:
+                pid, i, k, yaw = fit
+                claimed |= cells3
+                placements.append((pid, cols.pop(), i, L, k, yaw, "wedge", {(x, L, z) for (x, z) in full}))
+        return claimed
+
+    def _fit_wedge(self, n, L, full, wide, narrow):
+        """The (part, origin cell, yaw) whose real outline covers the `full`
+        cells and the `wide` end of the tapered column but not the `narrow`
+        end -- found by transforming the measured outline, not assumed."""
+        xs = [c[0] for c in full] + [wide[0], narrow[0]]
+        zs = [c[1] for c in full] + [wide[1], narrow[1]]
+        i, k = min(xs), min(zs)
+        for pid in WEDGES[n]:
+            outline = pdef(pid).outline
+            for yaw in (0, 90, 180, 270):
+                q = self.D.make(pid, 0, i, L, k, yaw=yaw)
+                cover = _cell_cover(q, outline)
+                if all(cover(c) > 0.9 for c in full) and cover(wide) > 0.5 and cover(narrow) < 0.5:
+                    return pid, i, k, yaw
+        return None
+
     def plan_lights(self, core, reserved, front):
         """Where a wheeled sculpt's front and back faces are flat and exposed
         for one brick course (3 plates) across at least 2 studs: returns
@@ -1090,6 +1247,15 @@ class Interp:
             spec = dict(spec, wheels=dict(wheels, lights=False))
             ok = self._sculpt(spec)
             self.repairs.append(("lights dropped", 0))
+        if spec.get("wedges", True) and not self.D.is_one_piece(range(n0, len(self.D.parts))) and any(
+                q.tag == "wedge" for q in self.D.parts[n0:]):
+            # wedges are dressing too: rebuild without them rather than fall apart
+            self.D.rollback(n0)
+            del self.repairs[r0:]
+            del self.errors[e0:]
+            spec = dict(spec, wedges=False)
+            ok = self._sculpt(spec)
+            self.repairs.append(("wedges dropped", 0))
         # rebuild solid only if hollow really fell apart, not when it is one
         # piece that simply stands on something without clicking on
         if not ok and spec.get("hollow") and not self.D.is_one_piece(range(n0, len(self.D.parts))):
@@ -1217,6 +1383,12 @@ class Interp:
                     placements.append((pid, col, x0, lvl, z0, yaw_pointing(MAIN, want), "cap", cells))
                 else:
                     placements.append((kind, col, x0, lvl, z0, 90 if axis == "x" else 0, "cap", cells))
+        if spec.get("wedges", True) and spec.get("poly"):
+            polys = {(x, S + y, z) for (x, y, z) in spec["poly"]}
+            wedged = {c for c in self.plan_wedges(core, reserved, placements, polys) if c in core}
+            reserved |= wedged
+            for c in wedged:
+                tiles_top.pop(c, None)
         reserved |= set(tiles_top)
         # tops of lower segments in gapped columns (e.g. under an overhanging leaf) get tiles too
         for (x, L, z), col in core.items():
@@ -1351,6 +1523,19 @@ class Interp:
         soft = {c: col for c, col in soft.items() if core.get(c) == col and c not in reserved}
         fill_cells = {c: (None if c in flex or c in soft else col) for c, col in core.items() if c not in reserved}
 
+        # Cells of thin features (under 3 plates tall: wings, fins, ledges).  A
+        # brick right beside one blocks it: a 2-plate wing can only tie into the
+        # body through plates that reach across the joint at its own levels.
+        run = {}
+        for (x, L, z) in core:
+            if (x, L - 1, z) not in core:
+                n = 0
+                while (x, L + n, z) in core:
+                    n += 1
+                for l in range(n):
+                    run[(x, L + l, z)] = n
+        thin = {c for c, n in run.items() if n < 3}
+
         def fill(r, mirror, flip):
             taken = set()
             for L in sorted({c[1] for c in fill_cells}):
@@ -1362,6 +1547,9 @@ class Interp:
                     for (x, z), col in free.items():
                         cs = [fill_cells.get((x, L + l, z), "X") for l in range(3)]
                         if "X" in cs or any((x, L + l, z) in taken for l in range(3)):
+                            continue
+                        if any((x + a, L + l, z + b) in thin for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                               for l in range(3)):
                             continue
                         s = {c for c in cs if c is not None}
                         if len(s) <= 1:
@@ -1525,16 +1713,18 @@ class Interp:
         if grad:
             axis_pos(grad[1])                     # validate now: report the bad axis on this line
         spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
-                    hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"),
-                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None)
+                    hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"), wedges=kw.get("wedges", "1") != "0",
+                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set())
         for ln, raw in block:
             if not raw:
                 continue
             t = raw.split()
             p, k = split_kw(t[1:])
             try:
-                if t[0] in ("col", "box", "ball", "cyl"):
+                if t[0] in ("col", "box", "ball", "cyl", "poly"):
                     spec["shapes"].append(("add", shape_cells(t[0], p)))
+                    if t[0] == "poly":                # diagonal edges drawn on purpose: wedge them
+                        spec["poly"] |= spec["shapes"][-1][1]
                 elif t[0] == "cut":
                     spec["shapes"].append(("cut", shape_cells(p[0], p[1:])))
                 elif t[0] == "paint":
@@ -1543,7 +1733,7 @@ class Interp:
                         axis_pos(c[1])
                     else:
                         c = color(p[0])[0]
-                    if p[1] in ("box", "ball", "cyl", "col"):
+                    if p[1] in ("box", "ball", "cyl", "col", "poly"):
                         spec["paint"].append((c, "set", shape_cells(p[1], p[2:])))
                     else:
                         spec["paint"].append((c, "ranges", (rng_(p[1]), rng_(p[2]), rng_(p[3]) if len(p) > 3 else None)))
@@ -1617,8 +1807,11 @@ class Interp:
             self.base(cells, self.colours(p[1], cells, kw), self.colours(kw["top"], cells, kw) if "top" in kw else None,
                       color(kw["rim"])[0] if "rim" in kw else None)
         elif cmd == "scatter":
-            self.scatter(p[0], color(p[1]), region_terms(p[2:-1]), int(p[-1]), int(kw.get("every", 0)),
-                         int(kw.get("shift", 0)), float(kw.get("density", 0.3)), int(kw.get("seed", 0)))
+            rot = kw.get("rot", "0")
+            rot = "alt" if rot == "alt" else rot_(kw)
+            level = "top" if p[-1] == "top" else _bounded(int(p[-1]), LIMITS["coord"], "level")
+            self.scatter(p[0], color(p[1]), region_terms(p[2:-1]), level, int(kw.get("every", 0)),
+                         int(kw.get("shift", 0)), float(kw.get("density", 0.3)), int(kw.get("seed", 0)), rot)
         elif cmd == "water":
             ripples = float(kw.get("ripples", 0.06))
             if not 0 <= ripples <= 0.5:

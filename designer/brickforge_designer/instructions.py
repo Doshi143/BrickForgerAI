@@ -78,6 +78,10 @@ NAME_OVERRIDES = {
     "3023": "Plate 1 x 2",
     "4073": "Plate 1 x 1 Round",
     "60603": "Glass for Window 1 x 4 x 3",
+    "43722": "Wing 2 x 3 Right",
+    "43723": "Wing 2 x 3 Left",
+    "41769": "Wing 2 x 4 Right",
+    "41770": "Wing 2 x 4 Left",
 }
 
 DEFAULT_MAX_PER_STEP = 8        # matches core's DEFAULT_MAX_BRICKS_PER_STEP

@@ -633,3 +633,87 @@ end
     D, problems, stats = run(text)
     assert problems == [], problems
     assert stats["components"] == 1
+
+
+# ---------------------------------------------------------------- wedge plates and poly (TECHNIQUES.md item 5)
+WING = """model wing
+base 4..20,-6..5 dark_bluish_gray
+stack 3941 light_bluish_gray 11 -1 2 3
+sculpt base=11 color=white{opts}
+  cyl x 2..22 2 0 2 1
+  poly 1..2 8,-0.5 12,-11 15,-11 15,11 12,11 8,0.5
+end
+"""
+
+
+def test_poly_is_a_plan_view_polygon_extruded_over_levels():
+    from brickforge_designer.dsl import shape_cells
+    tri = shape_cells("poly", ["0..1", "0,0", "4,0", "0,4"])
+    assert {(x, z) for (x, y, z) in tri} == {(x, z) for x in range(4) for z in range(4) if x + z <= 2}
+    assert {y for (_, y, _) in tri} == {0, 1}
+
+
+def test_poly_is_bounded():
+    _, problems, _ = run(BASE + "sculpt base=0 color=red\n  poly 0..200 0,0 400,0 0,400\nend\n")
+    assert any("too big" in p for p in problems), problems
+    _, problems, _ = run(BASE + "sculpt base=0 color=red\n  poly 0..1 0,0 4,0\nend\n")
+    assert any("3 to 16" in p for p in problems), problems
+
+
+def test_a_swept_wing_gets_wedge_plates_along_its_diagonal_edges():
+    D, problems, stats = run(WING.format(opts=""))
+    assert problems == [] and stats["components"] == 1, problems
+    wedges = [q for q in D.parts if q.tag == "wedge"]
+    assert {q.pid for q in wedges} >= {"43722", "43723"}
+    # each wedge's tapered column fills the step beside its tread: every wedge
+    # covers cells the sculpt itself left empty (that is what makes the edge diagonal)
+    plain, _, _ = run(WING.format(opts=" wedges=0"))
+    plain_cells = set(plain.occ)
+    for q in wedges:
+        cells = [c for c, i in D.occ.items() if D.parts[i] is q]
+        assert any(c not in plain_cells for c in cells)
+
+
+def test_wedges_are_never_stacked_on_the_same_cells():
+    D, _, _ = run(WING.format(opts=""))
+    seen = {}
+    for c, i in D.occ.items():
+        if D.parts[i].tag == "wedge":
+            seen.setdefault((c[0], c[2]), set()).add(c[1])
+    assert all(len(levels) == 1 for levels in seen.values())
+
+
+def test_wedge_orientation_comes_from_the_measured_outline():
+    # the outline is data from the LDraw geometry, and it is what decides the fit
+    from brickforge_designer.engine import pdef
+    for pid in ("24299", "24307", "43722", "43723", "41769", "41770"):
+        P = pdef(pid)
+        assert P.outline and len(P.outline) >= 4
+        assert len(P.recv) == P.d if P.d > 1 else True      # grips only under its studded column
+
+
+# ---------------------------------------------------------------- spikes and teeth (TECHNIQUES.md item 8)
+SPINE = """model t
+sculpt base=0 color=green hollow=2
+  box 2..17 0..8 -3..3
+end
+"""
+
+
+def test_scatter_on_top_follows_the_surface_and_clicks_on():
+    D, problems, stats = run(SPINE + "scatter 4589 dark_green 3..16,0..0 top every=2\n")
+    assert problems == [], problems
+    cones = [q for q in D.parts if q.pid == "4589"]
+    assert len(cones) == 7
+    assert stats["components"] == 1                    # every cone clicks onto the body
+    assert any(r[0] == "click-on" for r in stats["engine_repairs"])
+
+
+def test_teeth_with_rot_alt_point_out_to_both_sides_of_the_row():
+    D, problems, _ = run(SPINE + "scatter 49668 white 3..16,-3..-3 top every=2 rot=alt\n")
+    assert problems == [], problems
+    teeth = [q for q in D.parts if q.pid == "49668"]
+    assert teeth
+    # the tooth sticks out a stud past the plate across the row (z), never along it (x)
+    for q in teeth:
+        assert q.box[0][1] - q.box[0][0] == 20 and q.box[2][1] - q.box[2][0] == 40, q.box

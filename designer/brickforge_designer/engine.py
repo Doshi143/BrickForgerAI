@@ -106,7 +106,14 @@ class PartDef:
             self.w, self.d = round((x1 - x0) / 20), round((z1 - z0) / 20)
             self.cx, self.cz = round((x0 + x1) / 2 / 10) * 10, round((z0 + z1) / 2 / 10) * 10
         self.studs = [((s[0], s[1], s[2]), (round(s[3]), round(s[4]), round(s[5]))) for s in t["studs"]]
+        # plan-view shape for parts that aren't rectangles (wedge plates), local (x, z) LDU
+        self.outline = [tuple(p) for p in t["outline"]] if "outline" in t else None
         cells = RECV.get(pid)
+        if cells is None and self.outline:
+            # a wedge grips only under its studded, full-width column, not under the taper
+            x0, z0 = self.cx - 10 * self.w, self.cz - 10 * self.d
+            cells = sorted({(int((s[0][0] - x0) // 20), int((s[0][2] - z0) // 20)) for s in self.studs
+                            if s[1] == (0, -1, 0)})
         if cells is None:
             cells = [(0, 0)] if pid in ORIGIN_PARTS else [(a, b) for a in range(self.w) for b in range(self.d)]
         ybot = 0.0 if self.bottom else 8.0 * self.h
@@ -270,6 +277,7 @@ class Design:
                 if d == want:
                     out.add(m)
         return out
+
 
     def rollback(self, n0):
         del self.parts[n0:]

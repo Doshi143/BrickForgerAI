@@ -5,8 +5,13 @@ library.  Run once when the part vocabulary changes; the engine loads the JSON.
 """
 import json
 import os
+import re
+import subprocess
+import time
 
-from ldraw_geometry import MISSING, bbox, studs, title
+from ldraw_geometry import MISSING, _walk, bbox, studs, title
+
+MIRROR = "https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/complete/ldraw/parts/"
 
 PARTS = [
     # bricks
@@ -29,8 +34,32 @@ PARTS = [
     # Batch 1 techniques (TECHNIQUES.md): vehicle lights and grilles, teeth and
     # spikes, wedge plates for sleek outlines
     "4070", "2412b", "4589", "49668", "15070", "15208",
-    "43722a", "43723a", "41769a", "41770a", "24299", "24307",
+    "43722", "43723", "41769", "41770", "24299", "24307",
 ]
+# Parts whose plan-view shape isn't their bounding rectangle: store the top
+# face's outline (convex hull of the geometry at local y=0, as (x, z) LDU) so
+# the engine can fit them to a diagonal edge by their real shape.
+# Wedges use their original LDraw numbers (now "~Moved to ...a" redirects in the
+# official library, measured through the redirect): the web viewer's and PDF
+# renderer's parts mirror only has the original files, and they are also the
+# BrickLink numbers.
+OUTLINE = {"43722", "43723", "41769", "41770", "24299", "24307"}
+
+
+def top_outline(pid):
+    pts = sorted({(round(x, 1), round(z, 1)) for x, y, z in _walk(pid + ".dat")[0] if abs(y) < 0.01})
+    cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return [list(p) for p in lower[:-1] + upper[:-1]]
+
 
 if __name__ == "__main__":
     table = {}
@@ -39,6 +68,8 @@ if __name__ == "__main__":
         table[pid] = {"title": title(pid),
                       "bbox": [[x0, x1], [y0, y1], [z0, z1]],
                       "studs": [[*p, *d] for p, d in studs(pid)]}
+        if pid in OUTLINE:
+            table[pid]["outline"] = top_outline(pid)
         print(f"{pid:8s} {table[pid]['title'][:40]:40s} studs={len(table[pid]['studs'])}")
     # Sanity: every stud-bearing part's body must reach a whole plate below its top.
     # A short body means geometry was dropped, which would seat the part too low.
@@ -51,6 +82,30 @@ if __name__ == "__main__":
             bad.append((pid, y1))
     if MISSING:
         raise SystemExit(f"files referenced but not found in the LDraw library (geometry incomplete): {sorted(MISSING)}")
+    # The web viewer and the PDF renderer load parts from a mirror that lags the
+    # official library (it lacks renamed "...a" files, and 7825/7835, which are
+    # self-hosted as overrides); a part missing there stops the whole model from
+    # rendering on the site.  Every part must be on the mirror or overridden.
+    viewer = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "web", "frontend", "components",
+                          "Viewer3D.tsx")
+    with open(viewer, encoding="utf-8") as f:
+        overridden = set(re.findall(r'"parts/([^"/]+)\.dat":', f.read()))
+    absent = []
+    for pid in PARTS:
+        if pid in overridden:
+            continue
+        for attempt in range(5):
+            time.sleep(0.2)
+            r = subprocess.run(["curl", "-s", "-o", os.devnull, "-w", "%{http_code}", MIRROR + pid + ".dat"],
+                               capture_output=True, text=True)
+            if r.stdout.strip() in ("200", "404"):
+                break
+            time.sleep(2 ** attempt)
+        if r.stdout.strip() != "200":
+            absent.append((pid, r.stdout.strip()))
+    if absent:
+        raise SystemExit(f"parts the site's viewer mirror can't load (use another LDraw number, or self-host an "
+                         f"override in Viewer3D.tsx and render.js): {absent}")
     if bad:
         raise SystemExit(f"parts with a body shorter than one plate (geometry not resolved?): {bad}")
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "brickforge_designer", "parts_table.json")

@@ -56,7 +56,10 @@ bricks L COLOUR REGION [courses=N]     # N brick courses, interlocked
 part PID COLOUR X Z L [rot=0|90|180|270]
 stack PID COLOUR X Z L N               # N of a part on top of each other (3941 = 2x2 round brick: stands, trunks)
 row PID COLOUR X Z L N [dx=1] [dz=0] [rot=]
-scatter PID COLOURS REGION L [every=N shift=K | density=0.3 seed=S]   # optional decorations
+scatter PID COLOURS REGION L|top [every=N shift=K | density=0.3 seed=S] [rot=0|90|180|270|alt]
+                                       # decorations; `top` = on whatever is highest at each cell
+                                       # (spikes: 4589 cone; teeth/claws: 49668 tooth plate, rot=alt
+                                       # points them out to both sides of the row)
 water L REGION [bed=GRADIENT] [surface=GRADIENT] [foam=white|none] [ripples=0.06]
                                        # ponds, rivers, sea: 2 plates, deepens away from the shore
 tree X Z L COLOUR [trunk=COLOUR]       # pyramid tree, 3x3 canopy around X,Z
@@ -117,6 +120,8 @@ sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z]
   ball CX CY CZ RX RY RZ                # ellipsoid: centre (x, y, z), radii (studs, plates, studs)
   cyl x|y|z A0..A1 C1 C2 R0 [R1]        # (tapered) cylinder along an axis, radius in studs:
                                         #   x: C1 = y centre, C2 = z centre;  y: C1 = x, C2 = z;  z: C1 = x, C2 = y
+  poly Y0..Y1 x,z x,z x,z ...           # plan-view polygon (3-16 corners) over levels Y0..Y1:
+                                        #   swept wings, pointed bows, fins, arrow and star shapes
   cut box|ball|cyl ...                  # remove a shape
   paint COLOUR X0..X1 Y0..Y1 [Z0..Z1]   # or: paint COLOUR ball|box|cyl ...   (later lines win)
   panel X0..X1 Y0..Y1 thick=2|3         # smooth sideways (SNOT) skin on both flanks
@@ -129,7 +134,8 @@ end
 All levels inside are relative to `base` (y). Centres are continuous: a shape centred
 on z=0 is mirror-symmetric, which is what animals and vehicles want. The engine caps
 every top step with curved slopes in both directions (use `caps=x` or `caps=z` to only
-round along one axis), tiles flat tops, rounds gentle underside steps with inverted
+round along one axis), smooths `poly` diagonal edges with wedge plates (`wedges=0`
+to turn off), tiles flat tops, rounds gentle underside steps with inverted
 curves, colours hidden cells itself, and with `hollow=2` keeps only a 2-cell shell (use
 it for anything larger than about 8x8x8).
 
@@ -166,8 +172,8 @@ sculpt base=0 color=light_bluish_gray hollow=2
 end
 ```
 Plane (faces +x, on a stand): `base 7..15,-4..3 COLOUR`, `stack 3941 COLOUR 10 -1 2 3`,
-then `sculpt base=11` with `cyl x 2..22 2 0 2 1` fuselage, `box 9..13 1..2 -9..8` wings,
-`box 2..4 3..8 0..0` fin, nose `cut`/taper.
+then `sculpt base=11` with `cyl x 2..22 2 0 2 1` fuselage, swept wings through it
+`poly 1..2 8,-0.5 12,-11 15,-11 15,11 12,11 8,0.5`, `box 2..4 3..8 0..0` fin, nose `cut`/taper.
 
 ## Rules
 
