@@ -329,6 +329,7 @@ HOSTILE = [
     "bricks 0 red 0..3,0..3 courses=100000\n",
     "building 0..10,0..10 0 floors=500\n",
     "part 3001 red 99999999 0 0\n",
+    "plates 0 red " + " ".join(f"+{64 * i}..{64 * i + 63},0..63" for i in range(16)) + "\n",
 ]
 
 
@@ -449,3 +450,20 @@ def test_instructions_for_a_free_standing_model_start_on_the_table():
     assert sorted(i for s in steps for i in s.part_indices) == list(range(len(D.parts)))
     lowest = max(q.box[1][1] for q in D.parts)
     assert all(abs(D.parts[i].box[1][1] - lowest) <= 1 for i in steps[0].part_indices)
+
+
+def test_region_terms_may_be_joined_or_spaced():
+    # production: "SPEC line 11: bad rect '8..8,2..6+10..10,2..6+...'" failed a modular
+    # building twice -- the designer wrote the terms without spaces
+    joined = BASE + "plates 0 red 6..17,2..6-8..8,2..6-10..10,2..6\ntiles 1 blue 6..7,2..6+11..11,2..6\n"
+    spaced = BASE + "plates 0 red 6..17,2..6 -8..8,2..6 - 10..10,2..6\ntiles 1 blue 6..7,2..6 +11..11,2..6\n"
+    Dj, pj, _ = run(joined)
+    Ds, ps, _ = run(spaced)
+    assert pj == [] and ps == [], (pj, ps)
+    cells = lambda D: sorted(D.occ)
+    assert cells(Dj) == cells(Ds) and len(Dj.occ) == 12 * 5 - 2 * 5 + 3 * 5
+
+
+def test_a_bad_region_error_says_how_to_write_one():
+    _, problems, _ = run(BASE + "plates 0 red 8..8,2..6/10..10,2..6\n")
+    assert any("then optional +x0..x1,z0..z1" in p for p in problems), problems

@@ -30,6 +30,7 @@ LIMITS = dict(
     coord=512,            # |x|, |z| in studs, |level| in plates
     span=256,             # cells in one a..b range
     rect_cells=4096,      # cells in one x0..x1,z0..z1 rectangle (64 x 64)
+    region_cells=4096,    # cells in a whole region (rect +rect -rect ...)
     radius=64,            # ball / cyl radius in studs (ball y radius in plates: 2.5x)
     shape_cells=25000,    # cells one shape may cover
     sculpt_cells=25000,   # cells in one sculpt
@@ -72,15 +73,41 @@ def rect(tok):
     return {(x, z) for x in xr for z in zr}
 
 
+_RANGE = r"-?\d+(?:\.\d+)?(?:\.\.-?\d+(?:\.\d+)?)?"
+_RECT_TERM = re.compile(rf"({_RANGE},{_RANGE})")
+_FIRST_TERM = re.compile(rf"\+?({_RANGE},{_RANGE})")
+_NEXT_TERM = re.compile(rf"([+-])({_RANGE},{_RANGE})")
+REGION_HELP = "want x0..x1,z0..z1 then optional +x0..x1,z0..z1 / -x0..x1,z0..z1 terms"
+
+
 def region_terms(toks):
-    out = set()
-    for n, t in enumerate(toks):
-        if n and t.startswith("-"):
-            out -= rect(t[1:])
-        elif t.startswith("+"):
-            out |= rect(t[1:])
-        else:
-            out |= rect(t)
+    """`x0..x1,z0..z1 +rect -rect ...`.  Terms may also be written joined
+    (`0..3,0..3+5..6,0..1-1..1,1..1`) or with a spaced sign (`+ rect`): after
+    the first rect every term starts with its sign, so either form is
+    unambiguous (the first rect may start with a negative coordinate)."""
+    out, first, sign = set(), True, None
+    for t in toks:
+        if t in ("+", "-"):
+            sign = t
+            continue
+        pos = 0
+        while pos < len(t):
+            if pos == 0 and sign:
+                m, op = _RECT_TERM.match(t), sign
+            elif first:
+                m, op = _FIRST_TERM.match(t, pos), "+"
+            else:
+                m = _NEXT_TERM.match(t, pos)
+                op = m.group(1) if m else None
+            if not m:
+                raise SpecError(f"bad region '{' '.join(toks)}' ({REGION_HELP})")
+            cells = rect(m.group(m.lastindex))
+            out = out - cells if op == "-" else out | cells
+            if len(out) > LIMITS["region_cells"]:
+                raise SpecError(f"region is too big (limit {LIMITS['region_cells']} cells)")
+            pos, first, sign = m.end(), False, None
+    if first:
+        raise SpecError(f"missing region ({REGION_HELP})")
     return out
 
 
