@@ -1,0 +1,18 @@
+model sailing_boat
+base 0..23,-7..6 blue
+tiles 2 trans_light_blue 0..23,-7..6 -4..17,-3..2
+sculpt base=2 color=reddish_brown hollow=2 caps=x
+  box 4..17 0..6 -3..2
+  box 18..19 1..6 -2..1
+  box 20..21 3..6 -1..0
+  box 3..3 2..6 -2..1
+  box 10..10 7..40 0..0
+  box 11..17 7..16 0..0
+  box 11..16 17..24 0..0
+  box 11..14 25..32 0..0
+  box 11..12 33..38 0..0
+  paint white 3..21 6..6
+  paint white 11..17 7..38
+  paint dark_brown 10..10 7..38
+  paint red 10..10 39..40
+end

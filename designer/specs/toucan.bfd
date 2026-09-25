@@ -1,0 +1,55 @@
+model toucan
+plates 0 dark_bluish_gray 0..15,-6..5
+plates 1 dark_green|dark_green|green 0..15,-6..5
+tiles 2 dark_bluish_gray 0..15,-6..5 -1..14,-5..4
+step
+stump 6 -2 2 26 reddish_brown band=dark_brown bands=0,4
+roots 6 -2 2 reddish_brown
+part 2423 green 11 -4 2 rot=270
+part 2423 dark_green 4 3 2 rot=90
+part 2423 lime 11 3 2 rot=270
+part 32607 green 2 -3 2
+part 32607 dark_green 13 1 2
+part 32607 green 5 4 2
+part 32607 dark_green 9 -4 2
+part 33291 red 1 -4 2
+part 33291 yellow 14 -2 2
+part 33291 red 2 -1 2
+part 33291 yellow 1 1 2
+part 98138 sand_blue 9 -1 26
+part 98138 sand_blue 9 0 26
+step
+sculpt base=26 color=black
+  col 3 -18..7
+  col 4 -18..15
+  col 5 4..26
+  col 6 0..36
+  col 7 0..42
+  col 8 0..44
+  col 9 1..46
+  col 10 2..46
+  col 11 4..46
+  col 12 8..46
+  col 13 16..46
+  col 14 24..44
+  col 15 28..44
+  col 16..17 30..44 -1..0
+  col 18..19 30..42 -1..0
+  col 20 32..42 -1..0
+  col 21..22 32..40 -1..0
+  col 23..24 32..38 -1..0
+  col 25 32..36 -1..0
+  col 26 32..34 -1..0
+  paint orange 16..26 34..46
+  paint bright_light_orange 16..26 30..33
+  paint black 25..26 34..46
+  paint red 5 4..7
+  paint red 4 -4..3
+  paint white 12..15 14..31
+  panel 7..15 32..46 thick=2
+  ppaint white 11..15 32..36
+  ppaint white 14..15 37..38
+  eye 13 41 ring=medium_azure skin=orange
+  panel 4..13 5..30 thick=3
+  ppaint white 12..13 14..29
+end

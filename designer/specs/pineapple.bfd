@@ -1,0 +1,16 @@
+model pineapple
+base 0..10,-6..5 dark_tan
+sculpt base=2 color=bright_light_orange
+  ball 5 11 0 4 11.5 4
+  cyl y 21..34 5 0 2.4 0.5
+  box 3..3 23..29 -1..0
+  box 7..7 23..29 -1..0
+  box 4..5 24..31 -3..-3
+  box 4..5 24..31 2..2
+  paint dark_orange 0..10 3..3
+  paint dark_orange 0..10 9..9
+  paint dark_orange 0..10 15..15
+  paint yellow 0..10 18..20
+  paint green 0..10 21..34
+  paint dark_green 0..10 21..23
+end

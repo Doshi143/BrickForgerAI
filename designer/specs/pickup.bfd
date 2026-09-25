@@ -1,0 +1,4 @@
+model pickup_truck
+base 0..9,0..17 dark_bluish_gray
+tiles 2 dark_bluish_gray 0..9,0..17
+vehicle 3 2 type=pickup color=red trim=black on=3

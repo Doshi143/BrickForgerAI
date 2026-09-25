@@ -1,0 +1,10 @@
+model tudor_house_v2
+baseplate 0 0 green
+tiles 0 light_bluish_gray 10..13,0..10
+building 4..19,11..22 0 floors=2 color=white trim=dark_brown style=timber jetty=1 roof=gable ridge=x roofcolor=dark_bluish_gray frame=dark_brown leaf=reddish_brown base=dark_bluish_gray
+plates 0 reddish_brown 4..8,8..9 +15..19,8..9
+scatter 33291 red|yellow|pink|white 4..8,8..9 +15..19,8..9 1 every=2
+scatter 4073 bright_green 4..8,8..9 +15..19,8..9 1 every=2 shift=1
+tree 26 5 0 green
+tree 27 27 0 dark_green
+tree 2 28 0 bright_green

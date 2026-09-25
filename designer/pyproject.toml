@@ -1,0 +1,26 @@
+[project]
+name = "brickforge-designer"
+version = "0.0.1"
+description = "Detailed mode: a language model writes a compact .bfd spec, this engine builds and checks it"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["brickforge_designer*"]
+
+[tool.setuptools.package-data]
+brickforge_designer = ["PROMPT.md", "parts_table.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

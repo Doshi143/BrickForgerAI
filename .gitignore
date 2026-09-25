@@ -51,3 +51,8 @@ web/OPERATIONS.md
 .env
 *.env
 !.env.example
+
+# Designer (Detailed mode): LDraw download cache, demo outputs, local design cache
+designer/.ldraw_cache/
+designer/out/
+.design_cache.json

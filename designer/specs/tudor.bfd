@@ -1,0 +1,88 @@
+model tudor_house
+baseplate 0 0 green
+tiles 0 light_bluish_gray 10..13,0..9
+plates 0 dark_bluish_gray 4..19,12..23
+plates 0 reddish_brown 3..7,7..8 +16..20,7..8
+scatter 33291 red|yellow|white|pink 3..7,7..8 +16..20,7..8 1 every=2
+scatter 4073 bright_green 3..7,7..8 +16..20,7..8 1 every=2 shift=1
+tree 26 5 0 green
+tree 27 28 0 dark_green
+tree 5 29 0 bright_green
+step
+# ground floor
+door 10 12 x 1 frame=dark_brown leaf=reddish_brown
+window 5 12 x 4 frame=dark_brown
+window 15 12 x 4 frame=dark_brown
+window 5 23 x 4 frame=dark_brown
+window 10 23 x 4 frame=dark_brown
+window 15 23 x 4 frame=dark_brown
+window 4 15 z 4 frame=dark_brown
+window 19 15 z 4 frame=dark_brown
+walls 4..19,12..23 1 6 white
+tiles 1 tan 5..18,13..22
+# posts carrying the jetty
+stack 3005 dark_brown 2 10 0 6
+stack 3005 dark_brown 8 10 0 6
+stack 3005 dark_brown 15 10 0 6
+stack 3005 dark_brown 21 10 0 6
+stack 3005 dark_brown 2 25 0 6
+stack 3005 dark_brown 21 25 0 6
+part 3024 dark_brown 2 10 18
+part 3024 dark_brown 8 10 18
+part 3024 dark_brown 15 10 18
+part 3024 dark_brown 21 10 18
+part 3024 dark_brown 2 25 18
+part 3024 dark_brown 21 25 18
+step
+# jettied floor beam
+plates 19 dark_brown 2..21,10..25 prefer=x
+plates 20 dark_brown 2..21,10..25 prefer=z
+step
+# overhanging upper floor with applied timber posts
+window 4 11 x 24 frame=dark_brown
+window 10 11 x 24 frame=dark_brown
+window 16 11 x 24 frame=dark_brown
+window 4 24 x 24 frame=dark_brown
+window 10 24 x 24 frame=dark_brown
+window 16 24 x 24 frame=dark_brown
+window 3 15 z 24 frame=dark_brown
+window 20 15 z 24 frame=dark_brown
+walls 3..20,11..24 21 5 white
+stack 3005 dark_brown 2 10 21 5
+stack 3005 dark_brown 8 10 21 5
+stack 3005 dark_brown 15 10 21 5
+stack 3005 dark_brown 21 10 21 5
+stack 3005 dark_brown 2 25 21 5
+stack 3005 dark_brown 8 25 21 5
+stack 3005 dark_brown 15 25 21 5
+stack 3005 dark_brown 21 25 21 5
+stack 3005 dark_brown 2 13 21 5
+stack 3005 dark_brown 2 20 21 5
+stack 3005 dark_brown 21 13 21 5
+stack 3005 dark_brown 21 20 21 5
+plates 36 dark_brown 2..21,10..25 prefer=x
+step
+# steep slate roof, gables facing east and west
+sculpt base=37 color=dark_bluish_gray
+  col 1 0..1 9..26
+  col 2 0..3 9..26
+  col 3 0..5 9..26
+  col 4 0..7 9..26
+  col 5 0..9 9..26
+  col 6 0..11 9..26
+  col 7 0..13 9..26
+  col 8 0..15 9..26
+  col 9 0..17 9..26
+  col 10 0..19 9..26
+  col 11..12 0..21 9..26
+  col 13 0..19 9..26
+  col 14 0..17 9..26
+  col 15 0..15 9..26
+  col 16 0..13 9..26
+  col 17 0..11 9..26
+  col 18 0..9 9..26
+  col 19 0..7 9..26
+  col 20 0..5 9..26
+  col 21 0..3 9..26
+  col 22 0..1 9..26
+end
