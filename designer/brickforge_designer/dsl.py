@@ -1519,6 +1519,21 @@ class Interp:
         i0 = -(w // 2)
         cells = {(i, k * local_out if local_out > 0 else -k): col for i in range(i0, i0 + w) for k in range(n)}
         cells = {(i, k): col for (i, k), col in cells.items()}
+        # cheap first: the whole panel as one tilted box against the model, before tiling it
+        ks = [k for _, k in cells]
+        lo, hi = (20 * i0, -16, 20 * min(ks)), (20 * (i0 + w), 0, 20 * (max(ks) + 1))
+        cl = mul(M, tuple((a_ + b_) / 2 for a_, b_ in zip(lo, hi)))
+        slab = type("Slab", (), {})()
+        slab.obb = ((F.O[0] + cl[0], F.O[1] + cl[1], F.O[2] + cl[2]),
+                    ((M[0], M[3], M[6]), (M[1], M[4], M[7]), (M[2], M[5], M[8])),
+                    tuple((b_ - a_) / 2 for a_, b_ in zip(lo, hi)))
+        corners = [mul(M, (xx, yy, zz)) for xx in (lo[0], hi[0]) for yy in (lo[1], hi[1]) for zz in (lo[2], hi[2])]
+        slab.box = tuple((min(c[a_] for c in corners) + F.O[a_], max(c[a_] for c in corners) + F.O[a_]) for a_ in range(3))
+        if any(D._collide(slab, D.parts[m]) for key in D._buckets(slab.box) for m in D._hash.get(key, ())
+               if m not in (bi, ti) and D.parts[m].host != bi):
+            restore()
+            self.errors.append(f"flap at {x},{z}: its panel would hit the model; move it or make it shorter")
+            return False
         n1 = len(D.parts)
 
         def attempt(r, mirror, flip):
@@ -1526,7 +1541,7 @@ class Interp:
             # panel only holds where each piece happens to reach the hinge
             tile_level(D, cells, 0, PLATES, "x" if flip else "z", frame=F, tag="flap", rng=r)
             tile_level(D, cells, 1, self.flat, "z" if flip else "x", frame=F, tag="flap", rng=r)
-        verified(D, attempt, tries=16)
+        verified(D, attempt, tries=8)
         for i in range(n1, len(D.parts)):
             D.parts[i].host = ti                        # the panel rides on the hinge top
         new = range(n0, len(D.parts))
@@ -2132,7 +2147,7 @@ class Interp:
         for fl in spec.get("flaps", ()):
             # the asked spot first, then nearby ones: on a dome, the body just inward
             # of the hinge can stand taller than it and block the tilting panel
-            spots = sorted(((dx, dz) for dx in range(-3, 4) for dz in range(-3, 4)), key=lambda o: o[0] ** 2 + o[1] ** 2)
+            spots = sorted(((dx, dz) for dx in range(-2, 3) for dz in range(-2, 3)), key=lambda o: o[0] ** 2 + o[1] ** 2)
             e0 = len(self.errors)
             first = None
             for dx, dz in spots:
