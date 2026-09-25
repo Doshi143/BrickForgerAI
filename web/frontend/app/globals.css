@@ -73,6 +73,7 @@ a { color: inherit; }
   .footer-grid { grid-template-columns: 1fr !important; }
   .hero-title { font-size: 40px !important; }
   .prompt-row { flex-direction: column !important; }
+  .detail-options { grid-template-columns: 1fr !important; }
   .nav-links { display: none !important; }
   .nav-menu-toggle { display: flex !important; }
 }

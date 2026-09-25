@@ -13,6 +13,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, darkColors, glassBlurStyle, lightColors } from "@/app/theme";
 import {
   ApiError,
+  GenerationMode,
   Job,
   STATUS_LABELS,
   STATUS_ORDER,
@@ -171,7 +172,12 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
 
           {job && job.status !== "done" && job.status !== "failed" && (
             <Card colors={colors}>
-              <ProgressTrack colors={colors} status={job.status} studs={job.target_size_studs} />
+              <ProgressTrack
+                colors={colors}
+                status={job.status}
+                studs={job.target_size_studs}
+                mode={job.mode === "detailed" ? "detailed" : "voxel"}
+              />
             </Card>
           )}
 
@@ -220,7 +226,13 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                 <Stat
                   colors={colors}
                   label="Structure"
-                  value={job.is_single_piece ? "One piece" : "Split"}
+                  value={
+                    job.mode === "detailed" && (job.piece_count ?? 1) > 1
+                      ? `${job.piece_count} pieces`
+                      : job.is_single_piece
+                        ? "One piece"
+                        : "Split"
+                  }
                 />
                 {job.symmetrized && <Stat colors={colors} label="Symmetry" value="Matched" />}
               </div>
@@ -289,6 +301,9 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                   ? "Your build-instruction PDF walks through the model step by step, bottom-up. You can also open the .ldr in BrickLink Studio (free) for its own stability check."
                   : "Open the .ldr in BrickLink Studio (free) for its own stability check and step-by-step instructions."}
                 {job.was_repaired && " Structural repair ran on this model to connect or remove unsupported pieces."}
+                {job.mode === "detailed" &&
+                  (job.piece_count ?? 1) > 1 &&
+                  " This model has separate pieces (such as a vehicle) - the instructions build each one on its own."}
                 {job.color_source === "reference_image_projection" &&
                   " Colors were projected from the reference image, since the 3D stage returns geometry only."}
               </p>
@@ -304,12 +319,15 @@ function ProgressTrack({
   colors,
   status,
   studs,
+  mode,
 }: {
   colors: ThemeColors;
   status: Job["status"];
   studs: number | null;
+  mode: GenerationMode;
 }) {
-  const currentIndex = STATUS_ORDER.indexOf(status);
+  const order = STATUS_ORDER[mode];
+  const currentIndex = order.indexOf(status);
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
@@ -333,7 +351,7 @@ function ProgressTrack({
         </p>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {STATUS_ORDER.slice(0, -1).map((s, i) => {
+        {order.slice(0, -1).map((s, i) => {
           const done = i < currentIndex;
           const active = i === currentIndex;
           return (
@@ -361,8 +379,9 @@ function ProgressTrack({
         })}
       </div>
       <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 22, marginBottom: 0 }}>
-        This takes a few minutes - imagining the idea, then sculpting it in 3D, then
-        the brick placer.
+        {mode === "detailed"
+          ? "This takes a few minutes - designing the model piece by piece, checking every connection, then drawing up your instructions."
+          : "This takes a few minutes - imagining the idea, then sculpting it in 3D, then the brick placer."}
       </p>
     </div>
   );

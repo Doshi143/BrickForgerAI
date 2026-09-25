@@ -5,9 +5,18 @@ export type JobStatus =
   | "queued"
   | "generating_image"
   | "generating_mesh"
+  | "designing"
   | "building_bricks"
   | "done"
   | "failed";
+
+/** "voxel": the original prompt -> image -> 3D mesh -> bricks pipeline.
+ * "detailed" (beta): the model is designed piece by piece, then built and checked. */
+export type GenerationMode = "voxel" | "detailed";
+/** Detailed only: exposed flat tops tiled smooth, or left with studs showing. */
+export type Finish = "tiled" | "studs";
+/** Detailed only: how much sideways (SNOT) building to use. */
+export type Sideways = "off" | "auto" | "more";
 
 export type Job = {
   job_id: string;
@@ -27,6 +36,11 @@ export type Job = {
   still_critical_count: number | null;
   is_single_piece: boolean | null;
   symmetrized: boolean | null;
+  mode?: GenerationMode;
+  finish?: Finish | null;
+  sideways?: Sideways | null;
+  /** Detailed: the main model plus any separate sub-builds (e.g. a vehicle). */
+  piece_count?: number | null;
   ldr_download_url: string | null;
   instructions_pdf_url: string | null;
   thumbnail_url: string | null;
@@ -235,40 +249,58 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
   queued: "Queued",
   generating_image: "Imagining your model…",
   generating_mesh: "Sculpting it in 3D…",
+  designing: "Designing your model…",
   building_bricks: "Laying the bricks…",
   done: "Done",
   failed: "Failed",
 };
 
-export const STATUS_ORDER: JobStatus[] = [
-  "queued",
-  "generating_image",
-  "generating_mesh",
-  "building_bricks",
-  "done",
-];
+/** The phases each mode actually goes through, in order. */
+export const STATUS_ORDER: Record<GenerationMode, JobStatus[]> = {
+  voxel: ["queued", "generating_image", "generating_mesh", "building_bricks", "done"],
+  detailed: ["queued", "designing", "building_bricks", "done"],
+};
 
-export type BuildSize = "small" | "medium" | "large";
+/** Build size slider, in studs along the model's longest side. Voxel keeps
+ * to the range the old Small/Medium/Large buttons covered (15-30), measured
+ * and known-safe for part count and runtime; Detailed models sit on a
+ * 32x32 baseplate. The backend enforces its own (wider) bounds. */
+export const SIZE_RANGE: Record<GenerationMode, { min: number; max: number; initial: number }> = {
+  voxel: { min: 15, max: 30, initial: 22 },
+  detailed: { min: 16, max: 32, initial: 24 },
+};
 
-/** Studs along the model's longest horizontal axis. Large is capped
- * deliberately -- part count (and legalize/repair time) grows with this,
- * not just visual size, so "large" stays modest rather than ballooning
- * runtime for a trial app. */
-export const SIZE_OPTIONS: { id: BuildSize; label: string; studs: number; hint: string }[] = [
-  { id: "small", label: "Small", studs: 15, hint: "Quick, fewer parts" },
-  { id: "medium", label: "Medium", studs: 22, hint: "Balanced" },
-  { id: "large", label: "Large", studs: 30, hint: "More detail, more parts" },
-];
+export const CREDIT_COST: Record<GenerationMode, number> = { voxel: 1, detailed: 2 };
+
+export type Features = { detailed_mode: boolean };
+
+/** Which generation modes this visitor may use -- signed in, it reflects
+ * their own account (Detailed can be limited to an allowlist during the
+ * beta). Fails closed: any error means "Voxel only". */
+export async function fetchFeatures(token?: string | null): Promise<Features> {
+  try {
+    const res = await fetch(`${API_BASE}/features`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: "no-store",
+    });
+    if (!res.ok) return { detailed_mode: false };
+    const body = await res.json();
+    return { detailed_mode: body.detailed_mode === true };
+  } catch {
+    return { detailed_mode: false };
+  }
+}
 
 export async function startGeneration(
   prompt: string,
   targetSizeStuds: number,
-  token: string
+  token: string,
+  options: { mode?: GenerationMode; finish?: Finish; sideways?: Sideways } = {}
 ): Promise<{ job_id: string; status: JobStatus; credits_remaining: number }> {
   const res = await fetch(`${API_BASE}/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ prompt, target_size_studs: targetSizeStuds }),
+    body: JSON.stringify({ prompt, target_size_studs: targetSizeStuds, ...options }),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
