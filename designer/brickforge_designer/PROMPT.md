@@ -12,7 +12,7 @@ Reply with the spec only, no prose. Keep it compact.
 
 The user message is `Prompt: <what to build>` and a `Settings:` line:
 - `size=N`: make the model about N studs across on its longest side. Everything must
-  fit a 32x32 baseplate; vehicles are 4 wide and 9-24 long.
+  fit within 32x32 studs; minifig-scale vehicles are 4 wide and 9-24 long.
 - `sideways=off`: do not use `panel` or `ppaint`; eyes are still fine (the engine
   paints them into the surface).
 - `sideways=auto`: use `panel` where it clearly improves a curved flank or face.
@@ -28,6 +28,7 @@ simplify to what the grid can show. The prompt wins where they disagree.
 
 - Cells: `x` and `z` count studs. `L` counts plates upward (3 plates = 1 brick,
   2.5 plates = 1 stud of height). A 32x32 baseplate spans x 0..31, z 0..31, top at L 0.
+  With no base, L 0 is the table.
 - Ranges are inclusive: `3..7`. A rectangle is `x0..x1,z0..z1`. A region is a
   rectangle followed by `+rect` (add) or `-rect` (remove) terms.
 - Colours: black white red yellow orange bright_light_orange dark_orange blue
@@ -55,8 +56,14 @@ tree X Z L COLOUR [trunk=COLOUR]       # pyramid tree, 3x3 canopy around X,Z
 stump X Z L0 L1 COLOUR [band=COLOUR bands=0,4]   # 4x4 round-brick column
 roots X Z L COLOUR                     # curved roots around a 4x4 footprint at X,Z
 ```
-Start every model on a `baseplate` (surface L 0) or a `base` (surface L 2): a single
-layer of plates is not one piece. `scatter` always runs last, around everything else.
+Use a `baseplate` (surface L 0) or `base` (surface L 2) only when the subject needs a
+setting: buildings, streets, scenes, dioramas, gardens, water. A free-standing subject
+(an animal, vehicle, object, character, a plant in a pot) has no base: it stands on
+the table on its own feet, wheels or bottom (`sculpt base=0`). Without a base
+everything must be one connected model (loose items cannot just sit on the table),
+and its weight must be over its feet; the engine reports TIPS if it would fall over.
+Things that fly go on a small `base` with a stand. `scatter` always runs last,
+around everything else.
 Decoration parts: 4073 1x1 round plate, 33291 flower, 32607 leafy plate, 2423 leaves
 (place with `part`), 98138 round tile.
 
@@ -89,9 +96,10 @@ vehicle X Z [type=car|van|pickup|truck|bus] [length=N] [color=] [trim=] [on=1]
 stands on anything. `trim` colours the roof and the cargo box. This is a small,
 minifig-scale vehicle: use it for cars in a street scene or when size is below 16.
 A vehicle that is the model itself (a sports car, train, tractor, truck or bus at
-size 16+): `sculpt` its body along x and give it real wheels with `wheels` (below).
-Aircraft, spaceships, boats and anything unusual: use `sculpt` (below) plus a
-`stack 3941` stand from the ground for things that fly.
+size 16+): `sculpt` its body along x and give it real wheels with `wheels` (below);
+it stands on the table on its wheels, no base. Aircraft, spaceships, boats and
+anything unusual: use `sculpt` (below); things that fly sit on a small `base` with a
+`stack 3941` stand.
 
 ## Sculpture: animals, figures, organic shapes, aircraft, boats
 
@@ -119,7 +127,7 @@ it for anything larger than about 8x8x8).
 
 - Build a body from a few overlapping shapes: torso ball, head ball, neck/leg/tail
   `cyl` (tapered for trunks, tails, beaks, noses, wings' leading edges), ear boxes.
-- Legs, stands and anything that must carry weight should reach the ground or a base.
+- Legs, stands and anything that must carry weight should reach the table or the base.
 - Keep features at least 1 stud thick; thin parts (wings, fins, sails) can be 1-2
   plates tall boxes.
 - Eyes need a flat 3-plate-high patch on the side of the head at X, Y.
@@ -133,9 +141,9 @@ it for anything larger than about 8x8x8).
 
 ## Recipes
 
-Quadruped (elephant-ish, faces +x):
+Quadruped (elephant-ish, faces +x, stands on the table):
 ```
-sculpt base=1 color=light_bluish_gray hollow=2
+sculpt base=0 color=light_bluish_gray hollow=2
   ball 8 14 0 6 10 3.5          # body
   cyl y 0..8 4 -2 1.3           # four legs
   cyl y 0..8 4 2 1.3
@@ -146,8 +154,9 @@ sculpt base=1 color=light_bluish_gray hollow=2
   eye 16 22 pupil=black ring=white
 end
 ```
-Plane (faces +x, on a stand): `cyl x 2..22 10 0 2 1` fuselage, `box 9..13 9..10 -9..8`
-wings, `box 2..4 11..16 0..0` fin, nose `cut`/taper, then `stack 3941 COLOUR 11 -1 1 3`.
+Plane (faces +x, on a stand): `base 7..15,-4..3 COLOUR`, `stack 3941 COLOUR 10 -1 2 3`,
+then `sculpt base=11` with `cyl x 2..22 2 0 2 1` fuselage, `box 9..13 1..2 -9..8` wings,
+`box 2..4 3..8 0..0` fin, nose `cut`/taper.
 
 ## Rules
 
@@ -160,4 +169,5 @@ wings, `box 2..4 11..16 0..0` fin, nose `cut`/taper, then `stack 3941 COLOUR 11 
 
 Reply with the whole corrected spec. LOOSE = something touches nothing below it
 (extend it into its neighbour or lower it onto studs). COLLISION = two things share
-cells (move one). SPEC = a syntax problem on that line.
+cells (move one). TIPS = the model would fall over on the table (move its feet under
+its weight, widen them, or balance it). SPEC = a syntax problem on that line.

@@ -301,25 +301,69 @@ def resting_contacts(D, comp):
     return out
 
 
-def _stands_steady(D, comp, contacts):
-    """Centre of mass (by box volume) over the rectangle spanned by what it rests on."""
+def table_level(D):
+    """LDraw y of the table: the underside of the model's lowest part (a
+    baseplate or base when there is one, else the model's own feet)."""
+    return max((q.box[1][1] for q in D.parts), default=0.0)
+
+
+def table_contacts(D, comp, tol=1.0):
+    """A piece whose lowest parts are at table level rests on the table: its
+    contacts are those parts' footprints (xz rectangles, LDU), with no part
+    under them (None)."""
+    yb = max(D.parts[n].box[1][1] for n in comp)
+    if abs(yb - table_level(D)) > tol:
+        return []
+    return [(None, (D.parts[n].box[0][0], D.parts[n].box[0][1], D.parts[n].box[2][0], D.parts[n].box[2][1]))
+            for n in comp if abs(D.parts[n].box[1][1] - yb) <= tol]
+
+
+def _centre_of_mass(D, comp):
     tot = cx = cz = 0.0
     for n in comp:
         (x0, x1), (y0, y1), (z0, z1) = D.parts[n].box
         v = max(1.0, (x1 - x0) * (y1 - y0) * (z1 - z0))
         tot, cx, cz = tot + v, cx + v * (x0 + x1) / 2, cz + v * (z0 + z1) / 2
-    cx, cz = cx / tot, cz / tot
-    rx0 = min(r[0] for _, r in contacts) - 5
-    rx1 = max(r[1] for _, r in contacts) + 5
-    rz0 = min(r[2] for _, r in contacts) - 5
-    rz1 = max(r[3] for _, r in contacts) + 5
-    return rx0 <= cx <= rx1 and rz0 <= cz <= rz1
+    return cx / tot, cz / tot
+
+
+def _hull(points):
+    """Convex hull, counter-clockwise (monotone chain)."""
+    pts = sorted(set(points))
+    if len(pts) <= 2:
+        return pts
+    cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _stands_steady(D, comp, contacts, margin=5.0):
+    """Centre of mass (by box volume) over the support area: the convex hull
+    of the rectangles it rests on, grown by `margin` LDU."""
+    cx, cz = _centre_of_mass(D, comp)
+    pts = [(x, z) for _, (x0, x1, z0, z1) in contacts
+           for x in (x0 - margin, x1 + margin) for z in (z0 - margin, z1 + margin)]
+    hull = _hull(pts)
+    return all((b[0] - a[0]) * (cz - a[1]) - (b[1] - a[1]) * (cx - a[0]) >= -1e-6
+               for a, b in zip(hull, hull[1:] + hull[:1]))
 
 
 def classify_pieces(D, comps):
     """Per assembly: the grounded piece (the one holding its lowest part),
     separate pieces that genuinely stand on something (accepted: like a car
-    parked on a road, they are their own sub-build), and loose groups."""
+    parked on a road, they are their own sub-build), and loose groups.  A
+    model with no base stands on the table: a separate piece whose feet are
+    at table level stands on it, like one resting on the model.  The main
+    piece's contacts are its table footprint (empty when it is held above
+    the table, e.g. a vehicle's body on its tyres)."""
     out = []
     by_asm = {}
     for c in comps:
@@ -328,9 +372,9 @@ def classify_pieces(D, comps):
         ground = max(pieces, key=lambda c: (max(D.parts[n].box[1][1] for n in c), len(c)))
         for c in pieces:
             if c is ground:
-                out.append((asm, "main", c, []))
+                out.append((asm, "main", c, table_contacts(D, c)))
                 continue
-            contacts = resting_contacts(D, c)
+            contacts = resting_contacts(D, c) or table_contacts(D, c)
             if len(c) >= MIN_STANDING_PARTS and contacts and _stands_steady(D, c, contacts):
                 out.append((asm, "standing", c, contacts))
             else:
@@ -348,6 +392,9 @@ def _loose_report(D, asm, c, contacts):
         why = "nothing is underneath it (it floats); lower it onto studs or extend it into its neighbour"
     elif len(c) >= MIN_STANDING_PARTS:
         why = "it would tip over; move it so its weight is over what it stands on, or widen its base"
+    elif all(m is None for m, _ in contacts):
+        why = ("it stands on the table by itself, not connected to the model; join it to the model "
+               "(or use a base if the subject needs a setting)")
     else:
         under = Counter(_surface(D.parts[m].pid) for m, _ in contacts)
         lines = sorted({D.parts[m].src for m, _ in contacts if D.parts[m].src is not None})
@@ -366,6 +413,10 @@ def check(D, it):
     for asm, status, c, contacts in pieces:
         if status == "loose" and len([p for p in problems if p.startswith("LOOSE")]) < 6:
             problems.append(_loose_report(D, asm, c, contacts))
+        elif status == "main" and contacts and not _stands_steady(D, c, contacts, margin=0):
+            what = "the model" if asm == "main" else asm
+            problems.append(f"TIPS {asm}: {what} would tip over on the table: its weight is outside the "
+                            f"feet it stands on; widen or move its feet/legs under its weight, or balance it")
     for (m, n) in D.collisions()[:8]:
         a, b = D.parts[m], D.parts[n]
         problems.append(f"COLLISION {a.pid} ({a.tag or '-'}) with {b.pid} ({b.tag or '-'}) near cell "

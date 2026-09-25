@@ -382,3 +382,70 @@ def test_a_wide_slab_uses_big_plates():
     slab = it.D.parts[n0:]
     assert len(slab) <= 110 and sum(q.pid == "3024" for q in slab) == 0
     assert it.D.is_one_piece(range(len(it.D.parts)))
+
+
+# ---------------------------------------------------------------- no base: the table is the ground
+FREE_ELEPHANT = """model elephant
+sculpt base=0 color=light_bluish_gray hollow=2
+  ball 8 14 0 6 10 3.5
+  cyl y 0..8 4 -2 1.3
+  cyl y 0..8 4 2 1.3
+  cyl y 0..8 11 -2 1.3
+  cyl y 0..8 11 2 1.3
+  ball 15 20 0 3 8 2.5
+  cyl x 17..21 16 0 1.2 0.6
+  eye 16 22 pupil=black ring=white
+end
+"""
+
+
+def test_a_free_standing_animal_with_no_base_is_one_piece_and_steady():
+    D, problems, stats = run(FREE_ELEPHANT)
+    assert problems == [], problems
+    assert stats["pieces"] == [{"assembly": "main", "status": "main", "parts": len(D.parts)}]
+    assert not any(q.pid in ("3811",) for q in D.parts)
+
+
+def test_a_free_standing_car_stands_on_its_own_wheels():
+    D, problems, stats = run("model t\nsculpt base=0 color=red\n  box 1..10 0..5 -2..1\n  wheels 2,7 size=large\nend\n")
+    assert problems == [], problems
+    lowest = max(q.box[1][1] for q in D.parts)
+    assert {q.tag for q in D.parts if abs(q.box[1][1] - lowest) <= 1} == {"tyre"}   # only the tyres touch the table
+
+
+def test_a_model_that_would_fall_over_on_the_table_is_reported():
+    # a long beam on a 2x2 post at one end
+    text = "model t\nsculpt base=0 color=red\n  box 0..1 0..8 0..1\n  box 0..15 9..11 0..3\nend\n"
+    _, problems, _ = run(text)
+    assert any(p.startswith("TIPS main") for p in problems), problems
+    # the same beam balanced on a post under its middle stands
+    _, problems, _ = run(text.replace("box 0..1 0..8 0..1", "box 7..8 0..8 1..2"))
+    assert problems == [], problems
+
+
+def test_a_based_model_is_never_reported_as_tipping():
+    # all the weight far out to one side, but it is on a baseplate
+    _, problems, _ = run(BASE + "bricks 0 red 0..3,0..3 courses=4\n")
+    assert problems == [], problems
+
+
+def test_a_small_separate_bit_on_the_table_is_loose_and_says_why():
+    text = FREE_ELEPHANT + "sculpt base=0 color=blue\n  box 25..27 0..5 0..2\nend\n"    # > 3 parts: not pruned
+    _, problems, _ = run(text)
+    assert any("stands on the table by itself" in p for p in problems), problems
+
+
+def test_a_big_separate_object_on_the_table_is_its_own_standing_piece():
+    text = FREE_ELEPHANT + "sculpt base=0 color=blue\n  box 25..30 0..8 -3..2\nend\n"
+    _, problems, stats = run(text)
+    assert problems == [], problems
+    assert sorted(p["status"] for p in stats["pieces"]) == ["main", "standing"]
+
+
+def test_instructions_for_a_free_standing_model_start_on_the_table():
+    from brickforge_designer.instructions import build_steps
+    D, _, _ = run(FREE_ELEPHANT)
+    steps = build_steps(D)
+    assert sorted(i for s in steps for i in s.part_indices) == list(range(len(D.parts)))
+    lowest = max(q.box[1][1] for q in D.parts)
+    assert all(abs(D.parts[i].box[1][1] - lowest) <= 1 for i in steps[0].part_indices)
