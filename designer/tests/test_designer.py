@@ -822,3 +822,14 @@ def test_a_round_tree_threads_its_leaves_on_the_trunk_at_quarter_turns():
     leaves = sorted((q for q in D.parts if q.pid == "2417"), key=lambda q: -q.pos[1])
     assert len(leaves) == 3 and len({q.mat for q in leaves}) == 3
     assert sum(q.pid == "3062b" for q in D.parts) == 4          # 2 trunk + one between each leaf pair
+
+
+# ---------------------------------------------------------------- rockwork (TECHNIQUES.md item 10)
+def test_rock_texture_mixes_colours_per_part_and_roughens_the_top():
+    D, problems, stats = run(BASE + "sculpt base=0 color=dark_bluish_gray|light_bluish_gray|dark_tan texture=rock hollow=2\n"
+                                    "  ball 12 6 14 9 10 7\nend\n")
+    assert problems == [] and stats["components"] == 1, problems
+    seen = Counter(q.color for q in D.parts if q.src == 3 and q.color != 0)
+    assert {72, 71, 28} <= set(seen) and min(seen[c] for c in (72, 71, 28)) > 20
+    cheese = [q for q in D.parts if q.tag == "rock"]
+    assert len(cheese) > 20 and len({q.mat for q in cheese}) >= 3         # facing several ways

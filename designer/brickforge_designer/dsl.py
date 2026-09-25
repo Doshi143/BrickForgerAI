@@ -1091,7 +1091,45 @@ class Interp:
             return self.wheeled_sculpt(spec)
         cells = sculpt_cells(spec) - set(self.D.occ)
         self.expose_studs({c for c in cells if (c[0], c[1] - 1, c[2]) not in cells})
+        n0 = len(self.D.parts)
         self._sculpt_with_retry(spec)
+        if spec.get("texture") == "rock":
+            self.rockify(n0, spec)
+
+    def rockify(self, n0, spec):
+        """Rockwork (TECHNIQUES.md item 10): builders avoid any repeating
+        pattern -- mixed greys/browns, slopes facing every way.  Every visible
+        part of the sculpt takes a seeded colour from the rock palette (per
+        part, so the tiling is never fragmented), and most smooth top tiles
+        become 1x1 cheese slopes turned at random, where they fit."""
+        D = self.D
+        mix = spec.get("mix") or [spec["color"]]
+        tops = []
+        for i in range(n0, len(D.parts)):
+            q = D.parts[i]
+            if q.color != HIDDEN_COLOR and q.host is None and q.tag not in ("eye", "pupil", "anchor", "panel"):
+                q.color = mix[int(hash01(i, 77) * len(mix))]
+            if q.tag == "top" and q.pid in ("3070b", "3069b", "3068b", "2431", "63864", "87079"):
+                tops.append(i)
+        drop, swaps = [], []
+        for i in tops:
+            q = D.parts[i]
+            cells = [c for c, j in D.occ.items() if j == i]
+            if hash01(i, 5) < 0.3 or not cells:
+                continue
+            drop.append(i)
+            swaps += [(c, q.color) for c in cells]
+        if not drop:
+            return
+        D.remove(drop)
+        for (x, L, z), col in swaps:
+            yaw = (0, 90, 180, 270)[int(hash01(x, z, L) * 4)]
+            q = D.make("54200", mix[int(hash01(x, L, z, 3) * len(mix))], x, L, z, yaw=yaw)
+            if D.fits(q):
+                D.place("54200", q.color, x, L, z, yaw=yaw, tag="rock")
+            else:
+                D.place("3070b", col, x, L, z, tag="top")
+        self.repairs.append(("rockwork", len(swaps)))
 
     def wheeled_sculpt(self, spec):
         """A sculpt with `wheels` is a vehicle: its own separate piece (like
@@ -1883,7 +1921,11 @@ class Interp:
         grad = (color_stops(ctok), kw.get("along", "y")) if ">" in ctok else None
         if grad:
             axis_pos(grad[1])                     # validate now: report the bad axis on this line
+        texture = kw.get("texture", "plain")
+        if texture not in ("plain", "rock"):
+            raise SpecError("sculpt texture must be plain or rock")
         spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
+                    texture=texture, mix=None if grad else color(ctok),
                     hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"), wedges=kw.get("wedges", "1") != "0",
                     shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set())
         for ln, raw in block:

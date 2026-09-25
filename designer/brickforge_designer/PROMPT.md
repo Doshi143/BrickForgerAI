@@ -122,7 +122,7 @@ anything unusual: use `sculpt` (below); things that fly sit on a small `base` wi
 ## Sculpture: animals, figures, organic shapes, aircraft, boats
 
 ```
-sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z]
+sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z] [texture=rock]
   box X0..X1 Y0..Y1 Z0..Z1              # solid block
   col X0..X1 Y0..Y1 [Z0..Z1]            # same, z defaults to -2..1
   ball CX CY CZ RX RY RZ                # ellipsoid: centre (x, y, z), radii (studs, plates, studs)
@@ -149,6 +149,8 @@ to turn off), tiles flat tops, rounds gentle underside steps with inverted
 curves, colours hidden cells itself, and with `hollow=2` keeps only a 2-cell shell (use
 it for anything larger than about 8x8x8).
 
+- Rocks, cliffs, boulders: `texture=rock` with `color=dark_bluish_gray|light_bluish_gray|dark_tan`
+  (mixed colours per part, rough top of slopes facing every way).
 - Build a body from a few overlapping shapes: torso ball, head ball, neck/leg/tail
   `cyl` (tapered for trunks, tails, beaks, noses, wings' leading edges), ear boxes.
 - Legs, stands and anything that must carry weight should reach the table or the base.
