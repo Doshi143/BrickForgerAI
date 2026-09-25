@@ -1477,11 +1477,22 @@ class Interp:
             self.errors.append(f"flap at {x},{z}: needs a flat top two studs wide there to click its hinge onto")
             return False
         L = next(iter(tops.values())) + 1
+        # swapping the smooth top for studs changes the model: a spot that doesn't
+        # work out must leave it exactly as it was (the caller tries up to 49 spots)
+        snap = (list(D.parts), [q.host for q in D.parts], dict(D.occ), list(D.links), list(self.repairs))
+
+        def restore():
+            D.parts, D.occ, D.links = snap[0], snap[2], snap[3]
+            for q, h in zip(D.parts, snap[1]):
+                q.host = h
+            D._reindex()
+            self.repairs[:] = snap[4]
         n0 = len(D.parts)
         self.expose_studs({(cx, L, cz) for cx, cz in pair})
         yaw = 0 if axis_x else 90
         base = D.make("3937", col, min(c[0] for c in pair), L, min(c[1] for c in pair), yaw=yaw)
         if not D.fits(base) or not D.supports(base):
+            restore()
             self.errors.append(f"flap at {x},{z}: no room for its hinge")
             return False
         base = D.place("3937", col, min(c[0] for c in pair), L, min(c[1] for c in pair), yaw=yaw, tag="flap")
@@ -1522,8 +1533,8 @@ class Interp:
         clash = any(D._collide(D.parts[m], D.parts[o_]) for m in new if m != bi
                     for key in D._buckets(D.parts[m].box) for o_ in D._hash.get(key, ())
                     if o_ not in new and o_ != bi and D.parts[o_].host != bi)
-        if clash or not D.is_one_piece(list(new)):
-            D.remove(list(new))
+        if clash or not D.is_one_piece(list(range(bi, len(D.parts)))):     # the flap's own parts
+            restore()
             self.errors.append(f"flap at {x},{z}: its panel would hit the model; move it or make it shorter")
             return False
         self.repairs.append(("flap", len(new)))

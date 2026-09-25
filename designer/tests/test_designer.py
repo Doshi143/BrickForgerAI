@@ -957,3 +957,15 @@ def test_gears_sit_on_axle_pins_in_technic_bricks_on_both_flanks():
             pin = D.parts[q.host]
             assert pin.pid == "3749" and D.parts[pin.host].pid == "3700"
             assert abs(abs(q.pos[2] - pin.pos[2]) - 10) < 0.01          # centred on the axle, 10 LDU out
+
+
+def test_a_flap_that_fits_nowhere_leaves_the_model_untouched():
+    # one spot, beside a tall wall its panel must run into: the attempt fails after the
+    # smooth top under the hinge was swapped for studs, and must undo that exactly
+    from brickforge_designer.dsl import Interp
+    it = Interp()
+    D = it.run("model t\nsculpt base=0 color=blue hollow=2\n  box 2..13 0..7 -2..2\n  box 0..15 0..30 4..5\nend\n")
+    before = [(q.pid, q.color, q.pos) for q in D.parts]
+    ok = it.build_flap(dict(x=7, z=2, length=12, width=4, angle=10, dir="+z", color=None), 1)
+    assert ok is False and any("flap at" in e for e in it.errors)
+    assert [(q.pid, q.color, q.pos) for q in it.D.parts] == before
