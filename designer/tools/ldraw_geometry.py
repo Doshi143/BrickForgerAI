@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 import os
 import subprocess
+import time
 
 BASE = "https://library.ldraw.org/library/official/"
 CACHE = os.environ.get("LDRAW_CACHE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".ldraw_cache")
@@ -22,6 +23,9 @@ ANTI_PRIMS = {"stud3.dat", "stud3a.dat", "stud4.dat", "stud4a.dat", "stud4o.dat"
               "stud16.dat", "stud18a.dat", "stud21a.dat"}
 
 
+MISSING: set = set()        # files referenced but not in the library (checked by build_parts_table)
+
+
 def fetch(name: str) -> str:
     name = name.replace("\\", "/").lower().strip()
     key = name.replace("/", "__")
@@ -30,12 +34,25 @@ def fetch(name: str) -> str:
         with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()
     for prefix in ("parts/", "p/"):
-        r = subprocess.run(["curl", "-s", "-f", BASE + prefix + name], capture_output=True)
-        if r.returncode == 0 and r.stdout and not r.stdout.lstrip().startswith(b"<"):
-            txt = r.stdout.decode("utf-8", errors="replace")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(txt)
-            return txt
+        code = ""
+        for attempt in range(9):
+            time.sleep(0.3)                             # be polite: the server rate-limits bursts
+            r = subprocess.run(["curl", "-s", "-o", "-", "-w", "\n%{http_code}", BASE + prefix + name],
+                               capture_output=True)
+            body, _, code = r.stdout.rpartition(b"\n")
+            code = code.decode("ascii", errors="replace").strip()
+            if code == "200" and body and not body.lstrip().startswith(b"<"):
+                txt = body.decode("utf-8", errors="replace")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(txt)
+                return txt
+            if code == "404":
+                break                                   # not under this prefix: try the next one
+            time.sleep(min(30, 2 ** attempt))           # rate limit / server error / network: back off
+        else:
+            # Never let a refused download pass as "this file has no geometry":
+            # that silently produced empty wedge plates once (2026-09-25).
+            raise RuntimeError(f"LDraw server kept failing for {name} (last HTTP status {code or 'none'})")
     raise FileNotFoundError(name)
 
 
@@ -56,6 +73,7 @@ def _walk(name: str, depth: int = 0):
     try:
         txt = fetch(name)
     except FileNotFoundError:
+        MISSING.add(name)                             # a genuine 404: reported by build_parts_table
         return (), ()
     for line in txt.splitlines():
         t = line.split()

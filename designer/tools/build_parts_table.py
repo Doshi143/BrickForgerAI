@@ -6,7 +6,7 @@ library.  Run once when the part vocabulary changes; the engine loads the JSON.
 import json
 import os
 
-from ldraw_geometry import bbox, studs, title
+from ldraw_geometry import MISSING, bbox, studs, title
 
 PARTS = [
     # bricks
@@ -26,6 +26,10 @@ PARTS = [
     # house / vehicle parts
     "3811", "60594", "60603", "60596", "60623", "4865b", "4600", "4624", "3641", "3823",
     "4079", "3829c01", "3065", "6014b", "6015",
+    # Batch 1 techniques (TECHNIQUES.md): vehicle lights and grilles, teeth and
+    # spikes, wedge plates for sleek outlines
+    "4070", "2412b", "4589", "49668", "15070", "15208",
+    "43722a", "43723a", "41769a", "41770a", "24299", "24307",
 ]
 
 if __name__ == "__main__":
@@ -45,6 +49,8 @@ if __name__ == "__main__":
             continue
         if y1 < 7.5:
             bad.append((pid, y1))
+    if MISSING:
+        raise SystemExit(f"files referenced but not found in the LDraw library (geometry incomplete): {sorted(MISSING)}")
     if bad:
         raise SystemExit(f"parts with a body shorter than one plate (geometry not resolved?): {bad}")
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "brickforge_designer", "parts_table.json")

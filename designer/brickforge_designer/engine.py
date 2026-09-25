@@ -36,10 +36,17 @@ def mm(a, b):
 # ---------------------------------------------------------------- per-part policy
 # Parts whose bbox includes things that aren't the gridded body (side studs,
 # wheel pins, seat backrest): the footprint that sits on the grid.
-FOOTPRINT = {"30414": (4, 1, 0, 0), "87087": (1, 1, 0, 0), "4600": (2, 2, 0, 0), "4079": (2, 2, 0, 0)}
-HEIGHT_OVERRIDE = {"32607": 1, "2417": 1, "2435": 1, "4079": 1, "3829c01": 1, "3811": 0}
+FOOTPRINT = {"30414": (4, 1, 0, 0), "87087": (1, 1, 0, 0), "4600": (2, 2, 0, 0), "4079": (2, 2, 0, 0),
+             # tooth plates: the plate is the footprint, the tooth sticks out (measured:
+             # 49668 reaches a stud past its -z edge, 15208 half a stud, 15070 hangs 2 plates down)
+             "49668": (1, 1, 0, 0), "15070": (1, 1, 0, 0), "15208": (2, 1, 0, 0)}
+HEIGHT_OVERRIDE = {"32607": 1, "2417": 1, "2435": 1, "4079": 1, "3829c01": 1, "3811": 0, "15070": 1}
 ORIGIN_PARTS = {"2423", "2417", "32607", "2435"}          # placed by their attachment stud
-FULL_BOX = ORIGIN_PARTS | {"4079", "3829c01"}              # collide with their whole geometry
+FULL_BOX = ORIGIN_PARTS | {"4079", "3829c01", "49668", "15070", "15208"}   # collide with their whole geometry
+# Collision body where it differs from the footprint box.  4070's front is
+# recessed 4 LDU (measured: its side stud's base is at z=-6, the face at -10),
+# so whatever clicks onto that stud sits in the recess, not in the brick.
+BODY_BOX = {"4070": ((-10, 10), (0, 24), (-6, 10))}
 RECV = {"24201": [(0, 1)], "13547": [(0, 3)],
         "87081": [(a, b) for a in range(4) for b in range(4) if not (a in (0, 3) and b in (0, 3))],
         "3811": []}
@@ -106,6 +113,8 @@ class PartDef:
         self.recv = [(self.cx - 10 * self.w + 20 * a + 10, ybot, self.cz - 10 * self.d + 20 * b + 10) for a, b in cells]
 
     def body_box(self):
+        if self.pid in BODY_BOX:
+            return BODY_BOX[self.pid]
         if self.pid in FULL_BOX:
             (x0, x1), (y0, y1), (z0, z1) = self.bbox
             return ((x0, x1), (max(y0, -200), y1), (z0, z1))
