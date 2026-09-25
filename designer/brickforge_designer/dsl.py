@@ -1529,7 +1529,34 @@ class Interp:
         self.repairs.append(("flap", len(new)))
         return True
 
-    def plan_large_eye(self, core, reserved, e, side, S):
+    def dress_gear(self, g, side, L0, zside):
+        """An axle pin (3749) in the Technic brick's hole and a gear on its
+        axle, flat against the flank (TECHNIQUES.md item 18: Technic as
+        texture).  Measured: 3700's hole runs along z through (0, 10, +-10);
+        3749 is pin for x -20..0 and axle for 0..19.5; the gear (3647 8-tooth,
+        3648b 24-tooth) turns about its z, about 20 LDU thick."""
+        D = self.D
+        brick = D.parts[D.occ[(g["x"], L0, zside)]]
+        out = -1 if side == "L" else 1
+        face = mul(brick.mat, (0, 10, 10 * out))               # the hole's mouth, between the brick's two cells
+        mouth = (brick.pos[0] + face[0], brick.pos[1] + face[1], brick.pos[2] + face[2])
+        # 3749: local +x outward (world +-z), so its pin half (local x < 0) is in the hole
+        Rp = (0, 0, -out, 0, 1, 0, out, 0, 0)
+        pin = D._finish(pdef("3749"), COLORS["dark_bluish_gray"], mouth, Rp, "gear", brick.asm,
+                        host=D.parts.index(brick))
+        pi = D.add(pin)
+        D.links.append((D.parts.index(brick), pi))
+        gid = "3648b" if g["size"] == "large" else "3647"
+        centre = (mouth[0], mouth[1], mouth[2] + out * 10)
+        gear = D._finish(pdef(gid), g["color"], centre, I3, "gear", brick.asm, host=pi)
+        if any(D._collide(gear, D.parts[m]) for key in D._buckets(gear.box) for m in D._hash.get(key, ())
+               if D.parts[m] is not brick and m != pi):
+            D.remove([pi])
+            self.repairs.append((f"gear left off {side}", 1))
+            return
+        D.links.append((pi, D.add(gear)))
+
+    def plan_large_eye(self, core, reserved, e, side, S, clear=0):
         """A flat, exposed patch 2 studs wide and 3 plates tall on the flank at
         the eye's height (for two side-stud bricks), with nothing sticking out
         under it for the 2.5 plates the round plate hangs down."""
@@ -1546,6 +1573,10 @@ class Interp:
                 continue
             if any((x, l, out) in core or (x, l, out) in self.D.occ for x in xs for l in range(L0 - 3, L0)):
                 continue
+            if clear and any((x, l, out) in core or (x, l, out) in self.D.occ
+                             for x in range(xs[0] - clear // 2, xs[1] + clear // 2 + 1)
+                             for l in range(L0 - clear, L0 + 3 + clear)):
+                continue                                   # room for a gear's teeth around the hole
             return L0, zside, cells
         return None
 
@@ -1992,6 +2023,19 @@ class Interp:
                     placements.append(("4070", core[(X, Lc + 1, z)], X, Lc, z,
                                        yaw_pointing(MAIN, (sign, 0, 0), local=(0, 0, -1)), "light", cells))
 
+        # ---- Technic gears on the flanks: a Technic brick with a hole in the surface
+        gear_plan = []
+        for g in spec.get("gears", ()):
+            for side in ("L", "R"):
+                spot = self.plan_large_eye(core, reserved, g, side, S, clear=4 if g["size"] == "large" else 2)
+                if not spot:
+                    self.repairs.append((f"gear left off {side}", 1))
+                    continue
+                L0, zside, cells = spot
+                reserved |= cells
+                placements.append(("3700", core[(g["x"], L0 + 1, zside)], g["x"], L0, zside, 0, "gear", cells))
+                gear_plan.append((g, side, L0, zside))
+
         # ---- limbs: a ball plate built into the body's edge for each
         limb_plan = []
         for lb in spec.get("limbs", ()):
@@ -2069,6 +2113,8 @@ class Interp:
             self.rescue_loose(n_sculpt, flex | set(soft))
         if soft:
             recolour(D, n_fill, soft, hidden=flex)
+        for g, side, L0, zside in gear_plan:
+            self.dress_gear(g, side, L0, zside)
         # limbs last, so each link is checked against the finished body
         for lb, (x, L, z), face in limb_plan:
             self.grow_limb(D.parts[D.occ[(x, L, z)]], lb, face, S, spec["color"])
@@ -2250,7 +2296,7 @@ class Interp:
         spec = dict(base=int(kw.get("base", 0)), color=(grad[0][0] if grad else color(ctok))[0], grad=grad,
                     texture=texture, mix=None if grad else color(ctok),
                     hollow=int(kw.get("hollow", 0)), caps=kw.get("caps", "both"), wedges=kw.get("wedges", "1") != "0",
-                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[], limbs=[], flaps=[])
+                    shapes=[], paint=[], panels=[], ppaint=[], eyes=[], wheels=None, poly=set(), round=[], limbs=[], flaps=[], gears=[])
         for ln, raw in block:
             if not raw:
                 continue
@@ -2283,6 +2329,15 @@ class Interp:
                 elif t[0] == "ppaint":
                     ys = rng_(p[2])
                     spec["ppaint"].append((color(p[0])[0], rng_(p[1]), ys.start, ys.stop - 1))
+                elif t[0] == "gear":
+                    size = k.get("size", "small")
+                    if size not in ("small", "large"):
+                        raise SpecError("gear size must be small or large")
+                    spec["gears"].append(dict(x=_bounded(int(p[0]), LIMITS["coord"], "gear x"),
+                                              y=_bounded(int(p[1]), LIMITS["coord"], "gear y"), size=size,
+                                              color=color(k.get("color", "light_bluish_gray"))[0]))
+                    if len(spec["gears"]) > 8:
+                        raise SpecError("at most 8 gears per sculpt")
                 elif t[0] == "flap":
                     x, z, length, width = int(p[0]), int(p[1]), int(p[2]), int(p[3])
                     for v, lim, what in ((length, 12, "length"), (width, 12, "width")):

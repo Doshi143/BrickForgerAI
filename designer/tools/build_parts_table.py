@@ -49,6 +49,8 @@ PARTS = [
     "3937", "3938",
     # palm trees: swordleaf (stud and anti-stud at its root, the leaf droops ~4 plates)
     "10884",
+    # Technic as decoration: brick with hole, axle pin, 8- and 24-tooth gears
+    "3700", "3749", "3647", "3648b",
 ]
 JOINTS = {"14417", "14418", "14419"}           # store measured ball centres and sockets
 # Parts whose plan-view shape isn't their bounding rectangle: store the top

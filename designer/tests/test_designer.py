@@ -943,3 +943,17 @@ def test_a_flap_is_a_panel_tilted_up_on_a_hinge(d, z):
 def test_flaps_are_bounded():
     _, problems, _ = run(BASE + "sculpt base=0 color=red\n  box 0..3 0..3 0..3\n  flap 1 1 40 4\nend\n")
     assert any("length must be" in p for p in problems), problems
+
+
+# ---------------------------------------------------------------- Technic decoration (TECHNIQUES.md item 18)
+def test_gears_sit_on_axle_pins_in_technic_bricks_on_both_flanks():
+    D, problems, stats = run("model t\nsculpt base=0 color=light_bluish_gray hollow=2\n  box 2..11 0..14 -3..2\n"
+                             "  gear 4 5 size=large\n  gear 8 10\nend\n")
+    assert problems == [] and stats["components"] == 1, problems
+    c = Counter(q.pid for q in D.parts)
+    assert (c["3700"], c["3749"], c["3648b"], c["3647"]) == (4, 4, 2, 2)
+    for q in D.parts:
+        if q.pid in ("3647", "3648b"):
+            pin = D.parts[q.host]
+            assert pin.pid == "3749" and D.parts[pin.host].pid == "3700"
+            assert abs(abs(q.pos[2] - pin.pos[2]) - 10) < 0.01          # centred on the axle, 10 LDU out

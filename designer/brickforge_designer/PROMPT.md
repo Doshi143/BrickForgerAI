@@ -138,6 +138,7 @@ sculpt base=L [color=COLOUR] [hollow=2] [caps=both|x|z] [texture=rock|greeble]
   eye X Y [pupil=] [ring=] [skin=] [size=small|large] [look=+x|-x]
                                         # eye on both sides at column X, height Y; large = a
                                         # 2x2 round eye (ring) with the pupil looking forward
+  gear X Y [size=small|large] [color=]  # Technic gear on both flanks (robots, machines), like eye
   flap X Z LEN WIDTH [angle=30] [dir=+z|-z|+x|-x] [color=]
                                         # a hinged panel on the body top at X,Z tilted up by angle:
                                         # wings with dihedral, ears, fins (engine finds room nearby)
