@@ -370,6 +370,89 @@ def test_voxel_generate_still_costs_one_credit():
     assert jobs.load_job_meta(r.json()["job_id"])["mode"] == "voxel"
 
 
+# ---------------------------------------------------------------- payments for Detailed builds
+def _paid_webhook(kind, job_id, user_id):
+    """POST /stripe/webhook as Stripe would after a paid checkout (signature
+    check stubbed; everything after it is the real dedupe + dispatch)."""
+    from app import billing
+    event = {"id": f"evt_{kind}_{job_id}_{user_id}", "type": "checkout.session.completed",
+             "data": {"object": {"mode": "payment", "metadata": {"type": kind, "job_id": job_id, "user_id": user_id}}}}
+    real = billing.verify_and_parse_webhook
+    billing.verify_and_parse_webhook = lambda payload, sig: event
+    try:
+        r = client.post("/stripe/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=x"})
+    finally:
+        billing.verify_and_parse_webhook = real
+    assert r.status_code == 200, r.text
+
+
+def test_detailed_builds_can_be_bought_from_discover_and_unlocked_by_their_creator():
+    from app import billing
+    set_flag(True)
+
+    def ok(prompt, ldr_out_path, pdf_out_path=None, **k):
+        with open(ldr_out_path, "w") as f:
+            f.write("0 detailed model\n")
+        with open(pdf_out_path, "wb") as f:
+            f.write(b"%PDF-1.4 instructions")
+        return {"part_count": 900, "slope_count": 40, "tile_count": 60, "color_count": 6, "color_source": "designer",
+                "was_repaired": None, "still_critical_count": None, "is_single_piece": True, "piece_count": 1,
+                "symmetrized": False, "spec": "model t\n", "pdf_generated": True,
+                "design_usage": {"totals": {"cost_usd": 0.15, "calls": 1}, "rounds": 0}}
+
+    # a creator paying with top-up credits only (never auto-unlocks, see consume_credit)
+    creator = new_user(topup=2, plan="starter")
+    real = designer_bridge.design_to_ldr
+    designer_bridge.design_to_ldr = ok
+    try:
+        r = client.post("/generate", json={"prompt": "a lighthouse", "mode": "detailed", "target_size_studs": 24},
+                        headers=token(creator))
+    finally:
+        designer_bridge.design_to_ldr = real
+    job_id = r.json()["job_id"]
+    meta = jobs.load_job_meta(job_id)
+    assert meta["status"] == "done" and meta["mode"] == "detailed" and not meta["instructions_unlocked"]
+    price = meta["instructions_price_gbp"]
+    assert price == 7                                       # 5 + 900 // 400, same formula as Voxel
+
+    checkouts = []
+    real_g, real_u = billing.create_gallery_purchase_checkout, billing.create_unlock_instructions_checkout
+    billing.create_gallery_purchase_checkout = lambda u, j, p: checkouts.append(("gallery", u.id, j, p)) or "https://stripe/g"
+    billing.create_unlock_instructions_checkout = lambda u, j, p: checkouts.append(("unlock", u.id, j, p)) or "https://stripe/u"
+    try:
+        # 1. the creator unlocks their own build
+        assert client.get(f"/generate/{job_id}/download", headers=token(creator)).status_code == 402
+        r = client.post(f"/generate/{job_id}/unlock-instructions", headers=token(creator))
+        assert r.status_code == 200 and r.json()["checkout_url"] == "https://stripe/u"
+        _paid_webhook("unlock_instructions", job_id, creator.id)
+        assert client.get(f"/generate/{job_id}/download", headers=token(creator)).text.strip() == "0 detailed model"
+
+        # 2. published to Discover, bought by someone else
+        assert client.post(f"/gallery/{job_id}/publish", headers=token(creator)).status_code == 200
+        card = next(c for c in client.get("/gallery").json() if c["job_id"] == job_id)
+        assert card["instructions_price_gbp"] == price
+        detail = client.get(f"/gallery/{job_id}").json()
+        assert detail["instructions_price_gbp"] == price and detail["instructions_pdf_url"]
+        buyer = new_user(monthly=1, plan="starter")
+        assert client.get(f"/gallery/{job_id}/access", headers=token(buyer)).json() == {"is_owner": False,
+                                                                                         "has_access": False}
+        assert client.get(f"/generate/{job_id}/download", headers=token(buyer)).status_code == 402
+        r = client.post(f"/gallery/{job_id}/purchase-checkout", headers=token(buyer))
+        assert r.status_code == 200 and r.json()["checkout_url"] == "https://stripe/g"
+        _paid_webhook("gallery_purchase", job_id, buyer.id)
+        assert client.get(f"/gallery/{job_id}/access", headers=token(buyer)).json()["has_access"] is True
+        assert client.get(f"/generate/{job_id}/download", headers=token(buyer)).text.strip() == "0 detailed model"
+        pdf = client.get(f"/generate/{job_id}/instructions.pdf", headers=token(buyer))
+        assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+        assert client.post(f"/gallery/{job_id}/purchase-checkout", headers=token(buyer)).status_code == 400
+        # buying access never unlocks it for anyone else
+        stranger = new_user(monthly=1, plan="starter")
+        assert client.get(f"/generate/{job_id}/download", headers=token(stranger)).status_code == 402
+    finally:
+        billing.create_gallery_purchase_checkout, billing.create_unlock_instructions_checkout = real_g, real_u
+    assert checkouts == [("unlock", creator.id, job_id, price), ("gallery", buyer.id, job_id, price)]
+
+
 # ---------------------------------------------------------------- failed jobs: refunds and messages
 def _voxel_job_with_image_error(message):
     """Runs a real voxel job (in-process, no Redis) whose image step raises."""
