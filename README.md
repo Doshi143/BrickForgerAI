@@ -37,7 +37,7 @@ licensed under CCAL 2.0.
 | Path | What's there |
 |---|---|
 | `core/` | `brickforge` - the Voxel pipeline (voxelize -> shell -> color-quantize -> legalize -> structural repair -> surface refinement -> LDR), a standalone, tested Python library + CLI. |
-| `core/brickforge/` | The library: lattice + part catalog, pipeline stages, structural analysis/repair, SNOT (sideways-building) placement. |
+| `core/brickforge/` | The library: lattice + part catalog, pipeline stages, structural analysis/repair. |
 | `core/examples/` | Runnable scripts that produce the example models and stability reports. |
 | `designer/` | `brickforge_designer` - Detailed mode: the `.bfd` spec language, the engine that builds and checks it, the prompt Claude designs with (`PROMPT.md`), and the evaluation tools. `TECHNIQUES.md` lists the building techniques and their status. |
 | `web/` | The live Next.js frontend + FastAPI backend behind brickforgerai.com - accounts, credits, Stripe billing, a Redis/RQ job queue, the Discover gallery, wired to image/mesh generation, `core` and `designer`. See [`web/README.md`](web/README.md). |
@@ -92,7 +92,7 @@ settings from `web/backend/.env` - start from `.env.example`:
 ## Status
 
 - The Voxel pipeline (lattice, catalog, legalizer, structural repair,
-  tiles and slopes, SNOT side panels) is done and tested.
+  tiles and slopes) is done and tested.
 - Detailed mode has been live for everyone since 2026-09-26, as a beta.
 - The web app is in production at brickforgerai.com with real Stripe
   payments (subscriptions, top-ups, and buying builds from Discover). Failed
