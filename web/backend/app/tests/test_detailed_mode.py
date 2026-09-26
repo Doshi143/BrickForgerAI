@@ -317,6 +317,22 @@ def test_a_finished_job_whose_index_write_was_dropped_is_reindexed_from_storage(
     assert rows == []
 
 
+def test_a_column_added_before_an_existing_one_survives_the_migration():
+    """Production, 2026-09-26: job_index's mode/cost_usd were added and then
+    undone, on every startup, by the rollback after the next (already
+    present) column's ALTER failed -- so every job_index write failed and no
+    new build reached My Builds.  Reproduced here the way Postgres runs it:
+    all the migrations inside one open transaction."""
+    import sqlite3
+    conn = sqlite3.connect(os.path.join(TMP, "migrate.db"), isolation_level=None)
+    conn.execute("CREATE TABLE t (a TEXT, old TEXT)")
+    conn.execute("BEGIN")
+    auth._add_column_if_missing(conn, "ALTER TABLE t ADD COLUMN new TEXT", "new")
+    auth._add_column_if_missing(conn, "ALTER TABLE t ADD COLUMN old TEXT", "old")
+    conn.execute("COMMIT")
+    assert [r[1] for r in conn.execute("PRAGMA table_info(t)")] == ["a", "old", "new"]
+
+
 def test_the_final_status_write_retries_harder_than_intermediate_ones():
     real_connect, real_sleep = auth._connect, jobs.time.sleep
     calls = []

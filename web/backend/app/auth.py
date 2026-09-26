@@ -208,7 +208,27 @@ def _add_column_if_missing(conn, alter_sql: str, column_name: str) -> None:
     startup failure here is a far better outcome than a silent partial
     one: it shows up immediately as a failed Railway deployment instead
     of as a mystery 500 the next time someone happens to hit the
-    affected code path."""
+    affected code path.
+
+    Checks for the column FIRST and never relies on a failed ALTER plus
+    rollback to mean "already there" -- that was a real production bug
+    (2026-09-26): in Postgres a rollback undoes everything uncommitted on
+    the connection, so job_index's new `mode`/`cost_usd` columns, added
+    earlier in the same _init_job_index block, were silently undone on
+    every startup by the rollback after `is_published` (already present)
+    failed.  Every job_index write since then failed with "column mode does
+    not exist" and no new build appeared in My Builds.  SQLite runs DDL
+    outside a transaction here, so the local tests never saw it."""
+    table = re.match(r"\s*ALTER\s+TABLE\s+(\w+)", alter_sql, re.I).group(1)
+    if _USE_POSTGRES:
+        present = conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = %s AND column_name = %s",
+            (table, column_name),
+        ).fetchone()
+    else:
+        present = any(r[1] == column_name for r in conn.execute(f"PRAGMA table_info({table})").fetchall())
+    if present:
+        return
     try:
         conn.execute(alter_sql)
     except Exception as exc:
