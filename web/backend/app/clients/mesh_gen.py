@@ -380,6 +380,14 @@ class FalTrellis2Client(MeshGenClient):
             encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         return f"data:image/png;base64,{encoded}"
 
+    @staticmethod
+    def _check(response, what: str) -> None:
+        """raise_for_status() drops the response body, and fal puts the
+        reason there (e.g. "User is locked. Reason: Exhausted balance" when
+        the account is out of credit -- see app/provider_errors.py)."""
+        if not response.ok:
+            raise RuntimeError(f"fal-ai/trellis-2 {what} failed ({response.status_code}): {response.text[:500]}")
+
     def generate(self, image_path: str, out_path: str) -> str:
         out_path_obj = Path(out_path)
         out_path_obj.parent.mkdir(parents=True, exist_ok=True)
@@ -392,7 +400,7 @@ class FalTrellis2Client(MeshGenClient):
             json={"image_url": image_data_uri, "resolution": self.resolution},
             timeout=60,
         )
-        submit_response.raise_for_status()
+        self._check(submit_response, "submit")
         submit_data = submit_response.json()
         request_id = submit_data.get("request_id")
         status_url = submit_data.get("status_url")
@@ -403,7 +411,7 @@ class FalTrellis2Client(MeshGenClient):
         deadline = time.monotonic() + self.timeout_s
         while time.monotonic() < deadline:
             status_response = requests.get(status_url, headers=self._headers(), timeout=30)
-            status_response.raise_for_status()
+            self._check(status_response, "status")
             status_data = status_response.json()
             status = status_data.get("status")
 
@@ -415,7 +423,7 @@ class FalTrellis2Client(MeshGenClient):
                     )
 
                 result_response = requests.get(response_url, headers=self._headers(), timeout=30)
-                result_response.raise_for_status()
+                self._check(result_response, "result")
                 result_data = result_response.json()
                 model_glb = result_data.get("model_glb") or {}
                 glb_url = model_glb.get("url")

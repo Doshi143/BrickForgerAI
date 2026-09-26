@@ -186,11 +186,11 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
               <div className="display" style={{ fontWeight: 700, fontSize: 20, color: "#ff8f6b", marginBottom: 12 }}>
                 Generation failed
               </div>
-              <pre
+              <p
                 style={{
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
-                  fontSize: 13,
+                  fontSize: 15,
                   lineHeight: 1.5,
                   color: colors.textSecondary,
                   margin: 0,
@@ -199,7 +199,7 @@ function GenerateContent({ params }: { params: Promise<{ jobId: string }> }) {
                 }}
               >
                 {job.error}
-              </pre>
+              </p>
             </Card>
           )}
 

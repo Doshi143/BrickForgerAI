@@ -99,7 +99,10 @@ class OpenAIImageClient(ImageGenClient):
                 },
                 timeout=120,
             )
-            if response.status_code == 429 and attempt < _MAX_RATE_LIMIT_RETRIES:
+            # A 429 is also how OpenAI says the account is out of credit
+            # (insufficient_quota): waiting won't fix that, so fail at once.
+            if (response.status_code == 429 and attempt < _MAX_RATE_LIMIT_RETRIES
+                    and "insufficient_quota" not in response.text):
                 # Respect OpenAI's own Retry-After header when present --
                 # it reflects the real state of this project's shared
                 # 5-images/minute window, not a guess.

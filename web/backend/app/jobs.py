@@ -27,7 +27,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 import redis
 from rq import Queue
 
-from . import auth
+from . import auth, provider_errors
 from .clients.image_gen import build_image_prompt, get_image_client
 from .clients.mesh_gen import get_mesh_client
 from .pipeline.brickforge_bridge import mesh_to_ldr
@@ -772,7 +772,20 @@ def process_job(
     plain primitives rather than a Job object deliberately: RQ pickles
     whatever it enqueues, and passing a mutable object across the process
     boundary would invite the mistake of assuming mutations are visible to
-    the caller, which they never are once this runs in a separate process."""
+    the caller, which they never are once this runs in a separate process.
+
+    A failure refunds the credit, like process_designer_job, and shows the
+    user a short message rather than the raw error (logged instead).  The
+    pool that paid is read back from the meta.json /generate wrote before
+    enqueueing -- not passed in, so jobs already queued by an older API
+    still run -- and kept on the Job, since every status save rewrites
+    meta.json and used to drop it (leaving orphan recovery nothing to
+    refund into)."""
+    try:
+        credit_source = (load_job_meta(job_id) or {}).get("credit_source")
+    except Exception:  # noqa: BLE001 -- only the refund needs it
+        logger.warning("voxel job %s: could not read its credit source", job_id, exc_info=True)
+        credit_source = None
     job = Job(
         id=job_id,
         prompt=prompt,
@@ -780,6 +793,7 @@ def process_job(
         created_at=created_at,
         user_id=user_id,
         instructions_unlocked=instructions_unlocked,
+        credit_source=credit_source,
     )
     jdir = _job_dir(job.id)
     try:
@@ -827,8 +841,27 @@ def process_job(
         _set_status(job, JobStatus.DONE)
 
     except Exception as exc:  # noqa: BLE001
-        job.error = f"{exc}\n{traceback.format_exc()}"
-        _set_status(job, JobStatus.FAILED)
+        _fail_and_refund(job, exc, "Something went wrong while generating your model. Please try again.")
+
+
+def _fail_and_refund(job: Job, exc: BaseException, user_message: str) -> None:
+    """Mark a job FAILED with a user-safe message, then refund the credit(s)
+    it cost.  FAILED is written *before* the refund so the orphan-recovery
+    sweep can never refund it a second time.  An AI provider that has run
+    out of credit gets its own message (and a log line to search for)."""
+    out_of_credit = provider_errors.is_out_of_credit(exc)
+    if out_of_credit:
+        user_message = provider_errors.PAUSED_MESSAGE
+    n = len(job.credit_source.split(",")) if job.credit_source else 0
+    job.error = f"{user_message} {provider_errors.refund_note(n)}" if n else user_message
+    logger.error("%s job %s failed%s: %s\n%s", job.mode, job.id,
+                 " -- AI PROVIDER OUT OF CREDIT" if out_of_credit else "", exc, traceback.format_exc())
+    _set_status(job, JobStatus.FAILED)
+    if job.credit_source:
+        try:
+            auth.refund_credit(job.user_id, job.credit_source)
+        except Exception:  # noqa: BLE001
+            logger.exception("%s job %s: refund of %s failed", job.mode, job.id, job.credit_source)
 
 
 def process_designer_job(
@@ -928,11 +961,6 @@ def process_designer_job(
         if usage:
             job.design_usage = usage
             job.cost_usd = designer_bridge.log_usage(job.id, usage, image_cost)
-        user_message = getattr(exc, "user_message", None) or "Something went wrong while designing your model."
-        n = len(credit_source.split(",")) if credit_source else 0
-        job.error = f"{user_message} Your {n} credit{'s' if n != 1 else ''} for this generation " \
-                    f"{'have' if n != 1 else 'has'} been refunded."
-        logger.error("detailed job %s failed: %s\n%s", job.id, exc, traceback.format_exc())
         # The last spec and the checker's report, so a failure can be rebuilt
         # locally for free (python -m brickforge_designer.pipeline design.bfd).
         # Internal files only: nothing serves them to users.
@@ -946,9 +974,5 @@ def process_designer_job(
                     STORAGE.put(job.id, name, path)
                 except Exception:  # noqa: BLE001 -- diagnostics only
                     logger.warning("could not store %s for failed detailed job %s", name, job.id, exc_info=True)
-        _set_status(job, JobStatus.FAILED)
-        if credit_source:
-            try:
-                auth.refund_credit(user_id, credit_source)
-            except Exception:  # noqa: BLE001
-                logger.exception("detailed job %s: refund of %s failed", job.id, credit_source)
+        _fail_and_refund(job, exc, getattr(exc, "user_message", None)
+                         or "Something went wrong while designing your model.")

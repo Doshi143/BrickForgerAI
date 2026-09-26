@@ -370,6 +370,77 @@ def test_voxel_generate_still_costs_one_credit():
     assert jobs.load_job_meta(r.json()["job_id"])["mode"] == "voxel"
 
 
+# ---------------------------------------------------------------- failed jobs: refunds and messages
+def _voxel_job_with_image_error(message):
+    """Runs a real voxel job (in-process, no Redis) whose image step raises."""
+    class _Failing:
+        def generate(self, prompt, out_path, quality=None):
+            raise RuntimeError(message)
+    real = jobs.get_image_client
+    jobs.get_image_client = lambda: _Failing()
+    u = new_user(monthly=1, topup=1)
+    try:
+        r = client.post("/generate", json={"prompt": "a vase", "target_size_studs": 22}, headers=token(u))
+    finally:
+        jobs.get_image_client = real
+    assert r.status_code == 200, r.text
+    return u, jobs.load_job_meta(r.json()["job_id"])
+
+
+def test_a_failed_voxel_job_refunds_its_credit_and_hides_the_raw_error():
+    u, meta = _voxel_job_with_image_error("OpenAI image generation failed (500): internal server error")
+    assert meta["status"] == "failed"
+    assert "Traceback" not in meta["error"] and "OpenAI" not in meta["error"], meta["error"]
+    assert "went wrong" in meta["error"] and "1 credit for this generation has been refunded" in meta["error"]
+    assert pools(u.id) == (1, 0, 1), pools(u.id)          # the monthly credit it spent is back
+    assert meta["credit_source"] == "monthly"             # kept through the status saves, for orphan recovery
+
+
+def test_a_provider_out_of_credit_pauses_generation_and_refunds():
+    u, meta = _voxel_job_with_image_error(
+        'OpenAI image generation failed (429): {"error": {"message": "You exceeded your current quota", '
+        '"type": "insufficient_quota", "code": "insufficient_quota"}}')
+    assert meta["error"].startswith("Generation is temporarily paused"), meta["error"]
+    assert "refunded" in meta["error"] and pools(u.id) == (1, 0, 1)
+
+    u = new_user(monthly=1, topup=2)
+    set_flag(True)
+
+    def broke(*a, **k):
+        try:
+            raise RuntimeError("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+                               "'message': 'Your credit balance is too low to access the Anthropic API.'}}")
+        except RuntimeError as e:
+            raise DesignerError(f"API configuration error: {e}") from e
+    real = designer_bridge.design_to_ldr
+    designer_bridge.design_to_ldr = broke
+    try:
+        r = client.post("/generate", json={"prompt": "a fox", "mode": "detailed", "target_size_studs": 24,
+                                           "finish": "studs", "sideways": "off"}, headers=token(u))
+    finally:
+        designer_bridge.design_to_ldr = real
+    meta = jobs.load_job_meta(r.json()["job_id"])
+    assert meta["error"] == ("Generation is temporarily paused - please try again later. "
+                             "Your 2 credits for this generation have been refunded."), meta["error"]
+    assert pools(u.id) == (1, 0, 2), pools(u.id)
+
+
+def test_out_of_credit_is_recognised_for_each_provider_and_through_wrapping():
+    from app.provider_errors import is_out_of_credit
+    assert is_out_of_credit(RuntimeError("fal-ai/trellis-2 submit failed (403): "
+                                         '{"detail": "User is locked. Reason: Exhausted balance."}'))
+    assert is_out_of_credit(RuntimeError("... billing_hard_limit_reached ..."))
+    try:
+        try:
+            raise RuntimeError("Your credit balance is too low to access the Anthropic API.")
+        except RuntimeError as inner:
+            raise ValueError("wrapped") from inner
+    except ValueError as outer:
+        assert is_out_of_credit(outer)
+    assert not is_out_of_credit(RuntimeError("OpenAI image generation failed (429): rate limit reached"))
+    assert not is_out_of_credit(None)
+
+
 if __name__ == "__main__":
     tests = [(k, v) for k, v in dict(globals()).items() if k.startswith("test_") and callable(v)]
     failed = 0
