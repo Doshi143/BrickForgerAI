@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -718,7 +719,10 @@ def _backfill_missing_index() -> None:
         logger.warning("job_index reindex skipped", exc_info=True)
 
 
-_backfill_missing_index()
+# In a background thread, not inline: this lists the whole storage bucket and
+# may write many rows (with retries), and running it at import kept the API
+# from answering requests (sign-in included) until it finished.
+threading.Thread(target=_backfill_missing_index, name="job-index-reindex", daemon=True).start()
 
 
 def _set_status(job: Job, status: JobStatus) -> None:
