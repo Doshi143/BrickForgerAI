@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import ActiveJobBar from "@/components/ActiveJobBar";
 import ActiveJobProvider from "@/components/ActiveJobProvider";
 import AuthProvider from "@/components/AuthProvider";
+import DetailedBetaAnnouncement from "@/components/DetailedBetaAnnouncement";
 import ReferralCapture from "@/components/ReferralCapture";
 import ThemeProvider from "@/components/ThemeProvider";
 import "./globals.css";
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ActiveJobProvider>
               {children}
               <ActiveJobBar />
+              <DetailedBetaAnnouncement />
             </ActiveJobProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -9,6 +9,7 @@ import Nav from "@/components/Nav";
 import Scenery from "@/components/Scenery";
 import WaitlistForm from "@/components/WaitlistForm";
 import { useActiveJob } from "@/components/ActiveJobProvider";
+import { SET_MODE_EVENT } from "@/components/DetailedBetaAnnouncement";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeColors, boostForEvening, darkColors, glassBlurStyle, lightColors } from "./theme";
@@ -177,6 +178,16 @@ export default function Home() {
     if (savedFinish === "tiled" || savedFinish === "studs") setFinish(savedFinish);
     const savedSideways = loadSetting("brickforge_sideways");
     if (savedSideways === "off" || savedSideways === "auto" || savedSideways === "more") setSideways(savedSideways);
+  }, []);
+
+  // "Try Detailed" in the beta announcement, while this page is already open
+  useEffect(() => {
+    const onSetMode = (e: Event) => {
+      const m = (e as CustomEvent).detail;
+      if (m === "voxel" || m === "detailed") setMode(m);
+    };
+    window.addEventListener(SET_MODE_EVENT, onSetMode);
+    return () => window.removeEventListener(SET_MODE_EVENT, onSetMode);
   }, []);
 
   function handleSetMode(m: GenerationMode) {
