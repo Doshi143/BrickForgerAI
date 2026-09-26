@@ -148,12 +148,15 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, p
     visibility update."""
     # A job's last status write decides whether it ever shows in My Builds
     # (nothing writes again after it), so done/failed get more tries over about
-    # a minute; intermediate statuses keep the quick give-up.
+    # a minute and the pool's full connection timeout -- the job has finished,
+    # so waiting costs nothing, and 5s was measured too short in production
+    # (PoolTimeout on every write from an idle worker, 2026-09-25).
+    # Intermediate statuses keep the quick give-up.
     final = status in (JobStatus.DONE.value, JobStatus.FAILED.value)
     pauses = (3, 5, 10, 15, 20) if final else (3,)
     for attempt in range(len(pauses) + 1):
         try:
-            with auth._connect(timeout=_INDEX_WRITE_TIMEOUT) as conn:
+            with auth._connect(timeout=None if final else _INDEX_WRITE_TIMEOUT) as conn:
                 conn.execute(
                     auth._ph(
                         """
@@ -691,10 +694,10 @@ def _backfill_missing_index() -> None:
     on 2026-09-25: three finished Detailed jobs never appeared in My Builds
     because the worker's writes hit psycopg_pool.PoolTimeout and were
     dropped, leaving no row at all (the other backfills only fix rows that
-    exist).  Once per process start: every job with a meta.json in storage
+    exist).  Every _REINDEX_EVERY_SECONDS (see _reindex_loop): every job with a meta.json in storage
     from the last _REINDEX_DAYS days but no job_index row gets one, from
     its own meta.json.  Never raises: a storage or database hiccup here must
-    not stop the service starting."""
+    not take the service down; the next round tries again."""
     try:
         ids = STORAGE.recent_job_ids(_REINDEX_DAYS)
         if not ids:
@@ -704,25 +707,48 @@ def _backfill_missing_index() -> None:
             # "Delete my account" removes index rows but leaves R2 files, so
             # only re-add jobs whose owner still exists.
             users = {r["id"] for r in conn.execute(auth._ph("SELECT id FROM users")).fetchall()}
-        added = 0
-        for job_id in ids:
-            if job_id in known:
-                continue
+        missing = [j for j in ids if j not in known]
+        rows = []
+        for job_id in missing:
             meta = load_job_meta(job_id)
             if meta and meta.get("user_id") in users and meta.get("status") and meta.get("created_at"):
-                _record_job_index(job_id, meta["user_id"], meta["status"], meta["created_at"], meta.get("prompt"),
-                                  meta.get("mode"), meta.get("cost_usd"))
-                added += 1
-        if added:
-            logger.info("job_index reindex: added %d job(s) found in storage but missing from the index", added)
+                rows.append((job_id, meta["user_id"], meta["status"], meta["created_at"], meta.get("prompt"),
+                             meta.get("mode"), meta.get("cost_usd")))
+        if rows:
+            # One connection for every row, with the pool's full timeout --
+            # not _record_job_index's per-row checkout with its short one,
+            # which is the very write that failed in the first place.
+            with auth._connect() as conn:
+                for row in rows:
+                    conn.execute(
+                        auth._ph(
+                            "INSERT INTO job_index (job_id, user_id, status, created_at, prompt, mode, cost_usd) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (job_id) DO NOTHING"
+                        ),
+                        row,
+                    )
+        logger.info("job_index reindex: %d job(s) in storage, %d missing from the index, %d re-added",
+                    len(ids), len(missing), len(rows))
     except Exception:  # noqa: BLE001
-        logger.warning("job_index reindex skipped", exc_info=True)
+        logger.warning("job_index reindex failed; will retry next round", exc_info=True)
+
+
+_REINDEX_EVERY_SECONDS = 15 * 60
+
+
+def _reindex_loop() -> None:
+    # Repeats rather than running once at startup: a database that is slow or
+    # unreachable at that moment (the same trouble that drops the writes this
+    # repairs) must not leave builds missing until the next deploy.
+    while True:
+        _backfill_missing_index()
+        time.sleep(_REINDEX_EVERY_SECONDS)
 
 
 # In a background thread, not inline: this lists the whole storage bucket and
-# may write many rows (with retries), and running it at import kept the API
-# from answering requests (sign-in included) until it finished.
-threading.Thread(target=_backfill_missing_index, name="job-index-reindex", daemon=True).start()
+# may write many rows, and running it at import kept the API from answering
+# requests (sign-in included) until it finished.
+threading.Thread(target=_reindex_loop, name="job-index-reindex", daemon=True).start()
 
 
 def _set_status(job: Job, status: JobStatus) -> None:
