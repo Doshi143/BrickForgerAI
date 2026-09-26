@@ -560,6 +560,49 @@ def test_small_loose_groups_on_a_hollow_ball_are_rescued():
     assert problems == [], problems
     assert any(r[0] == "loose rescued" for r in stats["engine_repairs"])
     assert stats["components"] == 1
+    # nothing loose was left that pruning couldn't handle, so the caps stay curved
+    assert not any(r[0] == "caps left flat" for r in stats["engine_repairs"])
+
+
+# From a real benchmark run (2026-09-26): curved-slope caps along the wing's
+# leading and trailing edges took the whole chord at the wing root (both plates),
+# so each outer wing touched the body only side-on and came off (14 + 12 parts).
+AIRLINER = """model airliner
+base 8..16,-4..3 dark_bluish_gray top=light_bluish_gray
+stack 3941 light_bluish_gray 12 -1 2 3
+sculpt base=11 color=white
+  cyl x 4..19 4 0 1.5
+  cyl x 19..23 4 0 1.5 0.6
+  cyl x 0..4 5 0 0.7 1.5
+  poly 3..4 15,-1 10,-11 7,-11 10,-1 10,1 7,11 10,11 15,1
+  cyl x 9..13 2 -4 0.8
+  cyl x 9..13 2 4 0.8
+  box 10..12 1..4 -4..-4
+  box 10..12 1..4 4..4
+  box 1..4 7..11 0..0
+  box 0..3 12..16 0..0
+  poly 5..6 4,-0.5 1,-5 0,-5 1,-0.5 1,0.5 0,5 1,5 4,0.5
+  paint light_bluish_gray poly 3..4 15,-1 10,-11 7,-11 10,-1 10,1 7,11 10,11 15,1
+  paint dark_blue 0..4 8..16 0..0
+  paint light_bluish_gray cyl x 9..13 2 -4 0.8
+  paint light_bluish_gray cyl x 9..13 2 4 0.8
+  paint dark_bluish_gray 13..13 0..4 -5..5
+  paint dark_bluish_gray 5..18 6..6 -2..2
+  paint black 20..21 5..6 -2..2
+  paint medium_blue 3..20 1..1 -2..2
+end
+"""
+
+
+def test_caps_that_cut_off_a_thin_wing_are_left_flat():
+    D, problems, stats = run(AIRLINER)
+    assert problems == [] and stats["components"] == 1, problems
+    assert any(r[0] == "caps left flat" for r in stats["engine_repairs"])
+    # both outer wings (2 plates thick, beyond the engines) are still there
+    for side in (1, -1):
+        assert any((x, 14, side * z) in D.occ for x in range(6, 13) for z in range(6, 11))
+    # only the caps that caused it: the rest of the sculpt keeps its curved slopes
+    assert sum(q.tag == "cap" for q in D.parts) >= 10
 
 
 # ---------------------------------------------------------------- vehicle lights (TECHNIQUES.md item 4)

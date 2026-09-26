@@ -397,6 +397,9 @@ def line_caps(T, depth, allowed):
 SLOPE2 = {1: ("54200", "85984"), 2: ("11477", "15068")}
 SLOPE3 = {3: ("50950", "24309"), 4: ("61678", "93606")}
 BRICK_RUN = {6: "3009", 4: "3010", 3: "3622", 2: "3004", 1: "3005"}
+# repairs noting that _sculpt_with_retry rebuilt a sculpt differently (kept across later rebuilds)
+RETRY_MARKS = ("lights dropped", "round columns dropped", "wedges dropped", "sculpt rebuilt solid",
+               "caps left flat")
 L_FRAME = (1, 0, 0, 0, 0, -1, 0, 1, 0)      # SNOT frame on a -z face (studs point -z)
 R_FRAME = (-1, 0, 0, 0, 0, -1, 0, -1, 0)    # SNOT frame on a +z face
 # A tile/plate clicked onto a side stud pointing along the host's local -z: its
@@ -538,12 +541,15 @@ class Interp:
     "auto" and "more" build whatever panels the spec asks for -- they differ
     only in what the designer model is told (see pipeline.user_message)."""
 
-    def __init__(self, finish="tiled", sideways="auto"):
+    def __init__(self, finish="tiled", sideways="auto", prune=(0, 0.0)):
         if finish not in FINISHES:
             raise ValueError(f"finish must be one of {FINISHES}, got {finish!r}")
         if sideways not in SIDEWAYS:
             raise ValueError(f"sideways must be one of {SIDEWAYS}, got {sideways!r}")
         self.finish, self.sideways = finish, sideways
+        # (max parts per group, max share of the model): loose groups the pipeline
+        # removes afterwards (pipeline.prune_tiny_loose); (0, 0) = none are
+        self.prune = prune
         self.flat = TILES if finish == "tiled" else PLATES     # what covers an exposed flat top
         self.D = Design()
         self.openings = []     # (cells, L0, L1)
@@ -1729,6 +1735,30 @@ class Interp:
             self.repairs.append(("loose rescued", rescued))
         return rescued
 
+    def _loose_groups(self, n0):
+        """This sculpt's parts (index n0 on) cut off from the piece most of them
+        are in -- through anything, including parts built before it."""
+        idxs = set(range(n0, len(self.D.parts)))
+        comps, _ = self.D.components()
+        mine = sorted((set(c) & idxs for c in comps if idxs & set(c)), key=len, reverse=True)
+        return mine[1:]
+
+    def _loose_count(self, n0):
+        return sum(len(g) for g in self._loose_groups(n0))
+
+    def _loose_cap_columns(self, n0):
+        """Per loose group, the (x, z) columns of the caps in or touching it."""
+        D = self.D
+        out = []
+        for g in self._loose_groups(n0):
+            near = {(x + a, L + b, z + e) for (x, L, z), i in D.occ.items() if i in g
+                    for a, b, e in ((0, 0, 0),) + NB6}
+            caps = {D.occ[c] for c in near if c in D.occ and D.parts[D.occ[c]].tag == "cap"}
+            cols = frozenset((x, z) for (x, L, z), i in D.occ.items() if i in caps)
+            if cols:
+                out.append(cols)
+        return out
+
     def _sculpt_with_retry(self, spec):
         n0, r0, e0 = len(self.D.parts), len(self.repairs), len(self.errors)
         ok = self._sculpt(spec)
@@ -1765,8 +1795,50 @@ class Interp:
             self.D.rollback(n0)
             del self.repairs[r0:]
             del self.errors[e0:]
-            self._sculpt(dict(spec, hollow=0))
+            spec = dict(spec, hollow=0)
+            self._sculpt(spec)
             self.repairs.append(("sculpt rebuilt solid", 0))
+        # Last, on whichever build won above.  Caps are laid before the fill and
+        # take a column's whole top 2-3 plates, so a row of them across a thin
+        # wing's root leaves the wing touching the body only side-on (side-by-side
+        # parts never connect).  Rebuild with the caps in and around one loose
+        # group left flat, so plates can reach across the joint, and keep it only
+        # if fewer parts are loose (a group that floats for another reason just
+        # grows: a cap is one part, the flat top two).  Only when the build would
+        # otherwise fail: loose bits small enough to be pruned aren't worth the
+        # curves.  Bounded: each try is a whole rebuild.
+        tried = set()
+        for _ in range(6):
+            groups = self._loose_groups(n0)
+            n_max, share = self.prune
+            if all(len(g) <= n_max for g in groups) and sum(map(len, groups)) <= share * len(self.D.parts):
+                break                                          # one piece, or only prunable bits loose
+            banned = frozenset(spec.get("no_cap", frozenset()))
+            todo = [c for c in self._loose_cap_columns(n0) if not c <= banned and c not in tried]
+            if not todo:
+                break
+            cols = todo[0]
+            tried.add(cols)
+            loose = self._loose_count(n0)
+            snap = (list(self.D.parts), [q.host for q in self.D.parts], dict(self.D.occ), list(self.D.links))
+            logs = (self.repairs[r0:], self.errors[e0:])
+            self.D.rollback(n0)
+            del self.repairs[r0:]
+            del self.errors[e0:]
+            trial = dict(spec, no_cap=banned | cols)
+            self._sculpt(trial)
+            if self._loose_count(n0) < loose:
+                spec = trial
+                self.repairs += [r for r in logs[0] if r[0] in RETRY_MARKS]
+                self.repairs.append(("caps left flat", len(cols)))
+                continue
+            # no better: put the earlier build back exactly as it was
+            parts, hosts, occ, links = snap
+            self.D.parts, self.D.occ, self.D.links = parts, occ, links
+            for q, h in zip(self.D.parts, hosts):
+                q.host = h
+            self.D._reindex()
+            self.repairs[r0:], self.errors[e0:] = logs
 
     def _sculpt(self, spec):
         D = self.D
@@ -1866,18 +1938,19 @@ class Interp:
         cols_xz = set(top)
         capped, caps = set(), []
         mode = spec.get("caps", "both")
+        no_cap = spec.get("no_cap", frozenset())    # columns left flat (see _sculpt_with_retry)
         if mode in ("x", "both"):
             for z in {c[1] for c in cols_xz}:
                 T = {x: top[(x, zz)] for (x, zz) in cols_xz if zz == z}
                 dp = {x: depth[(x, z)] for x in T}
-                cs, cov = line_caps(T, dp, set(T))
+                cs, cov = line_caps(T, dp, {x for x in T if (x, z) not in no_cap})
                 caps += [("x", z) + c for c in cs]
                 capped |= {(x, z) for x in cov}
         if mode in ("z", "both"):
             for x in {c[0] for c in cols_xz}:
                 T = {z: top[(xx, z)] for (xx, z) in cols_xz if xx == x}
                 dp = {z: depth[(x, z)] for z in T}
-                cs, cov = line_caps(T, dp, {z for z in T if (x, z) not in capped})
+                cs, cov = line_caps(T, dp, {z for z in T if (x, z) not in capped and (x, z) not in no_cap})
                 caps += [("z", x) + c for c in cs]
                 capped |= {(x, z) for z in cov}
         # A tile has no studs on top and holds on only by its underside, so an

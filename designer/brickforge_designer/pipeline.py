@@ -240,7 +240,8 @@ class AnthropicDesigner:
 
 # ---------------------------------------------------------------- build + checks
 def build(spec_text, finish="tiled", sideways="auto"):
-    it = Interp(finish=finish, sideways=sideways)
+    it = Interp(finish=finish, sideways=sideways,
+                prune=(CONFIG["prune_loose_max_parts"], CONFIG["prune_loose_max_share"]))
     D = it.run(spec_text)
     prune_tiny_loose(D, it)
     return D, it
