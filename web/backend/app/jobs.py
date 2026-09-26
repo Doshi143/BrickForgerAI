@@ -132,8 +132,8 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, p
     saved via STORAGE.put/meta.json regardless of whether this specific
     index update succeeds, and job_index only powers "My Builds"
     discoverability (see its own docstring above), not the job itself.
-    One retry after a short pause rides out a genuinely transient blip;
-    if it still fails, this logs and moves on rather than taking the job
+    A few retries after short pauses ride out a transient blip; if it
+    still fails, this logs and moves on rather than taking the job
     down with it -- same fail-open-for-a-non-critical-path reasoning as
     rate_limit.py's Redis handling.
 
@@ -145,7 +145,12 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, p
     already treats as safe to simply drop should fail fast, not hold up
     a job's actual, real-API-cost work for a minute over a "My Builds"
     visibility update."""
-    for attempt in range(2):
+    # A job's last status write decides whether it ever shows in My Builds
+    # (nothing writes again after it), so done/failed get more tries over about
+    # a minute; intermediate statuses keep the quick give-up.
+    final = status in (JobStatus.DONE.value, JobStatus.FAILED.value)
+    pauses = (3, 5, 10, 15, 20) if final else (3,)
+    for attempt in range(len(pauses) + 1):
         try:
             with auth._connect(timeout=_INDEX_WRITE_TIMEOUT) as conn:
                 conn.execute(
@@ -162,8 +167,8 @@ def _record_job_index(job_id: str, user_id: str, status: str, created_at: str, p
                 )
             return
         except Exception:
-            if attempt == 0:
-                time.sleep(3)
+            if attempt < len(pauses):
+                time.sleep(pauses[attempt])
                 continue
             logger.warning(
                 "job_index write failed for job %s (status=%s) -- job itself is unaffected, "
@@ -675,6 +680,45 @@ def _recover_orphaned_jobs() -> None:
 
 
 _recover_orphaned_jobs()
+
+
+_REINDEX_DAYS = 45
+
+
+def _backfill_missing_index() -> None:
+    """Self-healing for dropped job_index writes -- confirmed in production
+    on 2026-09-25: three finished Detailed jobs never appeared in My Builds
+    because the worker's writes hit psycopg_pool.PoolTimeout and were
+    dropped, leaving no row at all (the other backfills only fix rows that
+    exist).  Once per process start: every job with a meta.json in storage
+    from the last _REINDEX_DAYS days but no job_index row gets one, from
+    its own meta.json.  Never raises: a storage or database hiccup here must
+    not stop the service starting."""
+    try:
+        ids = STORAGE.recent_job_ids(_REINDEX_DAYS)
+        if not ids:
+            return
+        with auth._connect() as conn:
+            known = {r["job_id"] for r in conn.execute(auth._ph("SELECT job_id FROM job_index")).fetchall()}
+            # "Delete my account" removes index rows but leaves R2 files, so
+            # only re-add jobs whose owner still exists.
+            users = {r["id"] for r in conn.execute(auth._ph("SELECT id FROM users")).fetchall()}
+        added = 0
+        for job_id in ids:
+            if job_id in known:
+                continue
+            meta = load_job_meta(job_id)
+            if meta and meta.get("user_id") in users and meta.get("status") and meta.get("created_at"):
+                _record_job_index(job_id, meta["user_id"], meta["status"], meta["created_at"], meta.get("prompt"),
+                                  meta.get("mode"), meta.get("cost_usd"))
+                added += 1
+        if added:
+            logger.info("job_index reindex: added %d job(s) found in storage but missing from the index", added)
+    except Exception:  # noqa: BLE001
+        logger.warning("job_index reindex skipped", exc_info=True)
+
+
+_backfill_missing_index()
 
 
 def _set_status(job: Job, status: JobStatus) -> None:

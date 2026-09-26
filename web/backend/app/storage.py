@@ -32,6 +32,12 @@ class Storage(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def recent_job_ids(self, days: int) -> list[str]:
+        """Jobs whose meta.json changed in the last `days` days -- used to
+        re-index jobs whose job_index write was dropped (see jobs.py)."""
+        raise NotImplementedError
+
+    @abstractmethod
     def signed_url(
         self, job_id: str, filename: str, expires_in: int = 300, download_filename: str | None = None
     ) -> str | None:
@@ -79,6 +85,15 @@ class LocalStorage(Storage):
 
     def exists(self, job_id: str, filename: str) -> bool:
         return os.path.isfile(self._path(job_id, filename))
+
+    def recent_job_ids(self, days: int) -> list[str]:
+        import time
+        cutoff = time.time() - days * 86400
+        if not os.path.isdir(self.root):
+            return []
+        return [d for d in os.listdir(self.root)
+                if os.path.isfile(os.path.join(self.root, d, "meta.json"))
+                and os.path.getmtime(os.path.join(self.root, d, "meta.json")) >= cutoff]
 
     def signed_url(
         self, job_id: str, filename: str, expires_in: int = 300, download_filename: str | None = None
@@ -132,6 +147,16 @@ class R2Storage(Storage):
             return True
         except Exception:
             return False
+
+    def recent_job_ids(self, days: int) -> list[str]:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        out = []
+        for page in self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket):
+            for o in page.get("Contents", []):
+                if o["Key"].endswith("/meta.json") and o["LastModified"] >= cutoff:
+                    out.append(o["Key"].split("/", 1)[0])
+        return out
 
     def signed_url(
         self, job_id: str, filename: str, expires_in: int = 300, download_filename: str | None = None

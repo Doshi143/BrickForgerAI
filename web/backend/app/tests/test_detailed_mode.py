@@ -295,6 +295,52 @@ def test_my_builds_lists_finished_detailed_jobs_but_not_failed_ones():
     assert listed[0]["mode"] == "detailed" and "cost_usd" not in listed[0]
 
 
+def test_a_finished_job_whose_index_write_was_dropped_is_reindexed_from_storage():
+    """Production, 2026-09-25: the worker's job_index writes hit PoolTimeout and
+    were dropped, so finished jobs never showed in My Builds.  The startup
+    reindex re-adds them from meta.json -- but not for deleted accounts."""
+    u, gone = new_user(), new_user()
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()   # My Builds shows this month's jobs
+    for jid, owner in (("lost-job-1", u.id), ("lost-job-2", gone.id)):
+        jobs._write_job_meta_dict(jid, {"job_id": jid, "user_id": owner, "status": "done", "created_at": now,
+                                        "prompt": "a swan", "mode": "detailed", "cost_usd": 0.12})
+    with auth._connect() as conn:
+        conn.execute(auth._ph("DELETE FROM job_index WHERE job_id IN (?, ?)"), ("lost-job-1", "lost-job-2"))
+        conn.execute(auth._ph("DELETE FROM users WHERE id = ?"), (gone.id,))
+    assert [j["job_id"] for j in client.get("/generate", headers=token(u)).json()] == []
+    jobs._backfill_missing_index()
+    listed = client.get("/generate", headers=token(u)).json()
+    assert [j["job_id"] for j in listed] == ["lost-job-1"], listed
+    with auth._connect() as conn:
+        rows = conn.execute(auth._ph("SELECT job_id FROM job_index WHERE job_id = ?"), ("lost-job-2",)).fetchall()
+    assert rows == []
+
+
+def test_the_final_status_write_retries_harder_than_intermediate_ones():
+    real_connect, real_sleep = auth._connect, jobs.time.sleep
+    calls = []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) <= 4:
+            raise RuntimeError("PoolTimeout (test)")
+        return real_connect(*a, **k)
+
+    auth._connect, jobs.time.sleep = flaky, lambda s: None
+    try:
+        jobs._record_job_index("retry-job", "u-x", "designing", "2026-09-25T20:00:00+00:00", "p", "detailed", None)
+        assert len(calls) == 2                      # intermediate: one retry, then give up
+        calls.clear()
+        jobs._record_job_index("retry-job", "u-x", "done", "2026-09-25T20:00:00+00:00", "p", "detailed", None)
+        assert len(calls) == 5                      # final: kept trying and got through
+    finally:
+        auth._connect, jobs.time.sleep = real_connect, real_sleep
+    with auth._connect() as conn:
+        row = conn.execute(auth._ph("SELECT status FROM job_index WHERE job_id = ?"), ("retry-job",)).fetchone()
+    assert row["status"] == "done"
+
+
 def test_voxel_generate_still_costs_one_credit():
     u = new_user(monthly=2)
     real = main.process_job
